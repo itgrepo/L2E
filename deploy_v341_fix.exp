@@ -1,0 +1,34 @@
+#!/usr/bin/expect -f
+set timeout 60
+spawn ssh -o StrictHostKeyChecking=no administrator@110.78.210.129
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect "*\$*"
+
+send "sudo -v\r"
+expect {
+    "*assword*" {
+        send "P@ssw0rd1234\r"
+        expect "*\$*"
+    }
+    "*\$*" {}
+}
+
+# Remove old container if exists
+send "sudo docker rm -f astro_frontend_uat 2>/dev/null; echo DONE_RM\r"
+expect "DONE_RM*\$*"
+
+# Start new frontend container
+send "sudo docker run -d --name astro_frontend_uat --restart always -p 3001:80 --network release_mso_l2e-network-uat intelligist-datax-frontend:prod 2>&1; echo DONE_RUN\r"
+expect "DONE_RUN*\$*"
+
+# Verify
+send "sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' | grep astro; echo DONE_VERIFY\r"
+expect "DONE_VERIFY*\$*"
+
+# Test curl to frontend
+send "curl -s -o /dev/null -w '%{http_code}' http://localhost:3001; echo DONE_CURL\r"
+expect "DONE_CURL*\$*"
+
+send "exit\r"
+expect eof

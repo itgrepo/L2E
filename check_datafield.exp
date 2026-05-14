@@ -1,0 +1,34 @@
+#!/usr/bin/expect -f
+set timeout 30
+spawn ssh -o StrictHostKeyChecking=no administrator@110.78.210.129
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect "*\$*"
+
+send "sudo -v\r"
+expect {
+    "*assword*" {
+        send "P@ssw0rd1234\r"
+        expect "*\$*"
+    }
+    "*\$*" {}
+}
+
+# Check DataField table structure
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -e \"DESCRIBE DataField;\" 2>&1; echo DONE1\r"
+expect "DONE1*\$*"
+
+# Check DataField for testadmin (user_id=4) as reference
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -e \"SELECT * FROM DataField WHERE national_id_book='PASS123' LIMIT 3;\" 2>&1; echo DONE2\r"
+expect "DONE2*\$*"
+
+# Check sublevel_master
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -e \"SELECT * FROM sublevel_master LIMIT 3;\" 2>&1; echo DONE3\r"
+expect "DONE3*\$*"
+
+# Check testadmin user data (for reference)
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -e \"SELECT user_id, username, national_id, national_id_book FROM user WHERE username IN ('testadmin','developer');\" 2>&1; echo DONE4\r"
+expect "DONE4*\$*"
+
+send "exit\r"
+expect eof

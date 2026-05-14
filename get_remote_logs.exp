@@ -1,0 +1,18 @@
+#!/usr/bin/expect -f
+set timeout 60
+set host "110.78.210.128"
+set user "administrator"
+set pass "P@ssw0rd1234"
+
+spawn ssh -t $user@$host "sudo docker logs astro_backend_uat --tail 200"
+expect {
+    "password for administrator:" {
+        send "$pass\r"
+        exp_continue
+    }
+    "password:" {
+        send "$pass\r"
+        exp_continue
+    }
+    eof
+}

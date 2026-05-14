@@ -1,0 +1,44 @@
+#!/usr/bin/expect -f
+
+set timeout -1
+set ip "110.78.210.133"
+set user "administrator"
+set password "P@ssw0rd1234"
+set local_zip "Intelligist_DataX_Platform_Installer_v3.4.0.zip"
+set remote_dir "/home/administrator"
+
+# Copy the zip file
+spawn scp -o StrictHostKeyChecking=no $local_zip $user@$ip:$remote_dir/
+expect {
+    "*assword:*" {
+        send "$password\r"
+        exp_continue
+    }
+    eof
+}
+
+# SSH in and set it up
+spawn ssh -o StrictHostKeyChecking=no $user@$ip
+expect "*assword:*"
+send "$password\r"
+
+expect "*$*"
+send "unzip -o $local_zip\r"
+
+expect "*$*"
+send "cd release_intelligist_datax\r"
+
+expect "*$*"
+send "chmod +x setup.sh init_db_uat.sh\r"
+
+# Kill any existing python web server on 8080 just in case
+expect "*$*"
+send "fuser -k 8080/tcp\r"
+
+# Start the launcher (setup.sh) in the background using nohup
+expect "*$*"
+send "nohup ./setup.sh > launcher.log 2>&1 &\r"
+
+expect "*$*"
+send "exit\r"
+expect eof

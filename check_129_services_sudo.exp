@@ -1,0 +1,18 @@
+#!/usr/bin/expect -f
+set timeout 15
+spawn ssh -o StrictHostKeyChecking=no administrator@110.78.210.129
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect "*$*"
+
+send "sudo docker ps\r"
+expect {
+    "*assword*" {
+        send "P@ssw0rd1234\r"
+        expect "*$*"
+    }
+    "*$*" {}
+}
+
+send "exit\r"
+expect eof

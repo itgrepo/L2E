@@ -1,0 +1,30 @@
+package require Expect
+
+set timeout 30
+set ip "110.78.210.128"
+set user "administrator"
+set pass "P@ssw0rd1234"
+
+spawn ssh -t $user@$ip
+
+expect {
+    "password:" {
+        send "$pass\r"
+    }
+}
+
+expect "$ "
+# Get logs from backend container
+send "sudo docker logs --tail 200 astro_backend_uat\r"
+expect "password for administrator:"
+send "$pass\r"
+
+expect "$ "
+set output $expect_out(buffer)
+
+puts "\n--- LOGS START ---"
+puts $output
+puts "--- LOGS END ---\n"
+
+send "exit\r"
+expect eof

@@ -1,0 +1,31 @@
+#!/usr/bin/expect -f
+set timeout 15
+spawn ssh -o StrictHostKeyChecking=no administrator@10.20.31.32
+expect {
+    "*assword:*" {
+        send "P@ssw0rd1234\r"
+        expect "*$*"
+        send "echo '--- OS Info ---'\r"
+        expect "*$*"
+        send "uname -a\r"
+        expect "*$*"
+        send "sudo ufw status\r"
+        expect {
+            "*assword*" {
+                send "P@ssw0rd1234\r"
+                expect "*$*"
+            }
+            "*$*" {}
+        }
+        send "sudo netstat -tuln | grep LISTEN\r"
+        expect "*$*"
+        send "exit\r"
+    }
+    timeout {
+        puts "Connection timed out"
+    }
+    "No route to host" {
+        puts "No route to host"
+    }
+}
+expect eof

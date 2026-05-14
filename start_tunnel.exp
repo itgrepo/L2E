@@ -1,0 +1,14 @@
+#!/usr/bin/expect -f
+set timeout -1
+spawn ssh -o StrictHostKeyChecking=no administrator@110.78.210.133
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect "*$*"
+send "nohup npx localtunnel --port 8080 > tunnel.log 2>&1 &\r"
+expect "*$*"
+send "sleep 2\r"
+expect "*$*"
+send "cat tunnel.log\r"
+expect "*$*"
+send "exit\r"
+expect eof

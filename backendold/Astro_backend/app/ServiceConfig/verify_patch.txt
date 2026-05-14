@@ -1,0 +1,37 @@
+        current_time = int(time.time()) # Use python time to be safe
+        if current_time - create_date >= duration:
+            # Cleanup expired user
+            cursor.execute("DELETE FROM user WHERE user_id = %s", (user_id,))
+            cursor.execute("DELETE FROM user_activity WHERE user_id = %s", (user_id,))
+            cursor.execute("DELETE FROM user_agreement WHERE user_id = %s", (user_id,))
+            cursor.execute("DELETE FROM user_password_history WHERE user_id = %s", (user_id,))
+            cursor.execute("DELETE FROM DataField WHERE national_id = %s", (national_id,))
+            cursor.execute("DELETE FROM token_register WHERE token = %s", (token,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'link expire', 'message': 'ลิงก์ยืนยันตัวตนหมดอายุแล้ว ระบบได้ลบข้อมูลเดิมเพื่อให้คุณสามารถสมัครใหม่ได้'})
+
+        # 4. Success: Promote user to Pending Admin Approval (8) and activate account status
+        cursor.execute("UPDATE user SET status_id = 8 WHERE user_id = %s", (user_id,))
+        cursor.execute("UPDATE user_activity SET status_account = '1' WHERE user_id = %s", (user_id,))
+        cursor.execute("DELETE FROM token_register WHERE token = %s", (token,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        logAction(user_id, '/getEmailFromToken', f'User {username} email verified, pending admin approval', 'info')
+
+        return jsonify({
+            'status': 'found', 
+            'email': token_res['email'], 
+            'username': username, 
+            'pending_approval': True
+        })
+
+    except Exception as e:
+        if conn:
+            conn.close()
+        current_app.logger.error(f"Error in getEmailFromToken: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)})

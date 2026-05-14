@@ -1,0 +1,24 @@
+#!/usr/bin/expect -f
+set timeout 15
+spawn ssh -o StrictHostKeyChecking=no administrator@110.78.210.129
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect "*\$*"
+
+send "sudo -v\r"
+expect {
+    "*assword*" {
+        send "P@ssw0rd1234\r"
+        expect "*\$*"
+    }
+    "*\$*" {}
+}
+
+send "sleep 3 && curl -s -o /dev/null -w '%{http_code}' http://localhost:3001; echo ' HTTP_STATUS'\r"
+expect "HTTP_STATUS*\$*"
+
+send "sudo docker ps --format 'table {{.Names}}\t{{.Status}}' | grep astro; echo DONE_PS\r"
+expect "DONE_PS*\$*"
+
+send "exit\r"
+expect eof

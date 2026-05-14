@@ -1,0 +1,26 @@
+#!/usr/bin/expect -f
+set timeout 30
+spawn ssh -o StrictHostKeyChecking=no administrator@110.78.210.129
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect "*\$*"
+
+send "sudo -v\r"
+expect {
+    "*assword*" {
+        send "P@ssw0rd1234\r"
+        expect "*\$*"
+    }
+    "*\$*" {}
+}
+
+# Insert DataField for developer (national_id=dev1234, national_id_book=PASS123, sublevel_id=1, expiration=2099-12-31)
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -e \"INSERT INTO DataField (national_id, national_id_book, sublevel_id, expiration) VALUES ('dev1234', 'PASS123', 1, '2099-12-31');\" 2>&1; echo INSERT_DONE\r"
+expect "INSERT_DONE*\$*"
+
+# Verify
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -e \"SELECT * FROM DataField WHERE national_id='dev1234';\" 2>&1; echo VERIFY_DONE\r"
+expect "VERIFY_DONE*\$*"
+
+send "exit\r"
+expect eof

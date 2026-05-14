@@ -1,0 +1,17 @@
+#!/usr/bin/expect -f
+set timeout 15
+spawn ssh -o StrictHostKeyChecking=no administrator@110.78.210.129
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect "*\$*"
+
+# Test frontend proxy to site-config
+send "curl -sv http://localhost:3001/api/site-config 2>&1; echo PROXY_DONE\r"
+expect "PROXY_DONE*\$*"
+
+# Test POST via frontend proxy
+send "curl -sv -X POST http://localhost:3001/api/site-config -H 'Content-Type: application/json' -d '{\"siteName\":\"test123\"}' 2>&1; echo POST_PROXY_DONE\r"
+expect "POST_PROXY_DONE*\$*"
+
+send "exit\r"
+expect eof

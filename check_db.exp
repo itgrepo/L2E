@@ -1,0 +1,42 @@
+package require Expect
+
+set timeout 30
+set ip "110.78.210.128"
+set user "administrator"
+set pass "P@ssw0rd1234"
+
+spawn ssh -t $user@$ip
+
+expect {
+    "password:" {
+        send "$pass\r"
+    }
+}
+
+expect "$ "
+# Check tables in psu_backend
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -e \"SHOW TABLES;\"\r"
+expect "password for administrator:"
+send "$pass\r"
+
+expect "$ "
+# Check if user exists
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -e \"SELECT * FROM user WHERE username='testadmin';\"\r"
+
+expect "$ "
+# Check user_activity
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -e \"SELECT * FROM user_activity WHERE user_id = (SELECT user_id FROM user WHERE username='testadmin');\"\r"
+
+expect "$ "
+# Check DataField
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -e \"SELECT * FROM DataField WHERE national_id = '1234567890123';\"\r"
+
+expect "$ "
+set output $expect_out(buffer)
+
+puts "\n--- DB CHECK START ---"
+puts $output
+puts "--- DB CHECK END ---\n"
+
+send "exit\r"
+expect eof

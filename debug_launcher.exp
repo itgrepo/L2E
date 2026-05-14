@@ -1,0 +1,28 @@
+#!/usr/bin/expect -f
+
+set timeout -1
+set ip "110.78.210.133"
+set user "administrator"
+set password "P@ssw0rd1234"
+
+spawn ssh -o StrictHostKeyChecking=no $user@$ip
+expect "*assword:*"
+send "$password\r"
+
+expect "*$*"
+send "cd release_intelligist_datax\r"
+
+expect "*$*"
+send "cat launcher.log\r"
+
+expect "*$*"
+send "ss -tuln | grep 8080\r"
+
+expect "*$*"
+send "sudo ufw status\r"
+expect "*assword:*"
+send "$password\r"
+
+expect "*$*"
+send "exit\r"
+expect eof

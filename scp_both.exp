@@ -1,0 +1,26 @@
+#!/usr/bin/expect -f
+set timeout 600
+
+# SCP frontend
+puts "=== Uploading frontend (63MB)..."
+spawn scp -o StrictHostKeyChecking=no /tmp/frontend_v341.tar administrator@110.78.210.129:/tmp/frontend_v341.tar
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect {
+    "100%" {}
+    eof {}
+}
+expect eof
+puts "=== Frontend uploaded ==="
+
+# SCP backend
+puts "=== Uploading backend (1.1GB)..."
+spawn scp -o StrictHostKeyChecking=no /tmp/backend_v341.tar administrator@110.78.210.129:/tmp/backend_v341.tar
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect {
+    "100%" {}
+    eof {}
+}
+expect eof
+puts "=== Backend uploaded ==="

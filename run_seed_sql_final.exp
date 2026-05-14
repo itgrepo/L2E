@@ -1,0 +1,27 @@
+package require Expect
+
+set timeout 30
+set ip "110.78.210.128"
+set user "administrator"
+set pass "P@ssw0rd1234"
+
+spawn ssh -t $user@$ip
+
+expect {
+    "password:" {
+        send "$pass\r"
+    }
+}
+
+expect "$ "
+# Run the SQL script with the corrected path
+send "sudo docker exec -i astro_db_uat mysql -u root -pP@ssw0rd psu_backend < /home/administrator/backendold/Astro_backend/setup_presentation_data.sql\r"
+expect "password for administrator:"
+send "$pass\r"
+
+expect "$ "
+send "sudo docker exec -i astro_db_uat mysql -u root -pP@ssw0rd psu_backend < /home/administrator/backendold/Astro_backend/fix_log_table.sql\r"
+
+expect "$ "
+send "exit\r"
+expect eof

@@ -1,0 +1,35 @@
+package require Expect
+
+set timeout 300
+set ip "110.78.210.128"
+set user "administrator"
+set pass "P@ssw0rd1234"
+
+# Bundle and upload ONLY if necessary, but here we'll just do a full deploy update for safety
+spawn scp -o StrictHostKeyChecking=no project_uat.tar.gz $user@$ip:/home/$user/
+expect {
+    "password:" {
+        send "$pass\r"
+    }
+}
+expect eof
+
+spawn ssh -t $user@$ip
+expect {
+    "password:" {
+        send "$pass\r"
+    }
+}
+
+expect "$ "
+send "tar -xzf project_uat.tar.gz\r"
+expect "$ "
+send "sudo ./deploy_uat.sh\r"
+expect "password for administrator:"
+send "$pass\r"
+
+expect "Deployment Complete!"
+expect "$ "
+
+send "exit\r"
+expect eof

@@ -1,0 +1,45 @@
+#!/usr/bin/expect -f
+set timeout 60
+spawn ssh -o StrictHostKeyChecking=no administrator@110.78.210.129
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect "*\$*"
+
+send "sudo -v\r"
+expect {
+    "*assword*" {
+        send "P@ssw0rd1234\r"
+        expect "*\$*"
+    }
+    "*\$*" {}
+}
+
+# Remove both containers
+send "sudo docker rm -f astro_frontend_uat astro_backend_uat 2>/dev/null; echo RM_DONE\r"
+expect "RM_DONE*\$*"
+
+# Restart backend WITH network alias "backend" so frontend nginx can resolve it
+send "sudo docker run -d --name astro_backend_uat --restart always --network-alias backend -p 3010:7000 --network release_mso_l2e-network-uat -v uploads_data_uat:/app/uploads -e DB_HOST=db -e DB_USER=astro -e DB_PASS=password123 -e DB_NAME=psu_backend intelligist-datax-backend:prod 2>&1; echo RUN_BE_DONE\r"
+expect "RUN_BE_DONE*\$*"
+
+# Also add alias "db" for the database container so backend can find it
+send "sudo docker network connect --alias db release_mso_l2e-network-uat astro_db_uat 2>&1; echo DB_ALIAS_DONE\r"
+expect "DB_ALIAS_DONE*\$*"
+
+# Wait for backend
+send "sleep 5; echo WAIT_DONE\r"
+expect "WAIT_DONE*\$*"
+
+# Start frontend
+send "sudo docker run -d --name astro_frontend_uat --restart always -p 3001:80 --network release_mso_l2e-network-uat intelligist-datax-frontend:prod 2>&1; echo RUN_FE_DONE\r"
+expect "RUN_FE_DONE*\$*"
+
+# Wait and verify
+send "sleep 3; curl -s -o /dev/null -w '%{http_code}' http://localhost:3001; echo ' CURL_FE'\r"
+expect "CURL_FE*\$*"
+
+send "sudo docker ps --format '{{.Names}} {{.Status}}' | grep astro; echo PS_DONE\r"
+expect "PS_DONE*\$*"
+
+send "exit\r"
+expect eof

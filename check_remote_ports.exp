@@ -1,0 +1,16 @@
+#!/usr/bin/expect -f
+
+set timeout 20
+set ip "110.78.210.133"
+set user "administrator"
+set password "P@ssw0rd1234"
+
+spawn ssh -o StrictHostKeyChecking=no $user@$ip "sudo netstat -tuln || ss -tuln"
+
+expect {
+    "*assword:*" {
+        send "$password\r"
+        exp_continue
+    }
+    eof
+}

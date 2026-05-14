@@ -1,0 +1,35 @@
+#!/usr/bin/expect -f
+set timeout 600
+set host "110.78.210.128"
+set user "administrator"
+set pass "P@ssw0rd1234"
+set file "project_uat.tar.gz"
+
+# 1. SCP Upload
+puts "\n\[STEP 1\] Uploading package via SCP..."
+spawn scp $file $user@$host:/home/$user/
+expect {
+    "yes/no" {
+        send "yes\r"
+        exp_continue
+    }
+    "password:" {
+        send "$pass\r"
+    }
+}
+expect eof
+
+# 2. SSH Deploy
+puts "\n\[STEP 2\] Extracting and Deploying via SSH..."
+spawn ssh -t $user@$host "tar -xzf $file && ./deploy_uat.sh"
+expect {
+    "password for administrator:" {
+        send "$pass\r"
+        exp_continue
+    }
+    "password:" {
+        send "$pass\r"
+        exp_continue
+    }
+    eof
+}

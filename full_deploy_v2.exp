@@ -1,0 +1,60 @@
+#!/usr/bin/expect -f
+set timeout 600
+
+# SCP both images
+puts "=== Uploading frontend..."
+spawn scp -o StrictHostKeyChecking=no /tmp/frontend_v341.tar administrator@110.78.210.129:/tmp/frontend_v341.tar
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect { "100%" {} eof {} }
+expect eof
+
+puts "=== Uploading backend..."
+spawn scp -o StrictHostKeyChecking=no /tmp/backend_v341.tar administrator@110.78.210.129:/tmp/backend_v341.tar
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect { "100%" {} eof {} }
+expect eof
+
+puts "=== Deploying on server..."
+spawn ssh -o StrictHostKeyChecking=no administrator@110.78.210.129
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect "*\$*"
+
+send "sudo -v\r"
+expect { "*assword*" { send "P@ssw0rd1234\r"; expect "*\$*" } "*\$*" {} }
+
+# Load images
+send "sudo docker load < /tmp/frontend_v341.tar 2>&1 | tail -1; echo LOAD1\r"
+expect "LOAD1*\$*"
+send "sudo docker load < /tmp/backend_v341.tar 2>&1 | tail -1; echo LOAD2\r"
+expect "LOAD2*\$*"
+
+# Tag
+send "sudo docker tag intelligist-datax-frontend:prod mso-frontend:prod; sudo docker tag intelligist-datax-backend:prod mso-backend:prod; echo TAG_DONE\r"
+expect "TAG_DONE*\$*"
+
+# Remove old
+send "sudo docker rm -f astro_frontend_uat astro_backend_uat 2>/dev/null; echo RM_DONE\r"
+expect "RM_DONE*\$*"
+
+# Start backend with alias
+send "sudo docker run -d --name astro_backend_uat --restart always --network-alias backend -p 3010:7000 --network release_mso_l2e-network-uat -v uploads_data_uat:/app/uploads -e DB_HOST=db -e DB_USER=astro -e DB_PASS=password123 -e DB_NAME=psu_backend intelligist-datax-backend:prod 2>&1; echo RUN_BE\r"
+expect "RUN_BE*\$*"
+
+send "sleep 5; echo WAIT\r"
+expect "WAIT*\$*"
+
+# Start frontend
+send "sudo docker run -d --name astro_frontend_uat --restart always -p 3001:80 --network release_mso_l2e-network-uat intelligist-datax-frontend:prod 2>&1; echo RUN_FE\r"
+expect "RUN_FE*\$*"
+
+# Verify
+send "sleep 3; curl -s -o /dev/null -w '%{http_code}' http://localhost:3001; echo ' FE_OK'\r"
+expect "FE_OK*\$*"
+send "curl -s http://localhost:3010/page-layout | head -c 50; echo ' API_OK'\r"
+expect "API_OK*\$*"
+
+send "exit\r"
+expect eof

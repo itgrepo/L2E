@@ -1,0 +1,31 @@
+package require Expect
+
+set timeout 300
+set ip "110.78.210.128"
+set user "administrator"
+set pass "P@ssw0rd1234"
+
+spawn scp -o StrictHostKeyChecking=no setup_mock_presentation_v2.sql $user@$ip:/home/$user/
+expect {
+    "password:" {
+        send "$pass\r"
+    }
+}
+expect eof
+
+spawn ssh -t $user@$ip
+expect {
+    "password:" {
+        send "$pass\r"
+    }
+}
+
+expect "$ "
+# Seed the FIXED presentation data
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend < setup_mock_presentation_v2.sql\r"
+expect "password for administrator:"
+send "$pass\r"
+expect "$ "
+
+send "exit\r"
+expect eof

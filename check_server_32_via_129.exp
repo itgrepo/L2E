@@ -1,0 +1,38 @@
+#!/usr/bin/expect -f
+set timeout 15
+spawn ssh -o StrictHostKeyChecking=no administrator@110.78.210.129
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect "*$*"
+
+send "ssh -o StrictHostKeyChecking=no administrator@10.20.31.32\r"
+expect {
+    "*assword:*" {
+        send "P@ssw0rd1234\r"
+        expect "*$*"
+        send "echo '--- Target Server Info ---'\r"
+        expect "*$*"
+        send "uname -a\r"
+        expect "*$*"
+        send "sudo ufw status\r"
+        expect {
+            "*assword*" {
+                send "P@ssw0rd1234\r"
+                expect "*$*"
+            }
+            "*$*" {}
+        }
+        send "sudo netstat -tuln | grep LISTEN\r"
+        expect "*$*"
+        send "exit\r"
+        expect "*$*"
+    }
+    "Connection refused" {
+        puts "SSH Connection refused to 10.20.31.32"
+    }
+    timeout {
+        puts "Timeout connecting to 10.20.31.32 via SSH"
+    }
+}
+send "exit\r"
+expect eof

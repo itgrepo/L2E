@@ -1,0 +1,40 @@
+package require Expect
+
+set timeout 300
+set ip "110.78.210.128"
+set user "administrator"
+set pass "P@ssw0rd1234"
+
+spawn scp -o StrictHostKeyChecking=no project_uat.tar.gz $user@$ip:/home/$user/
+expect {
+    "password:" {
+        send "$pass\r"
+    }
+}
+expect eof
+
+spawn ssh -t $user@$ip
+expect {
+    "password:" {
+        send "$pass\r"
+    }
+}
+
+expect "$ "
+send "tar -xzf project_uat.tar.gz\r"
+expect "$ "
+send "sudo ./deploy_uat.sh\r"
+expect "password for administrator:"
+send "$pass\r"
+
+# Wait for deployment to finish
+set timeout 600
+expect "Deployment Complete!"
+expect "$ "
+
+# Seed the presentation data
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend < setup_mock_presentation_v2.sql\r"
+expect "$ "
+
+send "exit\r"
+expect eof

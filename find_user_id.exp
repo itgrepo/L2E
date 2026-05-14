@@ -1,0 +1,27 @@
+package require Expect
+
+set timeout 30
+set ip "110.78.210.128"
+set user "administrator"
+set pass "P@ssw0rd1234"
+
+spawn ssh -t $user@$ip
+
+expect {
+    "password:" {
+        send "$pass\r"
+    }
+}
+
+expect "$ "
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -e \"SELECT user_id, username FROM user WHERE username='testadmin';\"\r"
+expect "password for administrator:"
+send "$pass\r"
+
+expect {
+    "$" {
+        # Success
+    }
+}
+send "exit\r"
+expect eof

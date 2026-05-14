@@ -1,0 +1,38 @@
+#!/usr/bin/expect -f
+set timeout 30
+spawn ssh -o StrictHostKeyChecking=no administrator@110.78.210.129
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect "*\$*"
+
+send "sudo -v\r"
+expect {
+    "*assword*" {
+        send "P@ssw0rd1234\r"
+        expect "*\$*"
+    }
+    "*\$*" {}
+}
+
+# Check if developer user already exists
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -e \"SELECT user_id, username FROM user WHERE username='developer';\" 2>&1; echo CHECK_DONE\r"
+expect "CHECK_DONE*\$*"
+
+# Insert developer user into user table (ignore if exists)
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -e \"INSERT IGNORE INTO user (username, password, email, firstname, lastname, job_title, create_at, previlage_id, status_id, status_account, last_update, national_id, national_id_book, national_id_mode, count_login, 2fa_status, last_updated) VALUES ('developer', 'dev1234', 'dev@intelligist.co.th', 'Developer', 'System', 'Dev', NOW(), 1, 2, 'active', '0000-00-00 00:00:00', 'dev1234', 'PASS123', 1, 0, 'off', NOW());\" 2>&1; echo INSERT1_DONE\r"
+expect "INSERT1_DONE*\$*"
+
+# Get the user_id
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -N -e \"SELECT user_id FROM user WHERE username='developer';\" 2>&1; echo GETID_DONE\r"
+expect "GETID_DONE*\$*"
+
+# Insert into user_activity
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -e \"INSERT IGNORE INTO user_activity (user_id, login_status, login_respond, create_date, status_account, password, emailnews) SELECT user_id, 1, UNIX_TIMESTAMP(), 0, 1, 'dev1234', '-' FROM user WHERE username='developer';\" 2>&1; echo INSERT2_DONE\r"
+expect "INSERT2_DONE*\$*"
+
+# Verify final state
+send "sudo docker exec -i astro_db_uat mysql -uastro -ppassword123 psu_backend -e \"SELECT u.user_id, u.username, ua.password FROM user u JOIN user_activity ua ON u.user_id = ua.user_id WHERE u.username='developer';\" 2>&1; echo VERIFY_DONE\r"
+expect "VERIFY_DONE*\$*"
+
+send "exit\r"
+expect eof

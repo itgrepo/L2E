@@ -1,0 +1,6 @@
+#!/usr/bin/expect -f
+set timeout 600
+spawn scp -o StrictHostKeyChecking=no /tmp/frontend_v341.tar /tmp/backend_v341.tar administrator@110.78.210.129:/tmp/
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect eof

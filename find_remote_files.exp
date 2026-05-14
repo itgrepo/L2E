@@ -1,0 +1,24 @@
+package require Expect
+
+set timeout 30
+set ip "110.78.210.128"
+set user "administrator"
+set pass "P@ssw0rd1234"
+
+spawn ssh -t $user@$ip
+
+expect {
+    "password:" {
+        send "$pass\r"
+    }
+}
+
+expect "$ "
+send "ls -R ~/backendold/Astro_backend | grep .sql\r"
+
+expect "$ "
+send "pwd\r"
+
+expect "$ "
+send "exit\r"
+expect eof

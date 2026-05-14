@@ -1,0 +1,20 @@
+#!/usr/bin/expect -f
+set timeout 20
+spawn ssh -o StrictHostKeyChecking=no administrator@110.78.210.133
+expect "*assword:*"
+send "P@ssw0rd1234\r"
+expect "*$*"
+send "sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT\r"
+expect {
+    "*assword*" {
+        send "P@ssw0rd1234\r"
+        expect "*$*"
+    }
+    "*$*" {}
+}
+send "sudo iptables -I INPUT -p tcp --dport 3010 -j ACCEPT\r"
+expect "*$*"
+send "sudo iptables -I INPUT -p tcp --dport 3307 -j ACCEPT\r"
+expect "*$*"
+send "exit\r"
+expect eof

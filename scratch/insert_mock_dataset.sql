@@ -1,0 +1,33 @@
+INSERT INTO service (
+    dataset_id, 
+    service_name, 
+    description, 
+    organization, 
+    category, 
+    tags, 
+    accessibility, 
+    license, 
+    contact_name, 
+    contact_email, 
+    update_freq_unit, 
+    data_format, 
+    status, 
+    create_at,
+    api_enabled
+) VALUES (
+    'DS-MSDHS-2026-001',
+    'รายงานสถิติข้อมูลคนพิการที่มีบัตรประจำตัวคนพิการทั่วประเทศ',
+    'ชุดข้อมูลแสดงจำนวนคนพิการที่ได้รับการออกบัตรประจำตัวคนพิการ จำแนกตามประเภทความพิการ เพศ ช่วงอายุ และระดับการศึกษา ข้อมูลนี้ใช้สำหรับวางแผนนโยบายและจัดสรรงบประมาณการให้ความช่วยเหลือคนพิการ',
+    'กรมส่งเสริมและพัฒนาคุณภาพชีวิตคนพิการ (พก.)',
+    'สวัสดิการสังคมและสิทธิมนุษยชน',
+    'คนพิการ,บัตรคนพิการ,สวัสดิการสังคม,สถิติ',
+    'Public',
+    'Open Data Common (ODC)',
+    'ศูนย์ข้อมูลและสถิติคนพิการ',
+    'data@dep.go.th',
+    'รายเดือน',
+    'CSV,JSON,API',
+    'Active',
+    NOW(),
+    1
+);
