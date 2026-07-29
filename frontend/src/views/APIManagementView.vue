@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
 import AppSidebar from '../components/AppSidebar.vue';
-import apiClient, { postWithUser } from '../utils/api';
+import apiClient, { postWithUser, encodeUserData } from '../utils/api';
 
 const activeTab = ref('general');
 const services = ref([]);
@@ -113,7 +113,7 @@ const toggleCredentialStatus = async (item) => {
   try {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     const res = await apiClient.post(`/${endpoint}`, {
-      user: btoa(JSON.stringify(userData)),
+      user: encodeUserData(userData),
       credential_id: item.credential_id
     });
     if (res.data.status === 'success') {
@@ -121,6 +121,9 @@ const toggleCredentialStatus = async (item) => {
       fetchServices();
       if (scopeSelectedService.value) {
         fetchScopesForService(scopeSelectedService.value.service_id);
+      }
+      if (selectedService.value) {
+        fetchCredentialsForService(selectedService.value.service_id);
       }
     } else {
       alert('Error: ' + res.data.status);
@@ -140,7 +143,7 @@ const onReportSelect = async () => {
     try {
       const userData = JSON.parse(localStorage.getItem('user') || '{}');
       const res = await apiClient.post('/getTableColumns', {
-        user: btoa(JSON.stringify(userData)),
+        user: encodeUserData(userData),
         db_name: selected.db_name || 'WAREHOUSE',
         table_name: selected.source_name
       });
@@ -186,7 +189,7 @@ const fetchScopesForService = async (serviceId) => {
   scopeCredentials.value = [];
   try {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
-    const res = await apiClient.post('/getAllApiScopes', { user: btoa(JSON.stringify(userData)) });
+    const res = await apiClient.post('/getAllApiScopes', { user: encodeUserData(userData) });
     if (res.data.status === 'success') {
       // Filter by service_id
       scopeCredentials.value = res.data.data.filter(s => String(s.service_id) === String(serviceId));
@@ -201,7 +204,7 @@ const toggleScopeKey = (id) => {
 const fetchAllUsers = async () => {
   try {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
-    const res = await apiClient.post('/getAvailableUsers', { user: btoa(JSON.stringify(userData)) });
+    const res = await apiClient.post('/getAvailableUsers', { user: encodeUserData(userData) });
     if (res.data.status === 'success') {
       allUsers.value = res.data.data;
     }
@@ -214,7 +217,7 @@ const fetchColumnsForService = async (service) => {
   try {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     const res = await apiClient.post('/getTableColumns', {
-      user: btoa(JSON.stringify(userData)),
+      user: encodeUserData(userData),
       db_name: service.db_name || 'WAREHOUSE',
       table_name: service.source_name
     });
@@ -285,7 +288,7 @@ const saveScopeForm = async () => {
     const validConditions = scopeConditions.value.filter(c => c.field && c.value);
     
     const payload = {
-      user: btoa(JSON.stringify(userData)),
+      user: encodeUserData(userData),
       service_id: scopeSelectedService.value.service_id,
       target_user_id: scopeFormUser.value,
       scope_json: validConditions
@@ -330,7 +333,7 @@ const saveAddUserForm = async () => {
   try {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     const payload = {
-      user: btoa(JSON.stringify(userData)),
+      user: encodeUserData(userData),
       service_id: selectedService.value.service_id,
       target_user_id: addUserFormUserId.value
     };
@@ -359,7 +362,7 @@ const deleteScopeEntry = async (scope) => {
   try {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     const res = await apiClient.post('/deleteApiScopeForUser', { 
-      user: btoa(JSON.stringify(userData)),
+      user: encodeUserData(userData),
       credential_id: scope.credential_id
     });
     if (res.data.status === 'success') {
