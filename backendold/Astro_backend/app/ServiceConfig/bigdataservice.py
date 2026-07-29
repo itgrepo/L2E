@@ -1,5 +1,6 @@
 from flask import request, jsonify
 from ServiceConfig import *
+from .validators import validate_dataset_masters
 from ServiceConfig.register import *
 from ServiceConfig.notification_util import notify_user, notify_all_users
 import base64
@@ -131,6 +132,12 @@ def addService():
                 conn = mysql.connect()
                 cursor = conn.cursor()
                 
+                is_valid, err_msg = validate_dataset_masters(cursor, category, organization, access_type)
+                if not is_valid:
+                    cursor.close()
+                    conn.close()
+                    return jsonify({"status": err_msg}), 400
+                    
                 # Check for duplicate Dataset ID or Name
                 sql = "SELECT service_id FROM service WHERE service_name = %s OR (dataset_id = %s AND dataset_id != '')"
                 cursor.execute(sql, (service_name, dataset_id))
@@ -471,13 +478,6 @@ def addServiceCredential():
                 service_password = dataInput['service_password']
                 conn = mysql.connect()
                 cursor = conn.cursor()
-                
-                is_valid, err_msg = validate_dataset_masters(cursor, category, organization, access_type)
-                if not is_valid:
-                    cursor.close()
-                    conn.close()
-                    return jsonify({"status": err_msg}), 400
-                    
                 sql = "SELECT service_id FROM service WHERE service_id = %s"
                 cursor.execute(sql,(service_id))
                 data = cursor.fetchall()
@@ -626,7 +626,25 @@ def get_dataset_api(dataset_id):
                 log_sql = """INSERT INTO log (user_id, log_detail, type, path, ip, country) 
                              VALUES (%s, %s, 'API', %s, %s, 'None')"""
                 path = f"/dataapi/api/v1/{dataset_id}"
-                detail = f"[{status_code}] {msg}"
+                
+                # Format as requested for PII/Restricted Audit Log
+                import json
+                try:
+                    sensitivity_val = access_type if 'access_type' in locals() else 'unknown'
+                except:
+                    sensitivity_val = 'unknown'
+                    
+                audit_info = {
+                    "actor_user_id": user_id_val or 0,
+                    "dataset_id": dataset_id,
+                    "sensitivity": sensitivity_val,
+                    "result": "Denied" if status_code >= 400 else "Allowed",
+                    "action": "data_access",
+                    "request_id": request_id,
+                    "message": msg
+                }
+                detail = json.dumps(audit_info)
+                
                 cursor.execute(log_sql, (user_id_val or 0, detail, path, ip_addr))
                 conn.commit()
             except Exception as e:

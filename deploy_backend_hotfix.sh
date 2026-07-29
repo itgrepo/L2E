@@ -6,7 +6,7 @@ KEY="${SSH_KEY_PATH:-}"
 DIR="~/Intelligist_DataX_Deploy_3003"
 
 echo "Syncing backend files..."
-rsync -avz --exclude '__pycache__' --exclude 'venv' -e "ssh -i $KEY -o StrictHostKeyChecking=no" ./backendold/Astro_backend/ $USER@$HOST:$DIR/backend/
+rsync -avz --exclude '__pycache__' --exclude 'venv' -e "ssh -i $KEY -o StrictHostKeyChecking=no" ./backendold/Astro_backend/ $USER@$HOST:$DIR/backendold/Astro_backend/
 
 echo "Redeploying backend container..."
 ssh -i $KEY -o StrictHostKeyChecking=no $USER@$HOST << 'SSH_EOF'
