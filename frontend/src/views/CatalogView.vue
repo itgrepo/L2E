@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
 import AppSidebar from '../components/AppSidebar.vue';
-import apiClient from '../utils/api';
+import apiClient, { encodeUserData } from '../utils/api';
 
 const searchQuery = ref('');
 
@@ -30,7 +30,7 @@ const submitPermissionRequest = async () => {
   try {
     const userData = localStorage.getItem('user');
     const response = await apiClient.post('/requestDatasetPermission', {
-      user: btoa(userData),
+      user: encodeUserData(JSON.parse(userData)),
       service_id: selectedDataset.value.id,
       fields: requestForm.value.fields,
       reason: requestForm.value.reason

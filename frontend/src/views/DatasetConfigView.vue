@@ -68,7 +68,7 @@ const fetchDatasets = async () => {
     try {
       const userData = localStorage.getItem('user');
       const res = await apiClient.post('/getService', {
-        user: btoa(userData)
+        user: encodeUserData(JSON.parse(userData))
       });
       if (res.data.status === 'success') {
         datasets.value = res.data.data;
@@ -358,7 +358,7 @@ const handleLinkSubmit = async () => {
   try {
     const userData = localStorage.getItem('user');
     const fd = new FormData();
-    fd.append('user', btoa(userData));
+    fd.append('user', encodeUserData(JSON.parse(userData)));
     fd.append('service_id', linkDatasetId.value);
     
     // We only update the specific link field
@@ -411,7 +411,7 @@ const handleFileUpload = async () => {
   try {
     const userData = localStorage.getItem('user');
     const fd = new FormData();
-    fd.append('user', btoa(userData));
+    fd.append('user', encodeUserData(JSON.parse(userData)));
     fd.append('service_id', uploadDatasetId.value);
     fd.append('data_file', selectedFile.value);
     fd.append('file_type', fileType.value);
@@ -443,7 +443,7 @@ const handleSubmit = async () => {
   try {
     const userData = localStorage.getItem('user');
     const fd = new FormData();
-    fd.append('user', btoa(userData)); 
+    fd.append('user', encodeUserData(JSON.parse(userData))); 
     
     // Add all metadata fields
     Object.keys(formData.value).forEach(key => {
@@ -509,7 +509,7 @@ const handleAddSubCategory = async () => {
   try {
     const userData = localStorage.getItem('user') || '';
     const res = await apiClient.post('/addSubCategory', {
-      user: userData ? btoa(userData) : '',
+      user: userData ? encodeUserData(JSON.parse(userData)) : '',
       category_name: cat,
       sub_category_name: subName
     });

@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
-import apiClient, { postWithUser } from '../utils/api';
+import apiClient, { postWithUser, encodeUserData } from '../utils/api';
 
 const router = useRouter();
 const datasets = ref([]);
@@ -33,7 +33,7 @@ const fetchDatasets = async () => {
     try {
         const userData = localStorage.getItem('user');
         const response = await apiClient.post('/getService', {
-            user: btoa(userData)
+            user: encodeUserData(JSON.parse(userData))
         });
         
         if (response.data.status === 'success') {
@@ -89,7 +89,7 @@ const handleToggleStatus = async (dataset) => {
     try {
         const userData = localStorage.getItem('user');
         const fd = new FormData();
-        fd.append('user', btoa(userData));
+        fd.append('user', encodeUserData(JSON.parse(userData)));
         fd.append('service_id', dataset.service_id);
         fd.append('service_status', newStatus);
         
@@ -115,7 +115,7 @@ const handleDelete = async (dataset) => {
     try {
         const userData = localStorage.getItem('user');
         const fd = new FormData();
-        fd.append('user', btoa(userData));
+        fd.append('user', encodeUserData(JSON.parse(userData)));
         fd.append('service_id', dataset.service_id);
         fd.append('service_status', 'Deleted'); // Soft delete pattern
         
@@ -165,7 +165,7 @@ const fetchAccessData = async (mode) => {
         const userData = localStorage.getItem('user');
         const endpoint = mode === 'group' ? '/getDatasetAccessGroups' : '/getDatasetAccessUsers';
         const response = await apiClient.post(endpoint, {
-            user: btoa(userData),
+            user: encodeUserData(JSON.parse(userData)),
             service_id: currentDataset.value.service_id
         });
         
@@ -197,7 +197,7 @@ const saveAccessChanges = async () => {
         const userData = localStorage.getItem('user');
         const endpoint = accessMode.value === 'group' ? '/updateDatasetAccessGroups' : '/updateDatasetAccessUsers';
         const payload = {
-            user: btoa(userData),
+            user: encodeUserData(JSON.parse(userData)),
             service_id: currentDataset.value.service_id
         };
         

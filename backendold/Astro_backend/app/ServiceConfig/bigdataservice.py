@@ -1099,14 +1099,7 @@ def addApiCredential():
         conn = mysql.connect()
         cursor = conn.cursor()
 
-        # Check for existing active credential
-        sql_check = "SELECT credential_id FROM api_credentials WHERE service_id = %s AND user_id = %s AND status = 'active'"
-        cursor.execute(sql_check, (service_id, target_user_id))
-        existing = cursor.fetchall()
-        if existing:
-            cursor.close()
-            conn.close()
-            return jsonify({"status": "Error: Active credential already exists for this user on this service"})
+        # Removed active credential check to allow multiple keys per user
 
         # Insert credential with hash and last four
         if expires_at:
