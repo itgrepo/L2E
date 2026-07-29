@@ -439,17 +439,61 @@ onMounted(() => {
               </div>
               
               <!-- If has API, show details -->
-              <div v-else class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
-                <div class="method-badge" style="display: inline-block; background: var(--mso-accent, var(--primary)); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px;">GET</div>
-                <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 24px; font-size:0.9rem;">
-                  {{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/datasets/' + selectedDataset.dataset_id }}
-                </code>
+              <div v-else class="api-cards" style="display: flex; flex-direction: column; gap: 1rem;">
                 
-                <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
-                  <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
+                <!-- Card 1: File for API -->
+                <div class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
+                  <h3 style="margin: 0 0 16px 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                    File for API
+                  </h3>
+                  <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px;">GET</div>
+                  <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem;">
+                    {{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/datasets/' + selectedDataset.dataset_id + '/file' }}
+                  </code>
+                  <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
+                    <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
+curl -X GET "{{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/datasets/' + selectedDataset.dataset_id + '/file' }}" \
+  -H "Authorization: Bearer YOUR_API_KEY"</pre>
+                  </div>
+                </div>
+
+                <!-- Card 2: Public API -->
+                <div class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
+                  <h3 style="margin: 0 0 16px 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
+                    Public API (General)
+                  </h3>
+                  <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px;">GET</div>
+                  <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem;">
+                    {{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/datasets/' + selectedDataset.dataset_id }}
+                  </code>
+                  <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
+                    <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
 curl -X GET "{{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/datasets/' + selectedDataset.dataset_id }}" \
   -H "Authorization: Bearer YOUR_API_KEY"</pre>
+                  </div>
                 </div>
+
+                <!-- Card 3: Scope API -->
+                <div class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
+                  <h3 style="margin: 0 0 16px 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                    Scope API (Granular Access)
+                  </h3>
+                  <div class="method-badge" style="display: inline-block; background: #2563eb; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px;">POST</div>
+                  <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem;">
+                    {{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/datasets/' + selectedDataset.dataset_id + '/query' }}
+                  </code>
+                  <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
+                    <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
+curl -X POST "{{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/datasets/' + selectedDataset.dataset_id + '/query' }}" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"columns":["field1","field2"], "filters":{"status":"active"}}'</pre>
+                  </div>
+                </div>
+
               </div>
             </div>
           </div>
