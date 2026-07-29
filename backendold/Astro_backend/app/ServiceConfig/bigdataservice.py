@@ -877,7 +877,7 @@ def get_dataset_api(dataset_id):
 # ============================================================
 
 # Hardcoded whitelist of databases the admin is allowed to expose via API
-ALLOWED_DATABASES = ['psu_backend', 'datalake', 'default']
+ALLOWED_DATABASES = ['psu_backend', 'datalake', 'default', 'datax_db_3003']
 
 @app.route('/getAvailableDatabases', methods=['POST'])
 @require_admin
@@ -1114,7 +1114,7 @@ def addApiCredential():
 
         # Insert scope if provided
         if scope_json:
-            scope_str = json.dumps(scope_json) if isinstance(scope_json, dict) else scope_json
+            scope_str = json.dumps(scope_json) if isinstance(scope_json, (dict, list)) else scope_json
             sql_scope = "INSERT INTO api_scopes (credential_id, scope_json) VALUES (%s, %s)"
             cursor.execute(sql_scope, (credential_id, scope_str))
 
