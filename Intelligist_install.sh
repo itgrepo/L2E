@@ -1,4 +1,5 @@
 #!/bin/bash
+set -Eeuo pipefail
 
 # สีสันสำหรับการแสดงผล
 GREEN='\033[0;32m'
@@ -23,7 +24,7 @@ docker-compose up -d --build
 echo -e "\n${YELLOW}[2/3] รอให้ Database พร้อมทำงาน (อาจใช้เวลาประมาณ 10-20 วินาที)...${NC}"
 MAX_TRIES=20
 COUNT=0
-while ! docker exec datax_db_3001 mysqladmin ping -uastro -ppassword123 --silent; do
+while ! docker exec datax_db_3001 mysqladmin ping -uastro -p"${DB_PASS:-}" --silent; do
     echo "กำลังรอ Database... ($((++COUNT))/$MAX_TRIES)"
     sleep 2
     if [ $COUNT -ge $MAX_TRIES ]; then
@@ -34,7 +35,7 @@ done
 
 echo -e "\n${YELLOW}[3/3] กำลังนำเข้าข้อมูล (Import Database Dump)...${NC}"
 if [ -f intelligist_datax_full_dump.sql ]; then
-    docker exec -i datax_db_3001 mysql -uastro -ppassword123 datax_db_3001 < intelligist_datax_full_dump.sql
+    docker exec -i datax_db_3001 mysql -uastro -p"${DB_PASS:-}" datax_db_3001 < intelligist_datax_full_dump.sql
     echo -e "${GREEN}✅ นำเข้าข้อมูลสำเร็จ!${NC}"
 else
     echo -e "${RED}❌ Error: ไม่พบไฟล์ intelligist_datax_full_dump.sql${NC}"

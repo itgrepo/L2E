@@ -45,3 +45,31 @@ ubuntuL2E.*
 
 # Scratch directory
 scratch/
+
+# Secret and env files
+.env
+.env.*
+!.env.example
+!.env.test.example
+
+# Keys
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Test and output directories
+test-results/
+playwright-report/
+coverage/
+*.log
+
+# Deploy and schema
+datax_deploy_*.tar.gz
+db_schema*.txt
+check_db.sql
+
+# Frontend specific test items
+frontend/.env.test
+frontend/.auth/
+frontend/test-results/

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -Eeuo pipefail
 echo "🗄️ Performing Intelligist DataX Database Restoration..."
 
 # Check if sudo is needed for docker commands
@@ -12,7 +13,7 @@ fi
 
 # Load database configurations from .env if it exists
 MYSQL_USER="astro"
-MYSQL_PASSWORD="password123"
+MYSQL_PASSWORD="${DB_PASS:-}"
 MYSQL_DATABASE="datax_db_3001"
 
 if [ -f .env ]; then

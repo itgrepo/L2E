@@ -176,32 +176,34 @@ onMounted(() => {
     </button>
 
     <!-- Mobile Menu Overlay -->
-    <div v-if="isMobileMenuOpen" class="mobile-menu-overlay" @click="closeMobileMenu"></div>
-    <div :class="['mobile-menu', { 'open': isMobileMenuOpen }]">
-      <div class="mobile-menu-header">
-        <div class="logo-group">
-          <img v-if="themeConfig.logoUrl" :src="themeConfig.logoUrl" alt="Logo" class="intelligist-datax-logo-small" />
-          <span class="logo-text">{{ themeConfig.siteName }}</span>
+    <Teleport to="body">
+      <div v-if="isMobileMenuOpen" class="mobile-menu-overlay" @click="closeMobileMenu"></div>
+      <div :class="['mobile-menu', { 'open': isMobileMenuOpen }]">
+        <div class="mobile-menu-header">
+          <div class="logo-group">
+            <img v-if="themeConfig.logoUrl" :src="themeConfig.logoUrl" alt="Logo" class="intelligist-datax-logo-small" />
+            <span class="logo-text">{{ themeConfig.siteName }}</span>
+          </div>
+          <button class="close-menu-btn" @click="closeMobileMenu">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </div>
-        <button class="close-menu-btn" @click="closeMobileMenu">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
+        <nav class="mobile-nav-links">
+          <router-link to="/" active-class="active" @click="closeMobileMenu">หน้าแรก</router-link>
+          <router-link to="/catalog" active-class="active" @click="closeMobileMenu">บัญชีข้อมูล</router-link>
+          <router-link to="/analytics" active-class="active" @click="closeMobileMenu">วิเคราะห์</router-link>
+          <router-link to="/about" active-class="active" @click="closeMobileMenu">เกี่ยวกับเรา</router-link>
+          <router-link to="/contact" active-class="active" @click="closeMobileMenu">ติดต่อเรา</router-link>
+        </nav>
+        <div class="mobile-nav-actions">
+          <router-link v-if="!isAuthenticated" to="/login" class="btn-navbar btn-login" @click="closeMobileMenu">เข้าสู่ระบบ</router-link>
+          <button v-else @click="handleLogout" class="btn-navbar btn-logout">ออกจากระบบ</button>
+        </div>
       </div>
-      <nav class="mobile-nav-links">
-        <router-link to="/" active-class="active" @click="closeMobileMenu">หน้าแรก</router-link>
-        <router-link to="/catalog" active-class="active" @click="closeMobileMenu">บัญชีข้อมูล</router-link>
-        <router-link to="/analytics" active-class="active" @click="closeMobileMenu">วิเคราะห์</router-link>
-        <router-link to="/about" active-class="active" @click="closeMobileMenu">เกี่ยวกับเรา</router-link>
-        <router-link to="/contact" active-class="active" @click="closeMobileMenu">ติดต่อเรา</router-link>
-      </nav>
-      <div class="mobile-nav-actions">
-        <router-link v-if="!isAuthenticated" to="/login" class="btn-navbar btn-login" @click="closeMobileMenu">เข้าสู่ระบบ</router-link>
-        <button v-else @click="handleLogout" class="btn-navbar btn-logout">ออกจากระบบ</button>
-      </div>
-    </div>
+    </Teleport>
   </header>
 </template>
 
@@ -366,14 +368,13 @@ onMounted(() => {
   padding: 2rem 1.5rem;
   display: flex;
   flex-direction: column;
-  transform: translateX(100%);
-  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  right: -100%;
+  transition: right 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: -10px 0 30px rgba(0, 0, 0, 0.1);
-  visibility: hidden;
 }
 
 .mobile-menu.open {
-  transform: translateX(0);
+  right: 0;
   visibility: visible;
 }
 
@@ -405,7 +406,6 @@ onMounted(() => {
 }
 
 :global(body) {
-  overflow-x: hidden !important;
   width: 100%;
 }
 
@@ -627,7 +627,7 @@ onMounted(() => {
     position: fixed;
     top: 70px;
     right: 10px;
-    width: calc(100vw - 20px);
+    width: calc(100% - 20px);
     max-width: 350px;
   }
 }

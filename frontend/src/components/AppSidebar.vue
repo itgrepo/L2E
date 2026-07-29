@@ -78,7 +78,9 @@ const settingItems = [
 <template>
   <div class="sidebar-container">
     <!-- Floating Action Button for Mobile -->
-    <button class="mobile-sidebar-toggle" @click="isMobileMenuOpen = !isMobileMenuOpen"></button>
+    <button class="mobile-sidebar-toggle" @click="isMobileMenuOpen = !isMobileMenuOpen">
+      <span></span>
+    </button>
 
     <!-- Overlay Backdrop -->
     <div v-if="isMobileMenuOpen" class="sidebar-overlay" @click="isMobileMenuOpen = false"></div>
@@ -410,38 +412,42 @@ const settingItems = [
   height: 20px;
 }
 
-/* Modern Sticky Side Tab for Mobile */
+/* Hamburger Menu for Mobile */
 .mobile-sidebar-toggle {
   display: none;
   position: fixed;
-  top: 50%;
-  left: 0;
-  transform: translateY(-50%);
-  width: 24px; /* Wider for easier touch */
-  height: 80px;
+  top: 16px;
+  left: 16px;
+  width: 44px;
+  height: 44px;
   background-color: var(--primary);
-  border-radius: 0 12px 12px 0;
+  border-radius: 8px;
   border: none;
-  box-shadow: 4px 0 15px rgba(0, 0, 0, 0.4);
-  z-index: 2500; /* Extremely high to stay on top */
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+  z-index: 1500;
   cursor: pointer;
   padding: 0;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   align-items: center;
   justify-content: center;
+  flex-direction: column;
+  gap: 5px;
 }
 
-/* Vertical indicator line */
-.mobile-sidebar-toggle::before {
+/* Hamburger lines */
+.mobile-sidebar-toggle::before,
+.mobile-sidebar-toggle::after,
+.mobile-sidebar-toggle span {
   content: '';
-  width: 3px;
-  height: 30px;
-  background-color: rgba(255, 255, 255, 0.6);
+  width: 20px;
+  height: 2px;
+  background-color: white;
   border-radius: 2px;
+  display: block;
 }
 
 .mobile-sidebar-toggle:active {
-  width: 32px;
+  transform: scale(0.95);
 }
 
 .sidebar-overlay {
