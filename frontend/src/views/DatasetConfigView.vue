@@ -22,7 +22,7 @@ const formData = ref({
   status: 'Inactive', // Match portal default
   service_name: '',
   organization: '',
-  access_type: 'เลือกการเข้าถึง',
+  access_type: '',
   contact_name: '', // Will be used for "ชื่อฝ่ายงานสำหรับติดต่อ"
   contact_email: '',
   tags: '',
@@ -112,7 +112,7 @@ const selectForEdit = (item) => {
     status: item.status || 'Inactive',
     service_name: item.service_name || '',
     organization: item.organization || '',
-    access_type: item.access_type || 'เลือกการเข้าถึง',
+    access_type: item.access_type || '',
     contact_name: item.contact_name || '',
     contact_email: item.contact_email || '',
     tags: item.tags || '',
@@ -169,7 +169,7 @@ const resetForm = () => {
     status: 'Inactive',
     service_name: '',
     organization: '',
-    access_type: 'เลือกการเข้าถึง',
+    access_type: '',
     contact_name: '',
     contact_email: '',
     tags: '',
@@ -730,12 +730,15 @@ const onCategoryChange = () => {
                 </div>
 
                 <div class="form-group">
-                  <label>การเข้าถึง *</label>
+                  <label>การเข้าถึง (Sensitivity) *</label>
                   <select v-model="formData.access_type" class="form-select-custom" required>
-                    <option>เลือกการเข้าถึง</option>
-                    <option>สาธารณะ</option>
-                    <option>ภายในหน่วยงาน</option>
+                    <option value="" disabled selected>เลือกการเข้าถึง</option>
+                    <option value="public">สาธารณะ (Public)</option>
+                    <option value="internal">ภายในหน่วยงาน (Internal)</option>
+                    <option value="restricted">จำกัดสิทธิ์ (Restricted)</option>
+                    <option value="pii">ข้อมูลส่วนบุคคล (PII)</option>
                   </select>
+                  <small class="text-gray-500 mt-1 block">ระบุระดับความอ่อนไหวของข้อมูลเพื่อใช้บังคับสิทธิ์การเข้าถึง</small>
                 </div>
 
                 <div class="form-group">

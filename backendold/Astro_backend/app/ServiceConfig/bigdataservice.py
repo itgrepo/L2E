@@ -275,6 +275,13 @@ def addService():
 
                 conn = mysql.connect()
                 cursor = conn.cursor()
+                
+                is_valid, err_msg = validate_dataset_masters(cursor, category, organization, access_type)
+                if not is_valid:
+                    cursor.close()
+                    conn.close()
+                    return jsonify({"status": err_msg}), 400
+                    
                 sql = "SELECT service_id FROM service WHERE service_id = %s"
                 cursor.execute(sql, (service_id))
                 service_result = cursor.fetchall()
@@ -464,6 +471,13 @@ def addServiceCredential():
                 service_password = dataInput['service_password']
                 conn = mysql.connect()
                 cursor = conn.cursor()
+                
+                is_valid, err_msg = validate_dataset_masters(cursor, category, organization, access_type)
+                if not is_valid:
+                    cursor.close()
+                    conn.close()
+                    return jsonify({"status": err_msg}), 400
+                    
                 sql = "SELECT service_id FROM service WHERE service_id = %s"
                 cursor.execute(sql,(service_id))
                 data = cursor.fetchall()
@@ -545,10 +559,10 @@ def retrieveService():
             sql = """
                 SELECT s.*,
                        (CASE 
-                           WHEN NOT EXISTS (SELECT 1 FROM service_group_access sga WHERE sga.service_id = s.service_id)
-                                AND NOT EXISTS (SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id) THEN 1
-                           WHEN %s IS NOT NULL AND EXISTS (SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s) THEN 1
-                           WHEN %s IS NOT NULL AND EXISTS (
+                           WHEN s.access_type = 'public' THEN 1
+                           WHEN s.access_type = 'internal' AND %s IS NOT NULL THEN 1
+                           WHEN s.access_type IN ('restricted', 'pii') AND %s IS NOT NULL AND EXISTS (SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s) THEN 1
+                           WHEN s.access_type IN ('restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_group_access sga
                                JOIN group_user_detail gud ON sga.group_id = gud.group_id
                                WHERE sga.service_id = s.service_id AND gud.user_id = %s
@@ -561,7 +575,7 @@ def retrieveService():
                 FROM service s
                 WHERE s.status = 'Active'
             """
-            cursor.execute(sql, (user_id, user_id, user_id, user_id, user_id))
+            cursor.execute(sql, (user_id, user_id, user_id, user_id, user_id, user_id))
             
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
@@ -620,7 +634,7 @@ def get_dataset_api(dataset_id):
 
         # First, fetch service configuration by dataset_id
         sql_svc_config = """SELECT service_id, api_enabled, api_type, api_db_name, api_source_name, api_source_type, 
-                                   api_request_fields, api_response_fields, service_name
+                                   api_request_fields, api_response_fields, service_name, access_type
                             FROM service WHERE dataset_id = %s AND status = 'Active'"""
         cursor.execute(sql_svc_config, (dataset_id,))
         svc_row = cursor.fetchone()
@@ -631,7 +645,7 @@ def get_dataset_api(dataset_id):
             conn.close()
             return jsonify({'status': 'error', 'message': 'Service not found or inactive', 'request_id': request_id}), 404
 
-        real_service_id, api_enabled, api_type, db_name, source_name, source_type, req_fields_raw, res_fields_raw, service_name = svc_row
+        real_service_id, api_enabled, api_type, db_name, source_name, source_type, req_fields_raw, res_fields_raw, service_name, access_type = svc_row
 
         if not api_enabled:
             log_api_usage(0, 'API access is disabled for this dataset', 403)
@@ -639,13 +653,13 @@ def get_dataset_api(dataset_id):
             conn.close()
             return jsonify({'status': 'error', 'message': 'API access is disabled for this dataset', 'request_id': request_id}), 403
 
-        # Enforce key check if NOT public
+        # Enforce key check if NOT public or if access_type requires authentication
         user_id = 0
         credential_id = None
         user_role = '3'
         expires_at = None
         
-        if api_type != 'public':
+        if api_type != 'public' or access_type in ['internal', 'restricted', 'pii']:
             # Check if apikey is provided
             if not apikey:
                 log_api_usage(0, 'Missing apikey parameter for private/restricted API', 401)
