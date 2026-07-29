@@ -90,6 +90,7 @@ const checkEditQuery = () => {
 
 onMounted(async () => {
   await fetchCategories();
+  fetchOrganizations();
   await fetchDatasets();
   checkEditQuery();
 });
@@ -515,7 +516,8 @@ const handleAddSubCategory = async () => {
     });
     
     if (res.data && res.data.status === 'success') {
-      await fetchCategories(); // Refresh list
+      await fetchCategories();
+  fetchOrganizations(); // Refresh list
       formData.value.category = cat;
       setTimeout(() => {
         formData.value.sub_category = subName;
@@ -531,7 +533,22 @@ const handleAddSubCategory = async () => {
   }
 };
 
+const organizations = ref([]);
 const categoriesList = ref(['Learning Catalog', 'Learning Record', 'Learner Profile', 'Job Market', 'Skill Intelligence']);
+
+
+const fetchOrganizations = async () => {
+  try {
+    const userData = localStorage.getItem('user');
+    const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
+    const response = await apiClient.post('/getOrganizations', { user: userParam });
+    if (response.data.status === 'success') {
+      organizations.value = response.data.data;
+    }
+  } catch (error) {
+    console.error('Error fetching organizations:', error);
+  }
+};
 
 const fetchCategories = async () => {
   try {
@@ -708,9 +725,7 @@ const onCategoryChange = () => {
                   <label>หน่วยงานที่รับผิดชอบ *</label>
                   <select v-model="formData.organization" required class="form-select-custom">
                     <option value="">เลือกหน่วยงาน</option>
-                    <option>สำนักงานปลัดกระทรวง พม. (OPS)</option>
-                    <option>ศูนย์เทคโนโลยีสารสนเทศ (IT Center)</option>
-                    <option>กรมพัฒนาสังคมและสวัสดิการ</option>
+                    <option v-for="org in organizations" :key="org.org_id" :value="org.org_name">{{ org.org_name }}</option>
                   </select>
                 </div>
 
