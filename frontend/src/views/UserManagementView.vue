@@ -5,6 +5,73 @@ import { postWithUser } from '../utils/api';
 
 const users = ref([]);
 const roles = ref([]);
+
+const groups = ref([]);
+const showAddModal = ref(false);
+const formData = ref({
+    username: '',
+    email: '',
+    password: '',
+    previlage_id: 3,
+    status_id: 1,
+    groups: []
+});
+const isSubmitting = ref(false);
+
+const fetchGroups = async () => {
+    try {
+        const userStored = JSON.parse(localStorage.getItem('user') || '{}');
+        const response = await postWithUser('/getGroups', userStored);
+        if (response.data && response.data.status === 'success') {
+            groups.value = response.data.data;
+        }
+    } catch (error) {
+        console.error('Error fetching groups:', error);
+    }
+};
+
+const openAddModal = () => {
+    formData.value = {
+        username: '',
+        email: '',
+        password: '',
+        previlage_id: 3,
+        status_id: 1,
+        groups: []
+    };
+    showAddModal.value = true;
+};
+
+const closeAddModal = () => {
+    showAddModal.value = false;
+};
+
+const handleSaveUser = async () => {
+    if (!formData.value.username || !formData.value.email || !formData.value.password) {
+        showAlert('กรุณากรอกข้อมูล Username, Email และ Password ให้ครบถ้วน', 'error');
+        return;
+    }
+    
+    isSubmitting.value = true;
+    try {
+        const userStored = JSON.parse(localStorage.getItem('user') || '{}');
+        const response = await postWithUser('/mgmt/createUser', userStored, formData.value);
+        
+        if (response.data.status === 'success') {
+            showAlert(`สร้างผู้ใช้ ${formData.value.username} สำเร็จ`, 'success');
+            closeAddModal();
+            fetchUsers();
+        } else {
+            showAlert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status), 'error');
+        }
+    } catch (error) {
+        console.error('Error creating user:', error);
+        showAlert('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error');
+    } finally {
+        isSubmitting.value = false;
+    }
+};
+
 const isLoading = ref(true);
 const searchQuery = ref('');
 const alertMessage = ref({ text: '', type: '' });
@@ -102,6 +169,7 @@ const formatDate = (dateStr) => {
 onMounted(() => {
     fetchUsers();
     fetchRoles();
+    fetchGroups();
 });
 </script>
 
@@ -114,11 +182,22 @@ onMounted(() => {
           <h1>User Management</h1>
           <p class="subtitle">จัดการข้อมูลผู้ใช้และกำหนดบทบาทการเข้าถึงระบบ</p>
         </div>
-        <div class="search-container">
-            <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input type="text" v-model="searchQuery" placeholder="ค้นหาด้วย Username หรือ Email...">
+        
+        <div style="display: flex; gap: 16px; align-items: center;">
+            <div class="actions" style="margin: 0;">
+                <button class="btn-primary" @click="openAddModal">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Add User
+                </button>
+            </div>
+            <div class="search-container" style="width: auto; min-width: 350px;">
+                <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input type="text" v-model="searchQuery" placeholder="ค้นหาด้วย Username หรือ Email...">
+            </div>
         </div>
       </header>
 
@@ -194,6 +273,68 @@ onMounted(() => {
           </div>
         </div>
       </div>
+    
+      <!-- Add User Modal (Dark Theme) -->
+      <transition name="fade">
+        <div class="modal-overlay" v-if="showAddModal" @click="closeAddModal">
+          <div class="modal-content dark-card" @click.stop>
+            <div class="modal-header">
+              <h2>Add New User</h2>
+              <button class="close-btn" @click="closeAddModal">&times;</button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label>Username <span class="required">*</span></label>
+                <input type="text" v-model="formData.username" class="dark-input" placeholder="Enter username" />
+              </div>
+              <div class="form-group">
+                <label>Email <span class="required">*</span></label>
+                <input type="email" v-model="formData.email" class="dark-input" placeholder="Enter email" />
+              </div>
+              <div class="form-group">
+                <label>Password <span class="required">*</span></label>
+                <input type="password" v-model="formData.password" class="dark-input" placeholder="Enter password" />
+              </div>
+              
+              <div class="form-row">
+                <div class="form-group half">
+                  <label>Role</label>
+                  <select v-model="formData.previlage_id" class="dark-input">
+                    <option v-for="role in roles" :key="role.previlage_id" :value="role.previlage_id">
+                      {{ role.previlage_name }}
+                    </option>
+                  </select>
+                </div>
+                <div class="form-group half">
+                  <label>Status</label>
+                  <select v-model="formData.status_id" class="dark-input">
+                    <option :value="1">Active</option>
+                    <option :value="4">Pending Verification</option>
+                    <option :value="3">Suspended</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Groups</label>
+                <select multiple v-model="formData.groups" class="dark-input multi-select">
+                  <option v-for="group in groups" :key="group.group_id" :value="group.group_id">
+                    {{ group.group_name }}
+                  </option>
+                </select>
+                <small class="help-text">Hold Cmd/Ctrl to select multiple</small>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn-cancel" @click="closeAddModal">Cancel</button>
+              <button class="btn-save" @click="handleSaveUser" :disabled="isSubmitting">
+                {{ isSubmitting ? 'Saving...' : 'Save User' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </transition>
+
     </main>
   </div>
 </template>
@@ -459,4 +600,204 @@ h1 {
 .fade-enter-from, .fade-leave-to {
     opacity: 0;
 }
+
+/* Modal Styles (Dark Game-like Theme) */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.modal-content.dark-card {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 20px;
+  width: 500px;
+  max-width: 90vw;
+  color: #f8fafc;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.05);
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 24px 30px;
+  border-bottom: 1px solid #1e293b;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #0b1120;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.close-btn:hover {
+  color: #ef4444;
+}
+
+.modal-body {
+  padding: 30px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-row {
+  display: flex;
+  gap: 20px;
+}
+
+.form-group.half {
+  flex: 1;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.required {
+  color: #ef4444;
+}
+
+.dark-input {
+  width: 100%;
+  padding: 12px 16px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+
+.dark-input:focus {
+  border-color: #004f3b;
+  box-shadow: 0 0 0 3px rgba(0, 79, 59, 0.2);
+}
+
+.multi-select {
+  height: 120px;
+  padding: 8px;
+}
+
+.multi-select option {
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 2px;
+}
+
+.multi-select option:checked {
+  background: #004f3b linear-gradient(0deg, #004f3b 0%, #004f3b 100%);
+  color: white;
+}
+
+.help-text {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.modal-footer {
+  padding: 20px 30px;
+  background: #0b1120;
+  border-top: 1px solid #1e293b;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.btn-cancel {
+  padding: 10px 20px;
+  border-radius: 10px;
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cancel:hover {
+  background: #1e293b;
+  color: #f8fafc;
+}
+
+.btn-save {
+  padding: 10px 24px;
+  border-radius: 10px;
+  background: #004f3b;
+  color: white;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(0, 79, 59, 0.3);
+}
+
+.btn-save:hover:not(:disabled) {
+  background: #003d2d;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 79, 59, 0.4);
+}
+
+.btn-save:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  margin-right: 16px;
+}
+
+.btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: #004f3b;
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(0, 79, 59, 0.2);
+}
+
+.btn-primary:hover {
+  background: #003d2d;
+  transform: translateY(-1px);
+}
+
 </style>

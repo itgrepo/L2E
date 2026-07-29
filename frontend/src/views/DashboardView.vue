@@ -7,6 +7,82 @@ const userName = ref('User');
 const datasetCount = ref('0');
 const isLoading = ref(true);
 
+const resolveActivityText = (text) => {
+  if (!text) return 'ไม่พบรายละเอียดกิจกรรม';
+  
+  // Exact mappings
+  const exactMappings = {
+    'not found': 'เข้าสู่ระบบไม่สำเร็จ: รหัสผ่านไม่ถูกต้อง',
+    'username is incorrect': 'เข้าสู่ระบบไม่สำเร็จ: ไม่พบชื่อผู้ใช้งาน',
+    'login success': 'เข้าสู่ระบบสำเร็จ',
+    'log out': 'ออกจากระบบ',
+    'change password admin': 'ผู้ดูแลระบบเปลี่ยนรหัสผ่าน',
+    'change password': 'เปลี่ยนรหัสผ่านสำเร็จ',
+    'policy is update': 'นโยบายความเป็นส่วนตัวได้รับการอัปเดต',
+    'Your account is suspended': 'บัญชีของคุณถูกระงับการใช้งาน',
+  };
+  
+  if (exactMappings[text]) {
+    return exactMappings[text];
+  }
+  
+  // Regex / prefix matches
+  if (text.startsWith('Failed login attempt: incorrect password for user')) {
+    const match = text.match(/user "([^"]+)" \(attempt (\d+)\)/);
+    if (match) {
+      return `เข้าสู่ระบบไม่สำเร็จ: รหัสผ่านไม่ถูกต้องสำหรับผู้ใช้งาน "${match[1]}" (ครั้งที่ ${match[2]})`;
+    }
+    return 'เข้าสู่ระบบไม่สำเร็จ: รหัสผ่านไม่ถูกต้อง';
+  }
+  
+  if (text.startsWith('Failed login attempt: invalid username')) {
+    const match = text.match(/invalid username "([^"]+)"/);
+    if (match) {
+      return `เข้าสู่ระบบไม่สำเร็จ: ไม่พบชื่อผู้ใช้งาน "${match[1]}"`;
+    }
+    return 'เข้าสู่ระบบไม่สำเร็จ: ไม่พบชื่อผู้ใช้งาน';
+  }
+  
+  if (text.startsWith('ALERT: Unauthorized login attempt')) {
+    if (text.includes('Incorrect Password')) {
+      const match = text.match(/username: (\S+)/);
+      return `แจ้งเตือน: พยายามเข้าสู่ระบบด้วยรหัสผ่านที่ผิดสำหรับผู้ใช้ "${match ? match[1] : ''}"`;
+    }
+    if (text.includes('Invalid Username')) {
+      const match = text.match(/username: (\S+)/);
+      return `แจ้งเตือน: พยายามเข้าสู่ระบบด้วยชื่อผู้ใช้งานที่ไม่มีในระบบ "${match ? match[1] : ''}"`;
+    }
+    return 'แจ้งเตือน: พยายามเข้าสู่ระบบโดยไม่ได้รับอนุญาต';
+  }
+  
+  if (text.startsWith('Accessed Dataset:')) {
+    return text.replace('Accessed Dataset:', 'เข้าใช้งานชุดข้อมูล:');
+  }
+  
+  if (text.startsWith('Downloaded Dataset:')) {
+    return text.replace('Downloaded Dataset:', 'ดาวน์โหลดชุดข้อมูล:');
+  }
+  
+  if (text.startsWith('Request dataset permission for service_id')) {
+    const match = text.match(/service_id (\d+)/);
+    return `ส่งคำขออนุมัติสิทธิ์เข้าถึงชุดข้อมูล (รหัสบริการ: ${match ? match[1] : ''})`;
+  }
+  
+  if (text.startsWith('Approved request')) {
+    const match = text.match(/request (\d+) for user_id (\d+) on service_id (\d+)/);
+    if (match) {
+      return `อนุมัติคำขอรับสิทธิ์เข้าถึงข้อมูลของชุดข้อมูล (รหัสบริการ: ${match[3]}) สำเร็จ`;
+    }
+    return 'อนุมัติคำขอสิทธิ์การเข้าถึงข้อมูลสำเร็จ';
+  }
+  
+  if (text.startsWith('Updatemenu_permission')) {
+    return 'อัปเดตสิทธิ์การใช้งานระบบงานสำเร็จ';
+  }
+  
+  return text;
+};
+
 const stats = ref([
   { label: 'Datasets Accessed', value: '0', trend: '+0%', color: 'var(--mso-accent)', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2z' },
   { label: 'API Keys Active', value: '0', trend: '+0%', color: '#3b82f6', icon: 'M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z' },
@@ -85,12 +161,7 @@ onMounted(() => {
         </div>
         
         <div class="header-user-actions">
-          <button class="icon-btn notification">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
-            <span class="badge">3</span>
-          </button>
+
           <button class="icon-btn help">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -182,7 +253,7 @@ onMounted(() => {
                 <div v-for="item in recentActivity" :key="item.id" class="activity-item">
                   <div class="activity-dot" :style="{ backgroundColor: item.color }"></div>
                   <div class="activity-content">
-                    <p class="activity-text">{{ item.text }}</p>
+                    <p class="activity-text">{{ resolveActivityText(item.text) }}</p>
                     <span class="activity-time">{{ item.time }}</span>
                   </div>
                 </div>

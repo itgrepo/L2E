@@ -1,0 +1,43 @@
+version: '2'
+
+services:
+    node1:
+        image: hauptmedia/mariadb:10.1
+        container_name: node1
+        ports:
+            - "3306:3306"
+        volumes:
+            - db_intelligist:/var/lib/mysql
+        environment:
+            - MYSQL_ROOT_PASSWORD=SET#Admin
+            - REPLICATION_PASSWORD=SET#Admin
+            - MYSQL_DATABASE=maria
+            - MYSQL_USER=maria
+            - MYSQL_PASSWORD=SET#Admin
+            - GALERA=On
+            - NODE_NAME=node1
+            - CLUSTER_NAME=maria_cluster
+            - CLUSTER_ADDRESS=gcomm://
+            - TZ=Asia/Bangkok
+        command: --wsrep-new-cluster
+
+        networks:
+            - code-network
+    phpmyadmin:
+        image: phpmyadmin/phpmyadmin
+        container_name: phpmyadmin
+        links:
+            - node1
+        ports:
+            - "8080:80"
+        environment:
+            - PMA_HOST=node1
+            - MYSQL_ROOT_PASSWORD=SET#Admin
+        networks:
+            - code-network
+networks:
+    code-network:
+        driver: bridge
+volumes:
+    db_intelligist:
+        external: true

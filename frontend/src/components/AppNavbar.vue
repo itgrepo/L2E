@@ -8,6 +8,83 @@ const router = useRouter();
 const isAuthenticated = ref(false);
 const isMobileMenuOpen = ref(false);
 
+import { postWithUser } from '../utils/api';
+
+const notifications = ref([]);
+const unreadCount = ref(0);
+const showNotifDropdown = ref(false);
+const notifDropdownRef = ref(null);
+
+onMounted(() => {
+  document.addEventListener('click', (e) => {
+    if (notifDropdownRef.value && !notifDropdownRef.value.contains(e.target)) {
+      showNotifDropdown.value = false;
+    }
+  });
+});
+
+const fetchNotifications = async () => {
+  if (!isAuthenticated.value) return;
+  try {
+    const user = JSON.parse(localStorage.getItem('user'));
+    const countRes = await postWithUser('/notifications/unread-count', user);
+    if (countRes.data?.status === 'success') {
+      unreadCount.value = countRes.data.data.unread_count;
+    }
+    const notifRes = await postWithUser('/notifications', user);
+    if (notifRes.data?.status === 'success') {
+      notifications.value = notifRes.data.data;
+    }
+  } catch (e) {
+    console.error('Failed to fetch notifications', e);
+  }
+};
+
+const toggleNotifications = () => {
+  showNotifDropdown.value = !showNotifDropdown.value;
+  if (showNotifDropdown.value) {
+    fetchNotifications();
+  }
+};
+
+const markAsRead = async (id) => {
+  try {
+    const user = JSON.parse(localStorage.getItem('user'));
+    await postWithUser(`/notifications/${id}/read`, user);
+    fetchNotifications();
+  } catch (e) {
+    console.error(e);
+  }
+};
+
+const markAllAsRead = async () => {
+  try {
+    const user = JSON.parse(localStorage.getItem('user'));
+    await postWithUser('/notifications/read-all', user);
+    fetchNotifications();
+    showNotifDropdown.value = false;
+  } catch (e) {
+    console.error(e);
+  }
+};
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  return d.toLocaleString('th-TH');
+};
+
+const authChangeHandler = () => {
+  checkAuth();
+  if (isAuthenticated.value) {
+    fetchNotifications();
+  } else {
+    notifications.value = [];
+    unreadCount.value = 0;
+  }
+};
+
+
 const checkAuth = () => {
   isAuthenticated.value = !!localStorage.getItem('user');
 };
@@ -32,7 +109,8 @@ const closeMobileMenu = () => {
 onMounted(() => {
   checkAuth();
   window.addEventListener('storage', checkAuth);
-  window.addEventListener('auth-change', checkAuth);
+  window.addEventListener('auth-change', authChangeHandler);
+  if (isAuthenticated.value) fetchNotifications();
 });
 </script>
 
@@ -51,6 +129,33 @@ onMounted(() => {
         <router-link to="/contact" active-class="active">ติดต่อเรา</router-link>
       </nav>
       <div class="nav-actions">
+
+        <div class="notification-container" ref="notifDropdownRef" v-if="isAuthenticated">
+          <button class="nav-bell-btn" @click.stop="toggleNotifications">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+            <span class="nav-badge" v-if="unreadCount > 0">{{ unreadCount }}</span>
+          </button>
+          
+          <div class="notif-dropdown" v-if="showNotifDropdown" @click.stop>
+            <div class="notif-header">
+              <h4>การแจ้งเตือน</h4>
+              <button class="mark-all-btn" @click.stop="markAllAsRead" v-if="unreadCount > 0">อ่านทั้งหมด</button>
+            </div>
+            <div class="notif-list">
+              <div v-if="notifications.length === 0" class="no-notif">ไม่มีการแจ้งเตือน</div>
+              <div v-for="n in notifications" :key="n.id" :class="['notif-item', { unread: n.is_read === 0 }]" @click.stop="markAsRead(n.id)">
+                <div class="notif-content">
+                  <div class="notif-message">{{ n.message }}</div>
+                  <div class="notif-time">{{ formatDate(n.created_at) }}</div>
+                </div>
+                <div class="unread-dot" v-if="n.is_read === 0"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <router-link v-if="!isAuthenticated" to="/login" class="btn-navbar btn-login">เข้าสู่ระบบ</router-link>
         <button v-else @click="handleLogout" class="btn-navbar btn-logout">ออกจากระบบ</button>
       </div>
@@ -354,4 +459,177 @@ onMounted(() => {
   width: 100%;
   text-align: center;
 }
+
+.notification-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-right: 0.5rem;
+}
+
+.nav-bell-btn {
+  background: none;
+  border: none;
+  color: #1e293b;
+  cursor: pointer;
+  position: relative;
+  padding: 0.5rem;
+  transition: color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-bell-btn:hover {
+  color: var(--primary);
+}
+
+.nav-bell-btn svg {
+  width: 24px;
+  height: 24px;
+}
+
+.nav-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background-color: #ef4444;
+  color: white;
+  font-size: 0.7rem;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 10px;
+  border: 2px solid white;
+  line-height: 1;
+}
+
+.notif-dropdown {
+  position: absolute;
+  top: calc(100% + 15px);
+  right: -20px;
+  width: 350px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+  z-index: 9999;
+  overflow: hidden;
+  border: 1px solid var(--border-light);
+  cursor: default;
+}
+
+.notif-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid var(--border-light);
+  background: #f8fafc;
+}
+
+.notif-header h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.mark-all-btn {
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.mark-all-btn:hover {
+  text-decoration: underline;
+}
+
+.notif-list {
+  max-height: 400px;
+  overflow-y: auto;
+  background: white;
+}
+
+.no-notif {
+  padding: 30px 20px;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+.notif-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 16px;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: pointer;
+  transition: background 0.2s;
+  text-align: left;
+}
+
+.notif-item:last-child {
+  border-bottom: none;
+}
+
+.notif-item:hover {
+  background: #f8fafc;
+}
+
+.notif-item.unread {
+  background: #f0fdf4;
+}
+
+.notif-item.unread:hover {
+  background: #dcfce7;
+}
+
+.notif-content {
+  flex: 1;
+  padding-right: 12px;
+}
+
+.notif-message {
+  font-size: 0.95rem;
+  color: #334155;
+  margin-bottom: 6px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.notif-item.unread .notif-message {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.notif-time {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.unread-dot {
+  width: 10px;
+  height: 10px;
+  background: var(--primary);
+  border-radius: 50%;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .notification-container {
+    margin-right: 15px;
+  }
+  .notif-dropdown {
+    position: fixed;
+    top: 70px;
+    right: 10px;
+    width: calc(100vw - 20px);
+    max-width: 350px;
+  }
+}
 </style>
+

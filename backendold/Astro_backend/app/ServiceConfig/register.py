@@ -6,6 +6,7 @@ import uuid
 import os
 import smtplib
 import json
+from ServiceConfig.notification_util import notify_user
 import base64
 import time
 

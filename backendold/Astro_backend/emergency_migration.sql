@@ -30,8 +30,9 @@ BEGIN
         ALTER TABLE api_credentials ADD COLUMN revoked_at DATETIME DEFAULT NULL;
     END IF;
 
-    -- Modify secret_key to allow NULL
+    -- Modify secret_key to allow NULL and add paused to status enum
     ALTER TABLE api_credentials MODIFY secret_key VARCHAR(64) NULL;
+    ALTER TABLE api_credentials MODIFY status ENUM('active','paused','revoked') DEFAULT 'active';
 END //
 
 DELIMITER ;

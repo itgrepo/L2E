@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch, computed, onActivated } from 'vue';
+import { ref, onMounted, watch, computed, onActivated, reactive } from 'vue';
 import { useRoute } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { encodeUserData, postWithUser } from '../utils/api';
@@ -89,6 +89,7 @@ const checkEditQuery = () => {
 };
 
 onMounted(async () => {
+  await fetchCategories();
   await fetchDatasets();
   checkEditQuery();
 });
@@ -104,6 +105,17 @@ watch(() => route.query.edit, () => {
 const selectForEdit = (item) => {
   editingId.value = item.service_id;
   formData.value = {
+    dataset_id: item.dataset_id || '',
+    category: item.category || '',
+    sub_category: item.sub_category || '',
+    status: item.status || 'Inactive',
+    service_name: item.service_name || '',
+    organization: item.organization || '',
+    access_type: item.access_type || 'เลือกการเข้าถึง',
+    contact_name: item.contact_name || '',
+    contact_email: item.contact_email || '',
+    tags: item.tags || '',
+    description: item.description || '',
     purpose: item.purpose || '',
     dept_contact: item.dept_contact || '',
     update_freq_unit: item.update_freq_unit || 'วัน',
@@ -209,7 +221,7 @@ const linkUrl = ref('');
 
 const apiDatasetId = ref('');
 const isApiEnabled = ref(true);
-const apiType = ref('general');
+const apiType = ref('public');
 const apiEndpoint = ref('');
 const apiDbName = ref('');
 const apiSourceType = ref('table');
@@ -275,7 +287,7 @@ watch(apiDatasetId, (newId) => {
   if (newId) {
     const ds = datasets.value.find(d => d.service_id === newId);
     isApiEnabled.value = ds ? (ds.api_enabled == true || ds.api_enabled == 1) : false;
-    apiType.value = ds?.api_type || 'general';
+    apiType.value = ds?.api_type || 'public';
     apiEndpoint.value = ds?.api_endpoint || '';
     apiDbName.value = ds?.api_db_name || '';
     apiSourceType.value = ds?.api_source_type || 'table';
@@ -469,6 +481,96 @@ const handleSubmit = async () => {
     isSubmitting.value = false;
   }
 };
+
+// L2E Category Mapping
+const categoryMap = reactive({
+  'Learning Catalog': ['Course / Learning Offerings'],
+  'Learning Record': ['Course Completion / Credit Earned'],
+  'Learner Profile': ['Competency / Profile / Career Interest'],
+  'Job Market': ['Vacancy / Labour Demand'],
+  'Skill Intelligence': ['Skill Demand / Gap / Salary Insight']
+});
+
+const showAddSubCatModal = ref(false);
+const newSubCatName = ref('');
+
+const modalSelectedCategory = ref('');
+
+const handleAddSubCategory = async () => {
+  if (!newSubCatName.value.trim()) return;
+  const cat = modalSelectedCategory.value;
+  if (!cat) {
+    alert('กรุณาเลือกหมวดหมู่หลักก่อนเพิ่มหมวดหมู่ย่อย');
+    return;
+  }
+  
+  const subName = newSubCatName.value.trim();
+  
+  try {
+    const userData = localStorage.getItem('user') || '';
+    const res = await apiClient.post('/addSubCategory', {
+      user: userData ? btoa(userData) : '',
+      category_name: cat,
+      sub_category_name: subName
+    });
+    
+    if (res.data && res.data.status === 'success') {
+      await fetchCategories(); // Refresh list
+      formData.value.category = cat;
+      setTimeout(() => {
+        formData.value.sub_category = subName;
+      }, 100);
+      showAddSubCatModal.value = false;
+      newSubCatName.value = '';
+    } else {
+      alert('Error: ' + (res.data.status || 'Failed'));
+    }
+  } catch (err) {
+    console.error(err);
+    alert('Failed to add sub-category');
+  }
+};
+
+const categoriesList = ref(['Learning Catalog', 'Learning Record', 'Learner Profile', 'Job Market', 'Skill Intelligence']);
+
+const fetchCategories = async () => {
+  try {
+    const response = await apiClient.get('/retrieveCategories');
+    if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
+      categoriesList.value = response.data.data.map(c => c.name || c.category_name);
+    }
+    
+    // Fetch Sub Categories
+    const subRes = await apiClient.get('/retrieveSubCategories');
+    if (subRes.data && subRes.data.status === 'success' && Array.isArray(subRes.data.data)) {
+      // Clear and rebuild map
+      for (let key in categoryMap) {
+        delete categoryMap[key];
+      }
+      subRes.data.data.forEach(item => {
+        if (!categoryMap[item.category_name]) categoryMap[item.category_name] = [];
+        if (!categoryMap[item.category_name].includes(item.sub_category_name)) {
+          categoryMap[item.category_name].push(item.sub_category_name);
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Fetch categories error:', error);
+  }
+};
+
+const availableSubCategories = computed(() => {
+  return categoryMap[formData.value.category] || [];
+});
+
+const onCategoryChange = () => {
+  const subs = categoryMap[formData.value.category];
+  if (subs && subs.length > 0) {
+    formData.value.sub_category = subs[0];
+  } else {
+    formData.value.sub_category = '';
+  }
+};
 </script>
 
 <template>
@@ -583,22 +685,22 @@ const handleSubmit = async () => {
                 <div class="form-row">
                   <div class="form-group">
                     <label>หมวดหมู่หลัก *</label>
-                    <select v-model="formData.category" required class="form-select-custom">
+                    <select v-model="formData.category" @change="onCategoryChange" required class="form-select-custom">
                       <option value="">เลือกหมวดหมู่ข้อมูลในหน้าหลัก</option>
-                      <option>สถิติประชากร</option>
-                      <option>สาธารณสุข</option>
-                      <option>เศรษฐกิจ</option>
-                      <option>สวัสดิการสังคม</option>
-                      <option>ความเหลื่อมล้ำ</option>
+                      <option v-for="cat in categoriesList" :key="cat" :value="cat">{{ cat }}</option>
                     </select>
                   </div>
                   <div class="form-group">
-                    <label>หมวดหมู่ย่อย</label>
-                    <select v-model="formData.sub_category" class="form-select-custom">
-                      <option value="">เลือกหมวดหมู่ข้อมูลย่อยในหน้าหลัก</option>
-                      <option>ข้อมูลสถิติ</option>
-                      <option>ข้อมูลระเบียน</option>
-                    </select>
+                    <label>หมวดหมู่ย่อย *</label>
+                    <div style="display: flex; gap: 8px;">
+                      <select v-model="formData.sub_category" class="form-select-custom" required style="flex: 1;">
+                        <option value="">เลือกหมวดหมู่ข้อมูลย่อยในหน้าหลัก</option>
+                        <option v-for="sub in availableSubCategories" :key="sub" :value="sub">{{ sub }}</option>
+                      </select>
+                      <button type="button" class="btn-add" @click="showAddSubCatModal = true; modalSelectedCategory = formData.category" style="padding: 0 16px; border-radius: 8px; height: 42px;">
+                        <span class="icon" style="margin-right: 0;">+</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -829,7 +931,7 @@ const handleSubmit = async () => {
               </div>
 
               <!-- DYNAMIC SECTION: GEOSPATIAL -->
-              <div v-if="formData.dataset_type === 'geospatial'" class="form-section-block mt-8" style="border-left: 4px solid #db2777; padding-left: 1rem;">
+              <div v-if="formData.dataset_type === 'geospatial'" class="form-section-block mt-8" style="border-left: 4px solid var(--primary); padding-left: 1rem;">
                 <h3 class="block-title text-[var(--primary)]">ข้อมูลเฉพาะ: ข้อมูลภูมิสารสนเทศเชิงพื้นที่</h3>
                 <div class="form-row">
                   <div class="form-group">
@@ -1130,8 +1232,9 @@ const handleSubmit = async () => {
                   <div class="form-group">
                     <label>ประเภท API *</label>
                     <select v-model="apiType" style="padding:10px 16px;border:1.5px solid #e2e8f0;border-radius:10px;">
-                      <option value="general">General (ทุกคนเห็นข้อมูลเหมือนกัน)</option>
-                      <option value="scope">Scope (จำกัดสิทธิ์ตามผู้ใช้)</option>
+                      <option value="public">Public API (เปิดเผยข้อมูลสาธารณะ ไม่ต้องใช้ API Key)</option>
+                      <option value="private">Private API (ต้องยืนยันตัวตนด้วย API Key และต้องผ่านการอนุมัติสิทธิ์)</option>
+                      <option value="scope">Scope API (จำกัดขอบเขตข้อมูลตามเงื่อนไขผู้ใช้รายบุคคล)</option>
                     </select>
                   </div>
                   <div class="form-group">
@@ -1202,6 +1305,32 @@ const handleSubmit = async () => {
               </svg>
               <p>กรุณาเลือกชุดข้อมูลด้านบนเพื่อจัดการการเข้าถึง API</p>
             </div>
+          </div>
+        </div>
+      </div>
+      <!-- Add Sub Category Modal -->
+      <div v-if="showAddSubCatModal" class="modal-overlay">
+        <div class="modal">
+          <div class="modal-header">
+            <h2>เพิ่มหมวดหมู่ย่อยใหม่</h2>
+            <button class="btn-close" @click="showAddSubCatModal = false">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label>หมวดหมู่หลัก</label>
+              <select v-model="modalSelectedCategory" class="form-select-custom">
+                <option value="">-- เลือกหมวดหมู่หลัก --</option>
+                <option v-for="cat in categoriesList" :key="cat" :value="cat">{{ cat }}</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-top: 16px;">
+              <label>ชื่อหมวดหมู่ย่อย</label>
+              <input v-model="newSubCatName" type="text" placeholder="ระบุชื่อหมวดหมู่ย่อย" class="form-input-custom" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-cancel" @click="showAddSubCatModal = false">ยกเลิก</button>
+            <button class="btn-save" @click="handleAddSubCategory">บันทึกข้อมูล</button>
           </div>
         </div>
       </div>
@@ -1374,7 +1503,7 @@ const handleSubmit = async () => {
   color: var(--primary);
   margin-bottom: 20px;
   padding-bottom: 10px;
-  border-bottom: 2px solid #fdf2f8;
+  border-bottom: 2px solid var(--mso-pink-dark);
 }
 
 .input-inline {
@@ -1496,7 +1625,7 @@ const handleSubmit = async () => {
 }
 
 .alert-success {
-  background-color: #fdf2f8;
+  background-color: var(--mso-pink-dark);
   color: var(--primary);
   border: 1px solid #bbf7d0;
 }
@@ -1573,7 +1702,7 @@ const handleSubmit = async () => {
 }
 
 .status-badge.active {
-  background-color: #fdf2f8;
+  background-color: var(--mso-pink-dark);
   color: var(--primary);
 }
 
@@ -1618,7 +1747,7 @@ const handleSubmit = async () => {
 
 .radio-card input:checked + .radio-card-content {
   border-color: var(--primary);
-  background-color: #fdf2f8;
+  background-color: var(--mso-pink-dark);
   color: var(--primary);
 }
 
@@ -1773,5 +1902,79 @@ input:checked + .toggle-slider:before {
   .config-container {
     padding: 24px;
   }
+}
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: white;
+  width: 90%;
+  max-width: 400px;
+  border-radius: 16px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+.modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.modal-body {
+  padding: 24px;
+}
+
+.modal-footer {
+  padding: 16px 24px;
+  background-color: #f8fafc;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
+}
+
+.btn-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--primary);
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-add:hover {
+  background-color: var(--primary-hover);
 }
 </style>

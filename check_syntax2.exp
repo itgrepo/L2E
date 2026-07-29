@@ -1,0 +1,18 @@
+#!/usr/bin/expect -f
+set timeout 60
+spawn ssh -t administrator@110.78.210.129 "sudo docker exec datax_backend_3001 python app.py"
+expect {
+    "yes/no" {
+        send "yes\r"
+        exp_continue
+    }
+    "password:" {
+        send "P@ssw0rd1234\r"
+        exp_continue
+    }
+    "password for administrator:" {
+        send "P@ssw0rd1234\r"
+        exp_continue
+    }
+    eof
+}

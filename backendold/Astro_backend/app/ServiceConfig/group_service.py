@@ -1,6 +1,7 @@
 from flask import request, jsonify
 from ServiceConfig import *
 import json
+from ServiceConfig.notification_util import notify_user
 import os
 import sys
 

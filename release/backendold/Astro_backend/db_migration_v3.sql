@@ -1,0 +1,5 @@
+ALTER TABLE service 
+ADD COLUMN date_start DATE DEFAULT NULL,
+ADD COLUMN date_updated DATE DEFAULT NULL,
+ADD COLUMN is_high_value VARCHAR(50) DEFAULT 'ไม่ใช่',
+ADD COLUMN is_reference VARCHAR(50) DEFAULT 'ไม่ใช่';

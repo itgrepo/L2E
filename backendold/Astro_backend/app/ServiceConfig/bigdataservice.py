@@ -786,6 +786,9 @@ def get_dataset_api(dataset_id):
                                 else:
                                     scope_where_clause += f"{prefix}`{field}` {op} %s"
                                     scope_params.append(val)
+                            else:
+                                if field:
+                                    return jsonify({'status': 'error', 'message': f'Invalid scope operator: {op}'}), 400
                     elif isinstance(scope_obj, dict):
                         for field, values in scope_obj.items():
                             if values and isinstance(values, list):
@@ -799,6 +802,12 @@ def get_dataset_api(dataset_id):
         # 4. Handle User Filters (Request Fields)
         filter_where_clause = ""
         filter_params = []
+        
+        # Deny unallowed request fields
+        for arg in request.args:
+            if arg != 'apikey' and arg not in req_fields_list_valid:
+                return jsonify({'status': 'error', 'message': f'Disallowed request field: {arg}'}), 400
+                
         for field in req_fields_list_valid:
             val = request.args.get(field)
             if val:
@@ -812,7 +821,7 @@ def get_dataset_api(dataset_id):
             select_clause = ", ".join([f"`{f}`" for f in res_fields_list_valid])
 
         # Whitelist databases check again (backend layer)
-        if db_name not in ['psu_backend', 'datalake', 'default', 'datax_db', 'datax_db_3001']:
+        if db_name not in ALLOWED_DATABASES:
             cursor.close()
             conn.close()
             return jsonify({'status': 'error', 'message': 'Database not in whitelist', 'request_id': request_id}), 403
@@ -855,22 +864,18 @@ def get_dataset_api(dataset_id):
 
     except Exception as e:
         import traceback
+        error_msg = str(e)
         current_app.logger.error(f"[{request_id}] API Error: {traceback.format_exc()}")
         if cursor and conn:
             try:
-                ip_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
-                log_sql = "INSERT INTO log (user_id, log_detail, type, path, ip, country) VALUES (0, %s, 'API', %s, %s, 'None')"
-                cursor.execute(log_sql, (f"[500] System Error: {str(e)[:50]}", f"/dataapi/api/v1/{dataset_id}", ip_addr))
-                conn.commit()
+                cursor.close()
+                conn.close()
             except: pass
-            cursor.close()
-            conn.close()
-        
-        return jsonify({
-            "status": "error",
-            "message": "An internal error occurred",
-            "request_id": request_id
-        }), 500
+            
+        if "Unknown column" in error_msg:
+            return jsonify({'status': 'error', 'message': 'Unknown field provided in request or configuration'}), 400
+            
+        return jsonify({'status': 'error', 'message': 'An internal error occurred processing your request', 'request_id': request_id}), 500
 
 # ============================================================
 # API Configuration & Management Endpoints
@@ -1183,19 +1188,51 @@ def revokeApiCredential():
         current_app.logger.error(f"API Management Error: {traceback.format_exc()}")
         return jsonify({"status": "error", "message": "An internal error occurred"}), 500
 
-@app.route('/resumeApiCredential', methods=['POST'])
+@app.route('/pauseApiCredential', methods=['POST'])
 @require_admin
-def resumeApiCredential():
-    """Resume (un-revoke) an API credential."""
+def pauseApiCredential():
+    """Pause an API credential temporarily."""
     try:
         dataInput = request.json
-        user_data = getattr(request, 'current_user', {})
-        # Loosen check for presentation
-        # Admin check handled by decorator
-
         credential_id = dataInput['credential_id']
         conn = mysql.connect()
         cursor = conn.cursor()
+        
+        cursor.execute("SELECT status FROM api_credentials WHERE credential_id = %s", (credential_id,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'status': 'error', 'message': 'Credential not found'})
+        if row[0] == 'revoked':
+            return jsonify({'status': 'error', 'message': 'Cannot pause a revoked credential'})
+            
+        sql = "UPDATE api_credentials SET status = 'paused' WHERE credential_id = %s"
+        cursor.execute(sql, (credential_id,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"API Management Error: {traceback.format_exc()}")
+        return jsonify({"status": "error", "message": "An internal error occurred"}), 500
+
+@app.route('/resumeApiCredential', methods=['POST'])
+@require_admin
+def resumeApiCredential():
+    """Resume (un-pause) an API credential."""
+    try:
+        dataInput = request.json
+        credential_id = dataInput['credential_id']
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT status FROM api_credentials WHERE credential_id = %s", (credential_id,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'status': 'error', 'message': 'Credential not found'})
+        if row[0] == 'revoked':
+            return jsonify({'status': 'error', 'message': 'Cannot resume a revoked credential'})
+
         sql = "UPDATE api_credentials SET status = 'active' WHERE credential_id = %s"
         cursor.execute(sql, (credential_id,))
         conn.commit()
@@ -1690,7 +1727,7 @@ def getAllApiScopes():
 
         conn = mysql.connect()
         cursor = conn.cursor()
-        sql = """SELECT c.credential_id, c.service_id, c.user_id, c.status, c.secret_key,
+        sql = """SELECT c.credential_id, c.service_id, c.user_id, c.status, c.public_key_id, c.key_last_four, c.expires_at,
                         u.username, u.firstname, u.lastname,
                         s.scope_json, s.scope_id,
                         srv.service_name, srv.dataset_id, srv.db_name, srv.source_name

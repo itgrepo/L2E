@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  db:
+    image: mariadb:10.5
+    container_name: datax_db_3003
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-datax_db_3003}
+      MYSQL_USER: ${MYSQL_USER:-astro}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-password123}
+    ports:
+      - "${MYSQL_PORT_EXTERNAL:-3311}:3306"
+    volumes:
+      - datax_db_3003_data:/var/lib/mysql
+    networks:
+      - datax-network-3003
+
+  backend:
+    platform: linux/amd64
+    build: ./backendold/Astro_backend
+    container_name: datax_backend_3003
+    depends_on:
+      - db
+    ports:
+      - "${BACKEND_PORT_EXTERNAL:-3011}:7000"
+    volumes:
+      - ./backendold/Astro_backend/app:/app
+      - ./backendold/Astro_backend/uploads:/app/uploads
+    environment:
+      - DB_HOST=db
+      - DB_USER=${MYSQL_USER:-astro}
+      - DB_PASS=${MYSQL_PASSWORD:-password123}
+      - DB_NAME=${MYSQL_DATABASE:-datax_db_3003}
+      - MAIL_SERVER=${MAIL_SERVER:-smtp.gmail.com}
+      - MAIL_PORT=${MAIL_PORT:-465}
+      - MAIL_USERNAME=${MAIL_USERNAME:-sixanate@gmail.com}
+      - MAIL_PASSWORD=${MAIL_PASSWORD:-inljvvpjdtsvglwn}
+      - MAIL_USE_SSL=${MAIL_USE_SSL:-true}
+      - MAIL_FROM=${MAIL_FROM:-DEX Data Exchange <sixanate@gmail.com>}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3003}
+    restart: always
+    networks:
+      - datax-network-3003
+
+  frontend:
+    platform: linux/amd64
+    build: ./frontend
+    container_name: datax_frontend_3003
+    ports:
+      - "${FRONTEND_PORT_EXTERNAL:-3003}:80"
+      - "${FRONTEND_PORT_SSL:-443}:443"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${SSL_CERT_PATH:-./demo_ssl/server.crt}:/etc/nginx/ssl/server.crt:ro
+      - ${SSL_KEY_PATH:-./demo_ssl/server.key}:/etc/nginx/ssl/server.key:ro
+    restart: always
+    networks:
+      - datax-network-3003
+
+  mailhog:
+    image: mailhog/mailhog
+    container_name: datax_mailhog_3003
+    ports:
+      - "1028:1025"
+      - "8028:8025"
+    networks:
+      - datax-network-3003
+
+volumes:
+  datax_db_3003_data:
+
+networks:
+  datax-network-3003:
+    driver: bridge

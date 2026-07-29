@@ -1,0 +1,2 @@
+ALTER TABLE service
+ADD COLUMN api_enabled BOOLEAN DEFAULT FALSE;

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import intelligistDataxLogo from '../assets/intelligist-datax-logo.png';
 import { themeConfig } from '../utils/theme';
 
@@ -8,20 +8,46 @@ const isSettingsExpanded = ref(false);
 const isMobileMenuOpen = ref(false);
 const userName = ref('User');
 const userRole = ref('Guest');
+const isAdmin = ref(false);
 const route = useRoute();
+const router = useRouter();
 
-// Close mobile sidebar on route change
-watch(route, () => {
+const checkSettingsExpanded = (currentPath) => {
+  const isSettingRoute = settingItems.some(item => currentPath === item.path);
+  if (isSettingRoute) {
+    isSettingsExpanded.value = true;
+  }
+};
+
+// Close mobile sidebar on route change & auto-expand settings
+watch(route, (newRoute) => {
   isMobileMenuOpen.value = false;
+  checkSettingsExpanded(newRoute.path);
 });
 
 onMounted(() => {
   const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
   if (savedUser.firstname) {
     userName.value = `${savedUser.firstname} ${savedUser.lastname || ''}`;
-    userRole.value = savedUser.role || 'Administrator';
+    userRole.value = savedUser.role || (savedUser.isAdmin === 'true' || savedUser.isAdmin === true ? 'Administrator' : 'User');
+    isAdmin.value = savedUser.isAdmin === 'true' || savedUser.isAdmin === true || String(savedUser.previlage_id) !== '3';
   }
+  checkSettingsExpanded(route.path);
 });
+
+const toggleSettings = () => {
+  isSettingsExpanded.value = !isSettingsExpanded.value;
+  if (isSettingsExpanded.value) {
+    router.push('/permission-management');
+  }
+};
+
+const handleLogout = () => {
+  localStorage.removeItem('user');
+  localStorage.removeItem('token');
+  window.dispatchEvent(new Event('auth-change'));
+  window.location.href = '/';
+};
 
 const menuItems = [
   { name: 'หน้าหลัก', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6', path: '/dashboard' },
@@ -32,6 +58,7 @@ const menuItems = [
 const toolItems = [
   { name: 'API Management', icon: 'M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z', path: '/api-management' },
   { name: 'API Monitor', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10', path: '/api-monitor' },
+  { name: 'User Management', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z', path: '/user-management' },
   { name: 'ติดตามสิทธิ์ข้อมูล', icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1', path: '/dataset-permission-monitor' },
   { name: 'อนุมัติสมาชิก', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', path: '/user-approval' },
   { name: 'Analytics', icon: 'M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z', path: '/analytics' },
@@ -45,7 +72,6 @@ const settingItems = [
   { name: 'Organization Management', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4', path: '/organization-management' },
   { name: 'Category Management', icon: 'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z', path: '/category-management' },
   { name: 'Group Dataset Management', icon: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z', path: '/group-dataset-management' },
-  { name: 'User Management', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z', path: '/user-management' },
 ];
 </script>
 
@@ -86,9 +112,9 @@ const settingItems = [
         <span>{{ item.name }}</span>
       </router-link>
 
-      <div class="nav-section">เครื่องมือ</div>
+      <div v-if="toolItems.filter(item => isAdmin || ['/api-management'].includes(item.path)).length > 0" class="nav-section">เครื่องมือ</div>
       <router-link 
-        v-for="item in toolItems" 
+        v-for="item in toolItems.filter(item => isAdmin || ['/api-management'].includes(item.path))" 
         :key="item.name"
         :to="item.path"
         class="nav-item"
@@ -100,9 +126,9 @@ const settingItems = [
         <span>{{ item.name }}</span>
       </router-link>
 
-      <div class="nav-section">การตั้งค่า</div>
-      <div class="nav-group" :class="{ 'expanded': isSettingsExpanded }">
-        <button class="nav-item group-toggle" @click="isSettingsExpanded = !isSettingsExpanded">
+      <div v-if="isAdmin" class="nav-section">การตั้งค่า</div>
+      <div v-if="isAdmin" class="nav-group" :class="{ 'expanded': isSettingsExpanded }">
+        <button class="nav-item group-toggle" @click="toggleSettings">
           <svg xmlns="http://www.w3.org/2000/svg" class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
           </svg>
@@ -146,7 +172,7 @@ const settingItems = [
           <p class="user-role">{{ userRole }}</p>
         </div>
       </router-link>
-      <button class="logout-btn" title="Logout">
+      <button class="logout-btn" title="Logout" @click="handleLogout">
         <svg xmlns="http://www.w3.org/2000/svg" class="logout-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
         </svg>
@@ -329,7 +355,7 @@ const settingItems = [
 .user-badge {
   width: 40px;
   height: 40px;
-  background-color: #fce7f3;
+  background-color: var(--mso-pink-dark);
   border-radius: 12px;
   display: flex;
   align-items: center;

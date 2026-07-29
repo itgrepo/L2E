@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+    db:
+        image: mariadb:10.5
+        container_name: astro_db
+        environment:
+            MYSQL_ROOT_PASSWORD: rootpassword
+            MYSQL_DATABASE: psu_backend
+            MYSQL_USER: astro
+            MYSQL_PASSWORD: password123
+        ports:
+            - "3307:3306"
+        volumes:
+            - db_data:/var/lib/mysql
+        networks:
+            - code-network-dev
+
+    astro_management_console:
+        build: .
+        image: astro_management_console
+        container_name: astro_management_console
+        depends_on:
+            - db
+        ports:
+            - "7001:7000"
+        volumes:
+            - ./app:/app
+            - ./uploads:/app/uploads
+            - ./supervisord.conf:/etc/supervisor/conf.d/supervisord.conf
+        environment:
+            - DB_HOST=db
+            - DB_USER=astro
+            - DB_PASS=password123
+            - DB_NAME=psu_backend
+        restart: always
+        networks:
+            - code-network-dev
+
+volumes:
+    db_data:
+
+networks:
+    code-network-dev:
+        driver: bridge

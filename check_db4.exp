@@ -1,0 +1,18 @@
+#!/usr/bin/expect -f
+set timeout 60
+spawn ssh -t administrator@110.78.210.129 "sudo docker exec datax_db_3001 mysql -u astro -ppassword123 datax_db_3001 -e 'SELECT username, ua.password FROM user u JOIN user_activity ua ON u.user_id = ua.user_id WHERE username=\"afourdy21\";'"
+expect {
+    "yes/no" {
+        send "yes\r"
+        exp_continue
+    }
+    "password:" {
+        send "P@ssw0rd1234\r"
+        exp_continue
+    }
+    "password for administrator:" {
+        send "P@ssw0rd1234\r"
+        exp_continue
+    }
+    eof
+}

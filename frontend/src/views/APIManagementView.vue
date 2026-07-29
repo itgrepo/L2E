@@ -68,9 +68,65 @@ const toggleKey = (id) => {
   showKey.value = showKey.value === id ? null : id;
 };
 
+const handleCredentialAction = async (endpoint, cred) => {
+  if (!confirm(`Are you sure you want to ${endpoint.replace('ApiCredential', '')} this key?`)) return;
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const response = await postWithUser(`/${endpoint}`, userData, {
+      credential_id: cred.credential_id
+    });
+    if (response.data.status === 'success') {
+      alert(`Successfully performed action.`);
+      // Refresh credentials
+      if (selectedService.value) {
+        await fetchCredentials(selectedService.value.service_id);
+      } else if (scopeSelectedService.value) {
+        await fetchScopesForService(scopeSelectedService.value.service_id);
+      }
+    } else {
+      alert(`Error: ${response.data.message}`);
+    }
+  } catch (error) {
+    console.error('Error performing action:', error);
+    alert('An error occurred.');
+  }
+};
+
+const formatDateTime = (dateStr) => {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  return d.toLocaleString('en-GB'); // DD/MM/YYYY, HH:MM:SS
+};
+
 onMounted(() => {
   fetchServices();
 });
+
+const toggleCredentialStatus = async (item) => {
+  if (item.status === 'revoked') return;
+  const isCurrentlyActive = item.status === 'active';
+  const actionName = isCurrentlyActive ? 'pause' : 'resume';
+  const endpoint = isCurrentlyActive ? 'pauseApiCredential' : 'resumeApiCredential';
+  
+  if (!confirm(`Are you sure you want to ${actionName} this key?`)) return;
+  
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await apiClient.post(`/${endpoint}`, {
+      user: btoa(JSON.stringify(userData)),
+      credential_id: item.credential_id
+    });
+    if (res.data.status === 'success') {
+      // Refresh list
+      fetchServices();
+      if (scopeSelectedService.value) {
+        fetchScopesForService(scopeSelectedService.value.service_id);
+      }
+    } else {
+      alert('Error: ' + res.data.status);
+    }
+  } catch (e) { console.error(e); }
+};
 
 const newApiColumns = ref([]);
 
@@ -110,7 +166,14 @@ const isEditScope = ref(false);
 const editingScopeCredentialId = ref(null);
 const allUsers = ref([]);
 const availableColumns = ref([]);
+
+// Add User form modal for General Access
+const showAddUserFormModal = ref(false);
+const addUserFormUserId = ref('');
+const addUserFormExpiry = ref('');
+
 const scopeFormUser = ref('');
+const scopeFormExpiry = ref('');
 const scopeConditions = ref([]);
 
 const openScopesForService = async (service) => {
@@ -165,6 +228,7 @@ const openAddScopeForm = async () => {
   isEditScope.value = false;
   editingScopeCredentialId.value = null;
   scopeFormUser.value = '';
+  scopeFormExpiry.value = '';
   scopeConditions.value = [{ logic: 'AND', field: '', operator: '=', value: '' }];
   
   await fetchAllUsers();
@@ -177,6 +241,16 @@ const openEditScopeForm = async (scope) => {
   isEditScope.value = true;
   editingScopeCredentialId.value = scope.credential_id;
   scopeFormUser.value = scope.user_id;
+  
+  // Format expiry date for datetime-local input (YYYY-MM-DDThh:mm)
+  if (scope.expires_at) {
+    const d = new Date(scope.expires_at);
+    const tzoffset = (new Date()).getTimezoneOffset() * 60000; // offset in milliseconds
+    const localISOTime = (new Date(d - tzoffset)).toISOString().slice(0, 16);
+    scopeFormExpiry.value = localISOTime;
+  } else {
+    scopeFormExpiry.value = '';
+  }
   
   // Parse existing scope
   const existingScope = scope.scope_json || [];
@@ -210,12 +284,19 @@ const saveScopeForm = async () => {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     const validConditions = scopeConditions.value.filter(c => c.field && c.value);
     
-    const res = await apiClient.post('/saveApiScopeForUser', {
+    const payload = {
       user: btoa(JSON.stringify(userData)),
       service_id: scopeSelectedService.value.service_id,
       target_user_id: scopeFormUser.value,
       scope_json: validConditions
-    });
+    };
+    if (scopeFormExpiry.value) {
+      // Convert local datetime back to standard format for backend
+      const utcDate = new Date(scopeFormExpiry.value).toISOString();
+      payload.expires_at = utcDate;
+    }
+    
+    const res = await apiClient.post('/saveApiScopeForUser', payload);
     
     
     if (res.data.status === 'success') {
@@ -230,7 +311,46 @@ const saveScopeForm = async () => {
     }
   } catch (e) {
     console.error(e);
-    alert('Failed to save scope');
+  }
+};
+
+const openAddUserForm = async () => {
+  addUserFormUserId.value = '';
+  addUserFormExpiry.value = '';
+  await fetchAllUsers();
+  showAddUserFormModal.value = true;
+};
+
+const saveAddUserForm = async () => {
+  if (!addUserFormUserId.value) {
+    alert('กรุณาเลือก User');
+    return;
+  }
+  
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const payload = {
+      user: btoa(JSON.stringify(userData)),
+      service_id: selectedService.value.service_id,
+      target_user_id: addUserFormUserId.value
+    };
+    if (addUserFormExpiry.value) {
+      payload.expires_at = new Date(addUserFormExpiry.value).toISOString();
+    }
+    
+    const res = await apiClient.post('/addApiCredential', payload);
+    
+    if (res.data.status === 'success') {
+      if (res.data.secret_key) {
+        alert('SUCCESS! Please copy this API Key now, it will not be shown again:\n\n' + res.data.secret_key);
+      }
+      showAddUserFormModal.value = false;
+      await fetchCredentialsForService(selectedService.value.service_id);
+    } else {
+      alert('Error adding user: ' + res.data.status);
+    }
+  } catch (e) {
+    console.error(e);
   }
 };
 
@@ -463,7 +583,7 @@ const formatScopeJson = (scopeJson) => {
           </div>
           <div class="modal-body">
             <div class="table-actions text-right mb-4">
-              <button class="btn-outline-primary">
+              <button class="btn-outline-primary" @click="openAddUserForm">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
                 </svg>
@@ -476,6 +596,7 @@ const formatScopeJson = (scopeJson) => {
                   <th>USERNAME</th>
                   <th>PUBLIC KEY ID</th>
                   <th>API KEY (Last 4)</th>
+                  <th>EXPIRES AT</th>
                   <th>STATUS</th>
                   <th>ACTIONS</th>
                 </tr>
@@ -487,13 +608,27 @@ const formatScopeJson = (scopeJson) => {
                   <td class="key-cell">
                     <span class="secret-box">••••••••••••{{ cred.key_last_four }}</span>
                   </td>
+                  <td>{{ formatDateTime(cred.expires_at) }}</td>
                   <td>
-                    <span class="status-badge active">active</span>
+                    <span :class="['status-badge', cred.status]">{{ cred.status }}</span>
                   </td>
-                  <td></td>
+                  <td>
+                    <div class="action-btns">
+                      <label class="toggle-switch" title="Toggle Status" @click.prevent="toggleCredentialStatus(cred)" v-if="cred.status !== 'revoked'">
+                        <input type="checkbox" :checked="cred.status === 'active'">
+                        <span class="slider"></span>
+                      </label>
+                      <button v-if="cred.status !== 'revoked'" class="btn-icon btn-icon-danger" @click="handleCredentialAction('revokeApiCredential', cred)" title="Revoke">
+                        🚫
+                      </button>
+                      <button class="btn-icon btn-icon-danger" @click="handleCredentialAction('deleteApiCredential', cred)" title="Delete">
+                        🗑️
+                      </button>
+                    </div>
+                  </td>
                 </tr>
                 <tr v-if="credentials.length === 0">
-                  <td colspan="5" class="text-center text-muted py-4">ไม่มีข้อมูลผู้ใช้งาน</td>
+                  <td colspan="6" class="text-center text-muted py-4">ไม่มีข้อมูลผู้ใช้งาน</td>
                 </tr>
               </tbody>
             </table>
@@ -525,6 +660,8 @@ const formatScopeJson = (scopeJson) => {
                   <th>API KEY (Last 4)</th>
                   <th>API NAME</th>
                   <th>SCOPES</th>
+                  <th>EXPIRES AT</th>
+                  <th>STATUS</th>
                   <th>ACTIONS</th>
                 </tr>
               </thead>
@@ -541,6 +678,10 @@ const formatScopeJson = (scopeJson) => {
                   <td>
                     <span class="scope-badge">{{ formatScopeJson(sc.scope_json) }}</span>
                   </td>
+                  <td>{{ formatDateTime(sc.expires_at) }}</td>
+                  <td>
+                    <span :class="['status-badge', sc.status]">{{ sc.status }}</span>
+                  </td>
                   <td>
                     <div class="action-btns">
                       <button class="btn-icon" @click="openEditScopeForm(sc)" title="Edit">
@@ -548,19 +689,59 @@ const formatScopeJson = (scopeJson) => {
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                         </svg>
                       </button>
-                      <button class="btn-icon btn-icon-danger" @click="deleteScopeEntry(sc)" title="Delete">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
+                      <label class="toggle-switch" title="Toggle Status" @click.prevent="toggleCredentialStatus(sc)" v-if="sc.status !== 'revoked'">
+                        <input type="checkbox" :checked="sc.status === 'active'">
+                        <span class="slider"></span>
+                      </label>
+                      <button v-if="sc.status !== 'revoked'" class="btn-icon btn-icon-danger" @click="handleCredentialAction('revokeApiCredential', sc)" title="Revoke">
+                        🚫
+                      </button>
+                      <button class="btn-icon btn-icon-danger" @click="handleCredentialAction('deleteApiCredential', sc)" title="Delete">
+                        🗑️
                       </button>
                     </div>
                   </td>
                 </tr>
                 <tr v-if="scopeCredentials.length === 0">
-                  <td colspan="6" class="text-center text-muted py-4">ไม่มีข้อมูล Scope สำหรับ API นี้</td>
+                  <td colspan="8" class="text-center text-muted py-4">ไม่มีข้อมูล Scope สำหรับ API นี้</td>
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ Add User Form Modal (GENERAL API) ============ -->
+      <div v-if="showAddUserFormModal" class="modal-overlay" @click.self="showAddUserFormModal = false">
+        <div class="modal-content modal-lg">
+          <div class="modal-header">
+            <h3>ADD USER</h3>
+            <button @click="showAddUserFormModal = false" class="modal-close">&times;</button>
+          </div>
+          <div class="modal-body form-grid">
+            <div class="form-row">
+              <label>API / Dataset</label>
+              <input type="text" :value="(selectedService?.dataset_id || selectedService?.service_id) + ' - ' + selectedService?.service_name" disabled style="background:#f1f5f9; color:#475569;">
+            </div>
+
+            <div class="form-row">
+              <label>User <span class="required">*</span></label>
+              <select v-model="addUserFormUserId">
+                <option value="">-- เลือก User --</option>
+                <option v-for="usr in allUsers" :key="usr.user_id" :value="usr.user_id">
+                  {{ usr.username }} ({{ usr.firstname }} {{ usr.lastname }})
+                </option>
+              </select>
+            </div>
+
+            <div class="form-row">
+              <label>Expires At</label>
+              <input type="datetime-local" v-model="addUserFormExpiry">
+            </div>
+          </div>
+          <div class="modal-footer justify-end">
+            <button class="btn-cancel" @click="showAddUserFormModal = false" style="margin-right:8px;">CANCEL</button>
+            <button class="btn-primary" @click="saveAddUserForm">SAVE</button>
           </div>
         </div>
       </div>
@@ -588,6 +769,11 @@ const formatScopeJson = (scopeJson) => {
                   {{ usr.username }} ({{ usr.firstname }} {{ usr.lastname }})
                 </option>
               </select>
+            </div>
+
+            <div class="form-row">
+              <label>Expires At</label>
+              <input type="datetime-local" v-model="scopeFormExpiry">
             </div>
 
             <!-- Scope Conditions (WHERE) -->
@@ -655,7 +841,10 @@ const formatScopeJson = (scopeJson) => {
 .api-table td { padding: 16px; border-bottom: 1px solid #e2e8f0; font-size: 0.9375rem; color: #1e293b; vertical-align: middle; }
 .api-table th.text-center, .api-table td.text-center { text-align: center; }
 
-.status-badge { padding: 4px 12px; border-radius: 4px; font-size: 0.8125rem; font-weight: 600; background: #f8fafc; color: #1e293b; }
+.status-badge { padding: 4px 12px; border-radius: 4px; font-size: 0.8125rem; font-weight: 600; text-transform: uppercase; }
+.status-badge.active { background: #dcfce7; color: #166534; }
+.status-badge.paused { background: #fef08a; color: #854d0e; }
+.status-badge.revoked { background: #fee2e2; color: #991b1b; }
 
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .modal-content { background: white; border-radius: 4px; width: 90%; max-width: 600px; max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column; }
@@ -704,4 +893,13 @@ const formatScopeJson = (scopeJson) => {
 .scope-value { flex: 2; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.875rem; }
 .scope-remove { background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1rem; padding: 4px 8px; font-weight: bold; }
 .scope-remove:hover { color: #dc2626; }
+
+/* Toggle Switch */
+.toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; margin-right: 8px; vertical-align: middle; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .3s; border-radius: 24px; }
+.slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+input:checked + .slider { background-color: #10b981; }
+input:checked + .slider:before { transform: translateX(20px); }
+input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
 </style>

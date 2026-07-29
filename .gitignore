@@ -36,3 +36,12 @@ intelligist_datax_full_dump.sql
 *.tar.gz
 release_intelligist_datax/
 
+
+# Security keys
+*.key
+*.pem
+*.ppk
+ubuntuL2E.*
+
+# Scratch directory
+scratch/

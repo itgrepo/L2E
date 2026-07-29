@@ -192,6 +192,82 @@ def addRole():
         print(f"Error in addRole: {e}")
         return jsonify({"status": "error", "message": str(e)})
 
+
+@app.route('/mgmt/createUser', methods=['POST'])
+def createUser():
+    try:
+        dataInput = request.json
+        user_data = safe_json_loads(platform_decode(dataInput.get('user', '')))
+        
+        if not user_data or not checkUserIsAdmin(user_data):
+            return jsonify({"status": "error", "message": "Permission Denied"})
+
+        username = dataInput.get('username')
+        email = dataInput.get('email')
+        password = dataInput.get('password')
+        status_id = dataInput.get('status_id', 1)
+        previlage_id = dataInput.get('previlage_id', 3)
+        groups = dataInput.get('groups', [])
+        
+        if not username or not email or not password:
+            return jsonify({"status": "error", "message": "Missing required fields"})
+
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        # Check duplicate
+        cursor.execute("SELECT user_id FROM user WHERE username = %s OR email = %s", (username, email))
+        if cursor.fetchone():
+            cursor.close()
+            return jsonify({"status": "error", "message": "Username or Email already exists"})
+
+        # Insert user
+        sql_user = """
+            INSERT INTO user (username, password, email, firstname, lastname,
+                              national_id, national_id_book, national_id_mode,
+                              status_id, status_account, previlage_id, job_title,
+                              policy_id, usage_objective, create_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+        """
+        cursor.execute(sql_user, (
+            username, password, email, '', '',
+            username, '', 1,        
+            status_id, 'active', previlage_id, '',     
+            1, '' 
+        ))
+        user_id = cursor.lastrowid
+        
+        # Insert user_activity
+        sql_activity = """
+            INSERT INTO user_activity (user_id, login_status, login_respond, create_date,
+                                       status_account, password, emailnews)
+            VALUES (%s, %s, %s, UNIX_TIMESTAMP(), %s, %s, %s)
+        """
+        cursor.execute(sql_activity, (user_id, 0, 0, '0', password, '-'))
+
+        # Insert password history
+        sql_pass = "INSERT INTO user_password_history VALUES(NULL, %s, '1', %s, UNIX_TIMESTAMP())"
+        cursor.execute(sql_pass, (user_id, password))
+
+        # Insert DataField placeholder
+        sql_datafield = "INSERT INTO DataField (national_id, national_id_book, sublevel_id, expiration) VALUES (%s, %s, %s, '9999-01-01')"
+        cursor.execute(sql_datafield, (username, '', 1.1))
+        cursor.execute(sql_datafield, (username, '', 1.2))
+
+        # Handle groups
+        if groups and len(groups) > 0:
+            for group_id in groups:
+                cursor.execute("INSERT INTO user_groups_relation (user_id, group_id) VALUES (%s, %s)", (user_id, group_id))
+                
+        conn.commit()
+        cursor.close()
+
+        logAction(user_id=user_data.get('user_id'), path="/mgmt/createUser", log=f"Admin created user: {username}", type="info")
+        return jsonify({"status": "success", "user_id": user_id})
+    except Exception as e:
+        print("Error in createUser: ", str(e))
+        return jsonify({"status": "error", "message": str(e)})
+
 @app.route('/mgmt/deleteUser', methods=['POST'])
 def deleteUser():
     try:

@@ -10,6 +10,7 @@ tar --exclude='node_modules' --exclude='.git' --exclude='dist' -czf $FILE .
 
 echo "🚀 Uploading to $HOST..."
 expect <<EOF
+set timeout 600
 spawn scp $FILE $USER@$HOST:/home/$USER/
 expect {
     "yes/no" {
