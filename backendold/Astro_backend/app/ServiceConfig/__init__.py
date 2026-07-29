@@ -57,10 +57,11 @@ mysql.init_app(app)
 
 
 def logAction(user_id, path, log, type):
-    ip = request.headers.get('X-FORWARDED-FOR',None)
-    ip_address = ip.split(',')
-    #ip = "192.168.1.1, 70.41.3.18, 150.172.238.178"
-    ip_address = ip.split(',')
+    ip = request.headers.get('X-FORWARDED-FOR', None)
+    if ip:
+        ip_address = ip.split(',')
+    else:
+        ip_address = [request.remote_addr or '127.0.0.1']
     ip_check = ip_address[0].split('.')
     if ip_check[0] != "192":
         conn = mysql.connect()
@@ -141,6 +142,32 @@ def checkUserIsAdmin(user_data):
             return False #user not admin
     else : #not found user
         return False
+
+from functools import wraps
+def require_admin(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        try:
+            dataInput = request.json if request.is_json else request.form
+            if not dataInput:
+                return jsonify({"status": "error", "message": "Authentication required"}), 401
+            
+            user_str = dataInput.get('user')
+            if not user_str:
+                return jsonify({"status": "error", "message": "Authentication required"}), 401
+            
+            user_data = safe_json_loads(platform_decode(user_str))
+            if not user_data or not user_data.get('user_id'):
+                return jsonify({"status": "error", "message": "Invalid user payload"}), 401
+                
+            if not checkUserIsAdmin(user_data):
+                return jsonify({"status": "error", "message": "Admin access required"}), 403
+                
+            request.current_user = user_data
+            return f(*args, **kwargs)
+        except Exception as e:
+            return jsonify({"status": "error", "message": "Authentication error"}), 401
+    return decorated
     
     #--------------------------------------------------------------#
 def createSecretKeyTwoFactor(username,option):
