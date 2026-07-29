@@ -68,6 +68,52 @@ const toggleKey = (id) => {
   showKey.value = showKey.value === id ? null : id;
 };
 
+
+const showEditExpiryModal = ref(false);
+const editExpiryCred = ref(null);
+const editExpiryDate = ref('');
+
+const openEditExpiryForm = (cred) => {
+  editExpiryCred.value = cred;
+  if (cred.expires_at) {
+    const d = new Date(cred.expires_at);
+    const tzoffset = (new Date()).getTimezoneOffset() * 60000;
+    const localISOTime = (new Date(d - tzoffset)).toISOString().slice(0, 16);
+    editExpiryDate.value = localISOTime;
+  } else {
+    editExpiryDate.value = '';
+  }
+  showEditExpiryModal.value = true;
+};
+
+const saveEditExpiry = async () => {
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const payload = {
+      credential_id: editExpiryCred.value.credential_id
+    };
+    if (editExpiryDate.value) {
+      payload.expires_at = new Date(editExpiryDate.value).toISOString();
+    }
+    
+    const res = await postWithUser('/extendApiCredential', userData, payload);
+    if (res.data.status === 'success') {
+      showEditExpiryModal.value = false;
+      fetchServices();
+      if (selectedService.value) {
+        fetchCredentialsForService(selectedService.value.service_id);
+      }
+      if (scopeSelectedService.value) {
+        fetchScopesForService(scopeSelectedService.value.service_id);
+      }
+    } else {
+      alert('Error updating expiry: ' + res.data.status);
+    }
+  } catch (e) {
+    console.error(e);
+  }
+};
+
 const handleCredentialAction = async (endpoint, cred) => {
   if (!confirm(`Are you sure you want to ${endpoint.replace('ApiCredential', '')} this key?`)) return;
   try {
@@ -621,6 +667,9 @@ const formatScopeJson = (scopeJson) => {
                         <input type="checkbox" :checked="cred.status === 'active'">
                         <span class="slider"></span>
                       </label>
+                      <button v-if="cred.status !== 'revoked'" class="btn-icon btn-icon-primary" @click="openEditExpiryForm(cred)" title="Set Expiry">
+                        📅
+                      </button>
                       <button v-if="cred.status !== 'revoked'" class="btn-icon btn-icon-danger" @click="handleCredentialAction('revokeApiCredential', cred)" title="Revoke">
                         🚫
                       </button>
@@ -745,6 +794,30 @@ const formatScopeJson = (scopeJson) => {
           <div class="modal-footer justify-end">
             <button class="btn-cancel" @click="showAddUserFormModal = false" style="margin-right:8px;">CANCEL</button>
             <button class="btn-primary" @click="saveAddUserForm">SAVE</button>
+          </div>
+        </div>
+      </div>
+
+            <!-- ============ Edit Expiry Form Modal ============ -->
+      <div v-if="showEditExpiryModal" class="modal-overlay" @click.self="showEditExpiryModal = false">
+        <div class="modal-content modal-md">
+          <div class="modal-header">
+            <h3>SET EXPIRES AT</h3>
+            <button @click="showEditExpiryModal = false" class="modal-close">&times;</button>
+          </div>
+          <div class="modal-body form-grid">
+            <div class="form-row">
+              <label>User / API</label>
+              <input type="text" :value="editExpiryCred?.username || editExpiryCred?.dataset_id || editExpiryCred?.service_id" disabled style="background:#f1f5f9; color:#475569;">
+            </div>
+            <div class="form-row">
+              <label>Expires At (Leave blank for no expiry)</label>
+              <input type="datetime-local" v-model="editExpiryDate">
+            </div>
+          </div>
+          <div class="modal-footer justify-end">
+            <button class="btn-cancel" @click="showEditExpiryModal = false" style="margin-right:8px;">CANCEL</button>
+            <button class="btn-primary" @click="saveEditExpiry">SAVE</button>
           </div>
         </div>
       </div>
