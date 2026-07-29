@@ -143,16 +143,11 @@ def retrieveSubCategories():
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        # Create table if not exists for minimal setup
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sub_category (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            category_name VARCHAR(255) NOT NULL,
-            sub_category_name VARCHAR(255) NOT NULL
-        )
-        """)
-        
-        sql = "SELECT category_name, sub_category_name FROM sub_category"
+        sql = """
+        SELECT c.category_name, sc.sub_category_name 
+        FROM sub_category sc
+        JOIN category c ON sc.category_id = c.category_id
+        """
         cursor.execute(sql)
         data = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
@@ -171,7 +166,6 @@ def addSubCategory():
         decoded_user = platform_decode(dataInput.get('user')) if dataInput.get('user') else None
         user_data = safe_json_loads(decoded_user) if decoded_user else None
 
-        # Minimal check or allow if needed, matching existing
         category_name = dataInput.get('category_name')
         sub_category_name = dataInput.get('sub_category_name')
 
@@ -181,20 +175,21 @@ def addSubCategory():
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        # Create table if not exists
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sub_category (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            category_name VARCHAR(255) NOT NULL,
-            sub_category_name VARCHAR(255) NOT NULL
-        )
-        """)
+        # Get category_id
+        cursor.execute("SELECT category_id FROM category WHERE category_name=%s", (category_name,))
+        cat_row = cursor.fetchone()
+        if not cat_row:
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "Category not found"})
+        
+        cat_id = cat_row[0]
         
         # Check duplicate
-        cursor.execute("SELECT COUNT(*) FROM sub_category WHERE category_name=%s AND sub_category_name=%s", (category_name, sub_category_name))
+        cursor.execute("SELECT COUNT(*) FROM sub_category WHERE category_id=%s AND sub_category_name=%s", (cat_id, sub_category_name))
         if cursor.fetchone()[0] == 0:
-            sql = "INSERT INTO sub_category (category_name, sub_category_name) VALUES (%s, %s)"
-            cursor.execute(sql, (category_name, sub_category_name))
+            sql = "INSERT INTO sub_category (category_id, sub_category_name, metadata_id) VALUES (%s, %s, %s)"
+            cursor.execute(sql, (cat_id, sub_category_name, 0))
             conn.commit()
             
         cursor.close()
