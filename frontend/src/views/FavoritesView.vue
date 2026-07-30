@@ -38,7 +38,7 @@ const removeFavorite = (id) => {
       </div>
 
       <div v-else class="datasets-list-vertical">
-        <div v-for="ds in favoriteDatasets" :key="ds.id" class="ds-horizontal-card">
+        <router-link v-for="ds in favoriteDatasets" :key="ds.id" :to="'/dataset/' + ds.id" class="ds-horizontal-card" style="text-decoration: none; color: inherit; display: block;">
           <div class="ds-main-content">
             <div class="ds-header">
               <h4 class="ds-title">{{ ds.title }}</h4>
@@ -66,7 +66,7 @@ const removeFavorite = (id) => {
               </div>
             </div>
           </div>
-        </div>
+        </router-link>
       </div>
     </main>
   </div>

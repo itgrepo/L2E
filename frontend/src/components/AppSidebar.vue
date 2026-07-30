@@ -491,10 +491,10 @@ const settingItems = [
   padding: 4px;
 }
 
-
 .global-mobile-links {
   display: none;
 }
+
 @media (max-width: 767px) {
   .global-mobile-links {
     display: flex;
@@ -514,7 +514,12 @@ const settingItems = [
     background: rgba(255,255,255,0.1);
     margin: 8px 0;
   }
-@media (max-width: 767px) {
+
+  .sidebar-container {
+    width: 0;
+    position: absolute;
+  }
+
   .app-sidebar {
     position: fixed !important;
     top: 0;
@@ -527,32 +532,10 @@ const settingItems = [
     transition: transform 0.3s ease !important;
     box-shadow: none !important;
   }
+
   .app-sidebar.is-open {
     transform: translateX(0);
     box-shadow: 5px 0 25px rgba(0,0,0,0.5) !important;
-  }
-
-  .sidebar-container {
-    width: 0;
-    position: absolute;
-  }
-
-  .app-sidebar {
-    position: fixed;
-    top: 0;
-    left: -100%;
-    width: 280px;
-    z-index: 2000;
-    transition: left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.2);
-  }
-
-  .app-sidebar.is-open {
-    left: 0;
-  }
-
-  .mobile-sidebar-toggle {
-    display: flex; /* Enforce visibility on mobile */
   }
 
   .mobile-close-sidebar {

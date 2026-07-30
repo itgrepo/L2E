@@ -397,8 +397,20 @@ const saveChanges = async () => {
 .profile-header {
   display: flex;
   align-items: center;
-  gap: 32px;
-  margin-bottom: 48px;
+  gap: 24px;
+  margin-bottom: 40px;
+}
+
+.header-info {
+  word-break: break-word;
+}
+
+.header-info h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 8px 0;
+  line-height: 1.2;
 }
 
 .avatar-area {
@@ -436,13 +448,6 @@ const saveChanges = async () => {
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
-.header-info h1 {
-  font-size: 2rem;
-  font-weight: 800;
-  color: #1e293b;
-  margin-bottom: 4px;
-}
-
 .header-info p {
   color: #64748b;
   font-weight: 500;
@@ -457,20 +462,22 @@ const saveChanges = async () => {
 
 .settings-tabs {
   display: flex;
-  background: #f8fafc;
-  padding: 12px 24px 0;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0 24px;
+  flex-wrap: wrap;
 }
 
 .tab-link {
-  padding: 16px 24px;
+  padding: 20px 24px;
   background: none;
   border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 1rem;
   font-weight: 600;
   color: #64748b;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .tab-link.active {
@@ -576,14 +583,18 @@ input:disabled {
   cursor: pointer;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1023px) {
+  .profile-content { max-width: 100%; }
+}
+
+@media (max-width: 767px) {
   .profile-content { padding: 16px; margin-bottom: 60px; }
   .profile-header { flex-direction: column; text-align: center; gap: 16px; margin-bottom: 32px; }
   .form-grid { grid-template-columns: 1fr; }
   .form-group.full { grid-column: span 1; }
   .form-actions { grid-column: span 1; flex-direction: column; }
   .form-actions button { width: 100%; }
-  .settings-tabs { overflow-x: auto; white-space: nowrap; }
+  .settings-tabs { overflow-x: auto; white-space: nowrap; flex-wrap: nowrap; }
   .tab-pane { padding: 24px 16px; }
   .security-item { flex-direction: column; align-items: flex-start; gap: 16px; }
 }
