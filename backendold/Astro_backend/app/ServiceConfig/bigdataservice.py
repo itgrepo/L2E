@@ -93,6 +93,12 @@ def addService():
                 update_freq_value = request.form.get('update_freq_value')
                 geo_scope = request.form.get('geo_scope', '')
                 data_source = request.form.get('data_source', '')
+                
+                # Wave 2 Masters
+                l2e_group_id_raw = request.form.get('l2e_group_id', '')
+                l2e_group_id = int(l2e_group_id_raw) if l2e_group_id_raw else None
+                source_system_id_raw = request.form.get('source_system_id', '')
+                source_system_id = int(source_system_id_raw) if source_system_id_raw else None
                 data_format = request.form.get('data_format', '')
                 gov_category = request.form.get('gov_category', '')
                 license = request.form.get('license', '')
@@ -132,11 +138,21 @@ def addService():
                 conn = mysql.connect()
                 cursor = conn.cursor()
                 
-                is_valid, err_msg = validate_dataset_masters(cursor, category, organization, access_type)
+                is_valid, err_msg = validate_dataset_masters(cursor, category, organization, access_type, l2e_group_id, source_system_id, dataset_id)
                 if not is_valid:
                     cursor.close()
                     conn.close()
                     return jsonify({"status": err_msg}), 400
+
+                if not dataset_id:
+                    cursor.close()
+                    conn.close()
+                    return jsonify({"status": "Dataset ID is required for new datasets"}), 400
+
+                if not source_system_id:
+                    cursor.close()
+                    conn.close()
+                    return jsonify({"status": "Source System is required for new datasets"}), 400
                     
                 # Check for duplicate Dataset ID or Name
                 sql = "SELECT service_id FROM service WHERE service_name = %s OR (dataset_id = %s AND dataset_id != '')"
@@ -185,8 +201,9 @@ def addService():
                         stat_unit, stat_multiplier, stat_calculation_method, stat_standard,
                         stat_official, geo_dataset_name, geo_scale, geo_west_bound,
                         geo_east_bound, geo_north_bound, geo_south_bound, geo_position_accuracy,
-                        geo_reference_time, geo_published_date
-                    ) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                        geo_reference_time, geo_published_date,
+                        l2e_group_id, source_system_id
+                    ) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
                     
                     cursor.execute(sql_insert, (
                         service_name, service_url, image_blob, service_status,
@@ -203,7 +220,8 @@ def addService():
                         stat_unit, stat_multiplier, stat_calculation_method, stat_standard,
                         stat_official, geo_dataset_name, geo_scale, geo_west_bound,
                         geo_east_bound, geo_north_bound, geo_south_bound, geo_position_accuracy,
-                        geo_reference_time, geo_published_date
+                        geo_reference_time, geo_published_date,
+                        l2e_group_id, source_system_id
                     ))
                     conn.commit()
                     cursor.close()
@@ -244,6 +262,12 @@ def addService():
                 update_freq_value = request.form.get('update_freq_value')
                 geo_scope = request.form.get('geo_scope')
                 data_source = request.form.get('data_source')
+                
+                # Wave 2 Masters
+                l2e_group_id_raw = request.form.get('l2e_group_id')
+                l2e_group_id = int(l2e_group_id_raw) if l2e_group_id_raw else None
+                source_system_id_raw = request.form.get('source_system_id')
+                source_system_id = int(source_system_id_raw) if source_system_id_raw else None
                 data_format = request.form.get('data_format')
                 gov_category = request.form.get('gov_category')
                 license = request.form.get('license')
@@ -283,7 +307,7 @@ def addService():
                 conn = mysql.connect()
                 cursor = conn.cursor()
                 
-                is_valid, err_msg = validate_dataset_masters(cursor, category, organization, access_type)
+                is_valid, err_msg = validate_dataset_masters(cursor, category, organization, access_type, l2e_group_id, source_system_id, dataset_id)
                 if not is_valid:
                     cursor.close()
                     conn.close()
@@ -319,6 +343,8 @@ def addService():
                     if update_freq_value is not None: fields.append("update_freq_value = %s"); values.append(update_freq_value)
                     if geo_scope is not None: fields.append("geo_scope = %s"); values.append(geo_scope)
                     if data_source is not None: fields.append("data_source = %s"); values.append(data_source)
+                    if request.form.get('l2e_group_id') is not None: fields.append("l2e_group_id = %s"); values.append(l2e_group_id)
+                    if request.form.get('source_system_id') is not None: fields.append("source_system_id = %s"); values.append(source_system_id)
                     if data_format is not None: fields.append("data_format = %s"); values.append(data_format)
                     if gov_category is not None: fields.append("gov_category = %s"); values.append(gov_category)
                     if license is not None: fields.append("license = %s"); values.append(license)

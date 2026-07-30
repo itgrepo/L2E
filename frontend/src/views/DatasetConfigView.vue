@@ -17,6 +17,8 @@ const tabs = [
 
 const formData = ref({
   dataset_id: '',
+  l2e_group_id: '',
+  source_system_id: '',
   category: '',
   sub_category: '',
   status: 'Inactive', // Match portal default
@@ -52,6 +54,24 @@ const successMessage = ref('');
 const errorMessage = ref('');
 const editingId = ref(null);
 const datasets = ref([]);
+const datasetGroups = ref([]);
+const sourceSystems = ref([]);
+
+const fetchMasters = async () => {
+  try {
+    const userParam = getUserParam ? getUserParam() : '';
+    const groupRes = await apiClient.post('/getDatasetGroups', { user: userParam });
+    if (groupRes.data) {
+      datasetGroups.value = groupRes.data;
+    }
+    const sysRes = await apiClient.post('/getSourceSystems', { user: userParam });
+    if (sysRes.data) {
+      sourceSystems.value = sysRes.data;
+    }
+  } catch (err) {
+    console.error('Error fetching masters:', err);
+  }
+};
 
 const fetchDatasets = async () => {
   try {
@@ -91,6 +111,7 @@ const checkEditQuery = () => {
 onMounted(async () => {
   await fetchCategories();
   fetchOrganizations();
+  await fetchMasters();
   await fetchDatasets();
   checkEditQuery();
 });
@@ -107,6 +128,8 @@ const selectForEdit = (item) => {
   editingId.value = item.service_id;
   formData.value = {
     dataset_id: item.dataset_id || '',
+    l2e_group_id: item.l2e_group_id || '',
+    source_system_id: item.source_system_id || '',
     category: item.category || '',
     sub_category: item.sub_category || '',
     status: item.status || 'Inactive',
@@ -534,7 +557,7 @@ const handleAddSubCategory = async () => {
 };
 
 const organizations = ref([]);
-const categoriesList = ref(['Learning Catalog', 'Learning Record', 'Learner Profile', 'Job Market', 'Skill Intelligence']);
+const categoriesList = ref([]);
 
 
 const fetchOrganizations = async () => {
@@ -549,6 +572,10 @@ const fetchOrganizations = async () => {
     console.error('Error fetching organizations:', error);
   }
 };
+
+const availableOrganizations = computed(() => {
+  return organizations.value.filter(org => org.is_active || (formData.value.organization && org.org_name === formData.value.organization));
+});
 
 const fetchCategories = async () => {
   try {
@@ -588,6 +615,15 @@ const onCategoryChange = () => {
     formData.value.sub_category = '';
   }
 };
+
+const updateDatasetPrefix = () => {
+  if (editingId.value) return; // ห้ามเขียนทับ Dataset ID เดิมอัตโนมัติ
+  const selectedGroup = datasetGroups.value.find(g => g.id === formData.value.l2e_group_id);
+  if (selectedGroup) {
+    formData.value.dataset_id = selectedGroup.prefix;
+  }
+};
+
 </script>
 
 <template>
@@ -681,8 +717,22 @@ const onCategoryChange = () => {
                 <h3 class="block-title">1. ข้อมูลพื้นฐานชุดข้อมูล (Core Info)</h3>
                 <div class="form-row">
                   <div class="form-group">
+                    <label>กลุ่มชุดข้อมูล (Dataset Group) *</label>
+                    <select v-model="formData.l2e_group_id" @change="updateDatasetPrefix" class="form-select-custom" required>
+                      <option value="">เลือกกลุ่มชุดข้อมูล</option>
+                      <option v-for="group in datasetGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
                     <label>รหัสชุดข้อมูล * (Dataset ID)</label>
-                    <input type="text" v-model="formData.dataset_id" placeholder="ตัวอย่าง A001" required>
+                    <input type="text" v-model="formData.dataset_id" placeholder="ตัวอย่าง Prefix ตามกลุ่มชุดข้อมูล เช่น CRS-" required>
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>ชื่อชุดข้อมูล * (Dataset Name)</label>
+                    <input type="text" v-model="formData.service_name" placeholder="ชื่อภาษาไทย หรือ ภาษาอังกฤษ" required>
                   </div>
                   <div class="form-group">
                     <label>สถานะการเผยแพร่ *</label>
@@ -692,11 +742,6 @@ const onCategoryChange = () => {
                       <option value="Inactive">Inactive</option>
                     </select>
                   </div>
-                </div>
-
-                <div class="form-group">
-                  <label>ชื่อชุดข้อมูล * (Dataset Name)</label>
-                  <input type="text" v-model="formData.service_name" placeholder="ชื่อภาษาไทย หรือ ภาษาอังกฤษ" required>
                 </div>
 
                 <div class="form-row">
@@ -721,12 +766,21 @@ const onCategoryChange = () => {
                   </div>
                 </div>
 
-                <div class="form-group">
-                  <label>หน่วยงานที่รับผิดชอบ *</label>
-                  <select v-model="formData.organization" required class="form-select-custom">
-                    <option value="">เลือกหน่วยงาน</option>
-                    <option v-for="org in organizations" :key="org.org_id" :value="org.org_name">{{ org.org_name }}</option>
-                  </select>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>หน่วยงานที่รับผิดชอบ (Organization Owner) *</label>
+                    <select v-model="formData.organization" required class="form-select-custom">
+                      <option value="">เลือกหน่วยงาน</option>
+                      <option v-for="org in availableOrganizations" :key="org.org_id" :value="org.org_name">{{ org.org_name }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>ระบบต้นทาง (Source System) *</label>
+                    <select v-model="formData.source_system_id" required class="form-select-custom">
+                      <option value="">เลือกระบบต้นทาง</option>
+                      <option v-for="sys in sourceSystems" :key="sys.id" :value="sys.id">{{ sys.name }}</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div class="form-group">
@@ -1019,8 +1073,8 @@ const onCategoryChange = () => {
 
                 <div class="form-row">
                   <div class="form-group">
-                    <label>แหล่งที่มา * (Data Source)</label>
-                    <input type="text" v-model="formData.data_source" placeholder="แหล่งที่มาของข้อมูลที่นำมาจัดทำข้อมูล" required>
+                    <label>แหล่งที่มาเพิ่มเติม (Legacy Data Source Fallback)</label>
+                    <input type="text" v-model="formData.data_source" placeholder="ข้อมูลแหล่งที่มาเพิ่มเติม (หากไม่มีใน Dropdown ระบบต้นทาง)">
                   </div>
                   <div class="form-group">
                     <label>URL รายละเอียดชุดข้อมูล *</label>
@@ -1581,13 +1635,13 @@ const onCategoryChange = () => {
   border: 1px solid #f1f5f9;
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1023px) {
   .checkbox-grid-3 {
     grid-template-columns: repeat(2, 1fr);
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   .checkbox-grid-3 {
     grid-template-columns: 1fr;
   }
