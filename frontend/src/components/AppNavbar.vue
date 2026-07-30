@@ -99,11 +99,19 @@ const handleLogout = () => {
 };
 
 const toggleMobileMenu = () => {
-  isMobileMenuOpen.value = !isMobileMenuOpen.value;
+  const sidebar = document.querySelector('.app-sidebar');
+  if (sidebar) {
+    // We are on an Admin page, let Sidebar handle the menu
+    window.dispatchEvent(new CustomEvent('toggle-sidebar'));
+    isMobileMenuOpen.value = false;
+  } else {
+    isMobileMenuOpen.value = !isMobileMenuOpen.value;
+  }
 };
 
 const closeMobileMenu = () => {
   isMobileMenuOpen.value = false;
+  window.dispatchEvent(new CustomEvent('toggle-mobile-menu', { detail: false }));
 };
 
 onMounted(() => {
@@ -170,10 +178,7 @@ onMounted(() => {
       </button>
     </div>
 
-    <!-- Sticky Side Tab for Mobile -->
-    <button class="mobile-side-tab" @click="toggleMobileMenu" aria-label="Open menu">
-      <div class="tab-indicator"></div>
-    </button>
+
 
     <!-- Mobile Menu Overlay -->
     <Teleport to="body">
@@ -383,7 +388,7 @@ onMounted(() => {
   .logo-text { font-size: 1.2rem; }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .nav-inner {
     padding-left: 12px;
     padding-right: 12px;
@@ -393,8 +398,21 @@ onMounted(() => {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 150px;
+    max-width: 180px;
   }
+  .nav-inner {
+    padding-left: 16px;
+    padding-right: 16px;
+    justify-content: space-between;
+  }
+  .mobile-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    margin-right: -8px;
+  }
+
 
   .navbar {
     position: fixed;
@@ -631,7 +649,7 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .nav-inner {
     padding-left: 12px;
     padding-right: 12px;
@@ -641,8 +659,21 @@ onMounted(() => {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 150px;
+    max-width: 180px;
   }
+  .nav-inner {
+    padding-left: 16px;
+    padding-right: 16px;
+    justify-content: space-between;
+  }
+  .mobile-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    margin-right: -8px;
+  }
+
 
   .notification-container {
     margin-right: 15px;

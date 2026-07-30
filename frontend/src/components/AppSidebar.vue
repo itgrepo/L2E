@@ -6,6 +6,12 @@ import { themeConfig } from '../utils/theme';
 
 const isSettingsExpanded = ref(false);
 const isMobileMenuOpen = ref(false);
+
+onMounted(() => {
+  window.addEventListener('toggle-sidebar', () => {
+    isMobileMenuOpen.value = !isMobileMenuOpen.value;
+  });
+});
 const userName = ref('User');
 const userRole = ref('Guest');
 const isAdmin = ref(false);
@@ -179,6 +185,15 @@ const settingItems = [
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
         </svg>
       </button>
+      
+      <!-- Global Links for Mobile Drawer -->
+      <div class="global-mobile-links">
+        <div class="divider"></div>
+        <router-link to="/" class="global-link">หน้าแรก</router-link>
+        <router-link to="/catalog" class="global-link">บัญชีข้อมูล</router-link>
+        <router-link to="/analytics" class="global-link">วิเคราะห์</router-link>
+        <router-link to="/about" class="global-link">เกี่ยวกับเรา</router-link>
+      </div>
     </div>
   </aside>
 </div>
@@ -476,19 +491,45 @@ const settingItems = [
   padding: 4px;
 }
 
-@media (max-width: 1024px) {
+
+.global-mobile-links {
+  display: none;
+}
+@media (max-width: 767px) {
+  .global-mobile-links {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .global-link {
+    color: #e2e8f0;
+    text-decoration: none;
+    font-size: 0.95rem;
+    padding: 8px 12px;
+    border-radius: 8px;
+  }
+  .divider {
+    height: 1px;
+    background: rgba(255,255,255,0.1);
+    margin: 8px 0;
+  }
+@media (max-width: 767px) {
   .app-sidebar {
     position: fixed !important;
     top: 0;
-    left: -100% !important;
+    left: 0 !important;
+    transform: translateX(-100%);
     width: 280px !important;
     max-width: 85vw !important;
     height: 100vh !important;
     z-index: 2000 !important;
-    transition: left 0.3s ease !important;
+    transition: transform 0.3s ease !important;
+    box-shadow: none !important;
   }
   .app-sidebar.is-open {
-    left: 0 !important;
+    transform: translateX(0);
+    box-shadow: 5px 0 25px rgba(0,0,0,0.5) !important;
   }
 
   .sidebar-container {
@@ -526,7 +567,7 @@ const settingItems = [
   }
 }
 
-@media (min-width: 1025px) {
+@media (min-width: 768px) {
   .mobile-sidebar-toggle, .sidebar-overlay, .mobile-close-sidebar {
     display: none !important;
   }
