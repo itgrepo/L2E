@@ -4,6 +4,7 @@ import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { encodeUserData } from '../utils/api';
 
 const organizations = ref([]);
+const organizationRoles = ref([]);
 const isLoading = ref(true);
 const searchQuery = ref('');
 
@@ -14,13 +15,23 @@ const isSubmitting = ref(false);
 
 const newOrg = ref({
   org_name: '',
-  org_description: ''
+  org_description: '',
+  contact_name: '',
+  contact_email: '',
+  contact_phone: '',
+  is_active: true,
+  role_ids: []
 });
 
 const editingOrg = ref({
   org_id: null,
   org_name: '',
-  org_description: ''
+  org_description: '',
+  contact_name: '',
+  contact_email: '',
+  contact_phone: '',
+  is_active: true,
+  role_ids: []
 });
 
 const getUserParam = () => {
@@ -34,6 +45,18 @@ const getUserParam = () => {
     }
   }
   return '';
+};
+
+const fetchOrganizationRoles = async () => {
+  try {
+    const userParam = getUserParam();
+    const response = await apiClient.post('/getOrganizationRoles', { user: userParam });
+    if (response.data) {
+      organizationRoles.value = response.data;
+    }
+  } catch (err) {
+    console.error('Error fetching roles:', err);
+  }
 };
 
 const fetchOrganizations = async () => {
@@ -60,12 +83,17 @@ const handleAdd = async () => {
     const response = await apiClient.post('/addOrganization', {
       user: userParam,
       org_name: newOrg.value.org_name,
-      org_description: newOrg.value.org_description
+      org_description: newOrg.value.org_description,
+      contact_name: newOrg.value.contact_name,
+      contact_email: newOrg.value.contact_email,
+      contact_phone: newOrg.value.contact_phone,
+      is_active: newOrg.value.is_active,
+      role_ids: newOrg.value.role_ids
     });
     
     if (response.data.status === 'success') {
       showAddModal.value = false;
-      newOrg.value = { org_name: '', org_description: '' };
+      newOrg.value = { org_name: '', org_description: '', contact_name: '', contact_email: '', contact_phone: '', is_active: true, role_ids: [] };
       fetchOrganizations();
     } else {
       alert(response.data.status);
@@ -93,7 +121,12 @@ const handleUpdate = async () => {
       user: userParam,
       org_id: editingOrg.value.org_id,
       org_name: editingOrg.value.org_name,
-      org_description: editingOrg.value.org_description
+      org_description: editingOrg.value.org_description,
+      contact_name: editingOrg.value.contact_name,
+      contact_email: editingOrg.value.contact_email,
+      contact_phone: editingOrg.value.contact_phone,
+      is_active: editingOrg.value.is_active,
+      role_ids: editingOrg.value.role_ids
     });
     
     if (response.data.status === 'success') {
@@ -140,7 +173,10 @@ const filteredOrganizations = computed(() => {
   );
 });
 
-onMounted(fetchOrganizations);
+onMounted(() => {
+  fetchOrganizationRoles();
+  fetchOrganizations();
+});
 </script>
 
 <template>
@@ -180,8 +216,10 @@ onMounted(fetchOrganizations);
           <table>
             <thead>
               <tr>
-                <th style="width: 40%">ชื่อองค์กร</th>
-                <th style="width: 45%">รายละเอียด</th>
+                <th style="width: 25%">ชื่อองค์กร</th>
+                <th style="width: 25%">รายละเอียด/ติดต่อ</th>
+                <th style="width: 20%">บทบาท</th>
+                <th style="width: 15%">สถานะ</th>
                 <th style="width: 15%; text-align: center;">จัดการ</th>
               </tr>
             </thead>
@@ -198,6 +236,23 @@ onMounted(fetchOrganizations);
                 </td>
                 <td>
                   <p class="description-text">{{ org.org_description || '-' }}</p>
+                  <div class="contact-info" v-if="org.contact_name">
+                    <small>👤 {{ org.contact_name }}</small><br>
+                    <small v-if="org.contact_email">✉️ {{ org.contact_email }}</small><br>
+                    <small v-if="org.contact_phone">📞 {{ org.contact_phone }}</small>
+                  </div>
+                </td>
+                <td>
+                  <div class="role-tags">
+                    <span class="role-tag" v-for="rid in org.role_ids" :key="rid">
+                      {{ organizationRoles.find(r => r.id === rid)?.name_th || rid }}
+                    </span>
+                  </div>
+                </td>
+                <td>
+                  <span :class="['status-badge', org.is_active ? 'active' : 'inactive']">
+                    {{ org.is_active ? 'ใช้งาน' : 'ระงับ' }}
+                  </span>
                 </td>
                 <td>
                   <div class="action-group">
@@ -233,7 +288,38 @@ onMounted(fetchOrganizations);
             </div>
             <div class="form-group">
               <label>รายละเอียด</label>
-              <textarea v-model="newOrg.org_description" rows="4" placeholder="ระบุรายละเอียดเพิ่มเติม..."></textarea>
+              <textarea v-model="newOrg.org_description" rows="2" placeholder="ระบุรายละเอียดเพิ่มเติม..."></textarea>
+            </div>
+            
+            <div class="form-row">
+              <div class="form-group half">
+                <label>ชื่อผู้ติดต่อ</label>
+                <input v-model="newOrg.contact_name" type="text" placeholder="ชื่อผู้ติดต่อ" />
+              </div>
+              <div class="form-group half">
+                <label>เบอร์โทรศัพท์</label>
+                <input v-model="newOrg.contact_phone" type="text" placeholder="เบอร์โทรศัพท์" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>อีเมลติดต่อ</label>
+              <input v-model="newOrg.contact_email" type="email" placeholder="อีเมลติดต่อ" />
+            </div>
+            
+            <div class="form-group">
+              <label>บทบาทขององค์กร</label>
+              <div class="checkbox-group">
+                <label v-for="role in organizationRoles" :key="role.id" class="checkbox-label">
+                  <input type="checkbox" :value="role.id" v-model="newOrg.role_ids" />
+                  {{ role.name_th }}
+                </label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" v-model="newOrg.is_active" />
+                สถานะเปิดใช้งาน
+              </label>
             </div>
           </div>
           <div class="modal-footer">
@@ -259,7 +345,38 @@ onMounted(fetchOrganizations);
             </div>
             <div class="form-group">
               <label>รายละเอียด</label>
-              <textarea v-model="editingOrg.org_description" rows="4" placeholder="ระบุรายละเอียดเพิ่มเติม..."></textarea>
+              <textarea v-model="editingOrg.org_description" rows="2" placeholder="ระบุรายละเอียดเพิ่มเติม..."></textarea>
+            </div>
+            
+            <div class="form-row">
+              <div class="form-group half">
+                <label>ชื่อผู้ติดต่อ</label>
+                <input v-model="editingOrg.contact_name" type="text" placeholder="ชื่อผู้ติดต่อ" />
+              </div>
+              <div class="form-group half">
+                <label>เบอร์โทรศัพท์</label>
+                <input v-model="editingOrg.contact_phone" type="text" placeholder="เบอร์โทรศัพท์" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>อีเมลติดต่อ</label>
+              <input v-model="editingOrg.contact_email" type="email" placeholder="อีเมลติดต่อ" />
+            </div>
+            
+            <div class="form-group">
+              <label>บทบาทขององค์กร</label>
+              <div class="checkbox-group">
+                <label v-for="role in organizationRoles" :key="role.id" class="checkbox-label">
+                  <input type="checkbox" :value="role.id" v-model="editingOrg.role_ids" />
+                  {{ role.name_th }}
+                </label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" v-model="editingOrg.is_active" />
+                สถานะเปิดใช้งาน
+              </label>
             </div>
           </div>
           <div class="modal-footer">
