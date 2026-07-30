@@ -323,4 +323,16 @@ h1, h2, h3, h4, h5, h6 {
     width: 100% !important;
     max-width: 100% !important;
   }
+
+  /* Generic Table Mobile Fix */
+  .table-container, .table-responsive, .data-table-wrapper {
+    width: 100% !important;
+    max-width: 100vw !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  table, .data-table {
+    min-width: 600px; /* Let it scroll inside the wrapper */
+  }
 }
