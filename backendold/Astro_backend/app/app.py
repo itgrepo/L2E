@@ -6,6 +6,7 @@ from ServiceConfig.group_service import *
 from ServiceConfig.access_service import *
 from ServiceConfig.organization_service import *
 from ServiceConfig.category_service import *
+from ServiceConfig.master_data_service import *
 from ServiceConfig.site_config import *
 from Management import *
 from Management.groupMgmt import *
