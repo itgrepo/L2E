@@ -384,6 +384,18 @@ onMounted(() => {
 }
 
 @media (max-width: 768px) {
+  .nav-inner {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .logo-text {
+    font-size: 1rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+  }
+
   .navbar {
     position: fixed;
   }
@@ -620,6 +632,18 @@ onMounted(() => {
 }
 
 @media (max-width: 768px) {
+  .nav-inner {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .logo-text {
+    font-size: 1rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+  }
+
   .notification-container {
     margin-right: 15px;
   }

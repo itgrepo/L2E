@@ -477,6 +477,20 @@ const settingItems = [
 }
 
 @media (max-width: 1024px) {
+  .app-sidebar {
+    position: fixed !important;
+    top: 0;
+    left: -100% !important;
+    width: 280px !important;
+    max-width: 85vw !important;
+    height: 100vh !important;
+    z-index: 2000 !important;
+    transition: left 0.3s ease !important;
+  }
+  .app-sidebar.is-open {
+    left: 0 !important;
+  }
+
   .sidebar-container {
     width: 0;
     position: absolute;
