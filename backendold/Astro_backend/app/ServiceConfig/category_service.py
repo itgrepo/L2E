@@ -1,6 +1,16 @@
 from ServiceConfig import app, mysql, toJson, platform_decode, safe_json_loads, checkUserIsAdmin
 from flask import request, jsonify
 import json
+import re
+
+def is_valid_category_name(name):
+    if not name or len(str(name)) > 255:
+        return False
+    # Deny characters commonly used in injection attacks (XSS, SQLi, SSTI)
+    forbidden_chars = r"['\"<>{};=*%\\]"
+    if re.search(forbidden_chars, str(name)):
+        return False
+    return True
 
 @app.route('/getCategories', methods=['POST'])
 def getCategories():
@@ -40,6 +50,9 @@ def addCategory():
         name = dataInput.get('name')
         if not name:
             return jsonify({"status": "Category name is required"})
+        
+        if not is_valid_category_name(name):
+            return jsonify({"status": "Invalid characters in name. Special symbols are not allowed."})
 
         conn = mysql.connect()
         cursor = conn.cursor()
@@ -69,6 +82,9 @@ def updateCategory():
 
         if not cat_id or not name:
             return jsonify({"status": "Category ID and name are required"})
+            
+        if not is_valid_category_name(name):
+            return jsonify({"status": "Invalid characters in name. Special symbols are not allowed."})
 
         conn = mysql.connect()
         cursor = conn.cursor()
@@ -171,6 +187,9 @@ def addSubCategory():
 
         if not category_name or not sub_category_name:
             return jsonify({"status": "Category and Sub-Category names are required"})
+            
+        if not is_valid_category_name(sub_category_name):
+            return jsonify({"status": "Invalid characters in name. Special symbols are not allowed."})
 
         conn = mysql.connect()
         cursor = conn.cursor()

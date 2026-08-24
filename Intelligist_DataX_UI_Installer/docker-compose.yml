@@ -34,10 +34,10 @@ services:
       - DB_NAME=${MYSQL_DATABASE:-datax_db_3001}
       - MAIL_SERVER=${MAIL_SERVER:-smtp.gmail.com}
       - MAIL_PORT=${MAIL_PORT:-465}
-      - MAIL_USERNAME=${MAIL_USERNAME:-sixanate@gmail.com}
+      - MAIL_USERNAME=${MAIL_USERNAME:-learn2earn@bde.go.th}
       - MAIL_PASSWORD=${MAIL_PASSWORD:-inljvvpjdtsvglwn}
       - MAIL_USE_SSL=${MAIL_USE_SSL:-true}
-      - MAIL_FROM=${MAIL_FROM:-DEX Data Exchange <sixanate@gmail.com>}
+      - MAIL_FROM=${MAIL_FROM:-DEX Data Exchange <learn2earn@bde.go.th>}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3001}
     restart: always
     networks:

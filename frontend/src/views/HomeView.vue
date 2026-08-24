@@ -6,6 +6,7 @@ import FeatureSection from '../components/FeatureSection.vue';
 import StepSection from '../components/StepSection.vue';
 import StatsBanner from '../components/StatsBanner.vue';
 import CTASection from '../components/CTASection.vue';
+import PublicDashboard from '../components/PublicDashboard.vue';
 import PageBuilderWidget from '../components/PageBuilderWidget.vue';
 
 // Map component names to actual components
@@ -14,7 +15,8 @@ const componentsMap = {
   FeatureSection,
   StepSection,
   StatsBanner,
-  CTASection
+  CTASection,
+  PublicDashboard
 };
 
 const getComponent = (type) => componentsMap[type];

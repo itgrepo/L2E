@@ -32,12 +32,12 @@ services:
       - DB_USER=${MYSQL_USER:-astro}
       - DB_PASS=${MYSQL_PASSWORD:-password123}
       - DB_NAME=${MYSQL_DATABASE:-datax_db_3003}
-      - MAIL_SERVER=${MAIL_SERVER:-smtp.gmail.com}
-      - MAIL_PORT=${MAIL_PORT:-465}
-      - MAIL_USERNAME=${MAIL_USERNAME:-sixanate@gmail.com}
-      - MAIL_PASSWORD=${MAIL_PASSWORD:-inljvvpjdtsvglwn}
-      - MAIL_USE_SSL=${MAIL_USE_SSL:-true}
-      - MAIL_FROM=${MAIL_FROM:-DEX Data Exchange <sixanate@gmail.com>}
+      - MAIL_SERVER=mailhog
+      - MAIL_PORT=1025
+      - MAIL_USERNAME=${MAIL_USERNAME:-learn2earn@bde.go.th}
+      - MAIL_PASSWORD=${MAIL_PASSWORD:-L2E@Start2026!}
+      - MAIL_USE_SSL=false
+      - MAIL_FROM=${MAIL_FROM:-"L2E Data Exchange <learn2earn@bde.go.th>"}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3003}
     restart: always
     networks:
@@ -71,6 +71,8 @@ services:
 
 volumes:
   datax_db_3003_data:
+    external: true
+    name: intelligist_datax_deploy_3003_datax_db_3003_data
 
 networks:
   datax-network-3003:

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import { encodePassword } from '../utils/crypto';
 import apiClient from '../utils/api';
 import { themeConfig } from '../utils/theme';
 
@@ -8,6 +9,7 @@ const router = useRouter();
 const route = useRoute();
 const username = ref('');
 const password = ref('');
+const showPassword = ref(false);
 const rememberMe = ref(false);
 const isLoading = ref(false);
 const errorMessage = ref('');
@@ -81,7 +83,7 @@ const handleLogin = async () => {
   try {
     const response = await apiClient.post('/login', {
       username: username.value,
-      password: password.value,
+      password: encodePassword(password.value),
       link: window.location.origin,
     });
 
@@ -145,11 +147,7 @@ const handleLogin = async () => {
         <h2>Welcome Back</h2>
         <p class="subtitle">Please enter your details to sign in</p>
         
-        <div class="test-credentials">
-          <p><strong>บัญชีทดสอบ:</strong></p>
-          <p>Username: <code>testadmin</code></p>
-          <p>Password: <code>password123</code></p>
-        </div>
+        
 
         <div v-if="successMessage" class="success-alert">
           {{ successMessage }}
@@ -174,14 +172,25 @@ const handleLogin = async () => {
           
           <div class="form-group">
             <label for="password">Password</label>
-            <input 
-              id="password" 
-              v-model="password" 
-              type="password" 
-              placeholder="••••••••" 
-              required
-              :disabled="isLoading"
-            >
+            <div class="password-wrapper">
+              <input 
+                id="password" 
+                v-model="password" 
+                :type="showPassword ? 'text' : 'password'" 
+                placeholder="••••••••" 
+                required
+                :disabled="isLoading"
+              >
+              <button 
+                type="button" 
+                class="toggle-password" 
+                @click="showPassword = !showPassword"
+                title="Toggle password visibility"
+              >
+                <svg v-if="!showPassword" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+              </button>
+            </div>
           </div>
           
           <div class="form-options">
@@ -332,7 +341,29 @@ label {
   margin-bottom: 8px;
 }
 
+
+.password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.toggle-password {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.toggle-password:hover {
+  color: #334155;
+}
 input[type="text"],
+
 input[type="password"] {
   width: 100%;
   padding: 12px 16px;
@@ -423,26 +454,7 @@ input:focus {
   font-size: 0.875rem;
 }
 
-.test-credentials {
-  background-color: var(--mso-pink-dark);
-  border: 1px solid #f9a8d4;
-  color: #9d174d;
-  padding: 12px;
-  border-radius: 12px;
-  margin-bottom: 20px;
-  font-size: 0.875rem;
-}
 
-.test-credentials p {
-  margin: 0;
-}
-
-.test-credentials code {
-  background-color: var(--mso-pink-dark);
-  padding: 2px 4px;
-  border-radius: 4px;
-  font-family: monospace;
-}
 
 .loader {
   width: 20px;

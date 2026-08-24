@@ -207,7 +207,7 @@ def getGroupDatasetAccess():
         
         # 1. Get datasets currently assigned to this group
         sql_assigned = """
-            SELECT s.service_id, s.service_name, s.provider_name
+            SELECT s.service_id, s.service_name, s.organization
             FROM service_group_access sga
             JOIN service s ON sga.service_id = s.service_id
             WHERE sga.group_id = %s AND s.status != 'Deleted'
@@ -219,7 +219,7 @@ def getGroupDatasetAccess():
         
         # 2. Get available datasets (not assigned to this group)
         sql_available = """
-            SELECT service_id, service_name, provider_name
+            SELECT service_id, service_name, organization
             FROM service
             WHERE status != 'Deleted' AND service_id NOT IN (
                 SELECT service_id FROM service_group_access WHERE group_id = %s

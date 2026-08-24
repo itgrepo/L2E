@@ -212,11 +212,17 @@ def createUser():
         if not username or not email or not password:
             return jsonify({"status": "error", "message": "Missing required fields"})
 
+        import re
+        if re.search(r'[<>"\'/;`%&]', username):
+            return jsonify({"status": "error", "message": "Invalid characters in username"})
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email) or re.search(r'[<>"\'/;`%&]', email):
+            return jsonify({"status": "error", "message": "Invalid email format"})
+
         conn = mysql.connect()
         cursor = conn.cursor()
         
         # Check duplicate
-        cursor.execute("SELECT user_id FROM user WHERE username = %s OR email = %s", (username, email))
+        cursor.execute("SELECT user_id FROM user WHERE (username = %s OR email = %s) AND status_id != '7'", (username, email))
         if cursor.fetchone():
             cursor.close()
             return jsonify({"status": "error", "message": "Username or Email already exists"})
@@ -312,7 +318,7 @@ def deleteRoles():
             conn = mysql.connect()
             cursor = conn.cursor()
             
-            sql1 = """UPDATE user SET previlage_id = 3 WHERE user_id in (SELECT * FROM (SELECT user_id from user WHERE previlage_id = %s) as a )"""
+            sql1 = """UPDATE user SET previlage_id = 2 WHERE user_id in (SELECT * FROM (SELECT user_id from user WHERE previlage_id = %s) as a )"""
             cursor.execute(sql1, (previlage_id))
             sql2 = """DELETE FROM `codename_previlage` WHERE previlage_id = %s"""
             cursor.execute(sql2, (previlage_id))

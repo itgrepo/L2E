@@ -29,7 +29,7 @@ import intelligistDataxLogo from '../assets/intelligist-datax-logo.png';
       </div>
       <div class="footer-links">
         <h4 style="color: white; margin-bottom: 1rem;">ติดต่อเรา</h4>
-        <a href="#">support@intelligist-datax.go.th</a>
+        <a href="#">support@datax.go.th</a>
         <a href="#">เกี่ยวกับโครงการ</a>
         <a href="#">เงื่อนไขการให้บริการ</a>
         <a href="#">คำถามที่พบบ่อย</a>
@@ -87,7 +87,27 @@ import intelligistDataxLogo from '../assets/intelligist-datax-logo.png';
 }
 
 @media (max-width: 768px) {
-  .footer { padding: 40px 0 30px; }
-  .footer-grid { grid-template-columns: 1fr; gap: 2rem; }
+  .footer { 
+    padding: 32px 16px 40px !important; 
+    width: 100% !important;
+    max-width: 100vw !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    transform: none !important;
+    box-sizing: border-box !important;
+  }
+  .footer-grid { 
+    grid-template-columns: 1fr !important; 
+    gap: 2rem !important; 
+    width: 100% !important;
+    margin: 0 !important;
+  }
+  .footer-links {
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+  .footer-brand p {
+    word-break: break-word;
+  }
 }
 </style>

@@ -51,8 +51,10 @@ const fetchOrganizationRoles = async () => {
   try {
     const userParam = getUserParam();
     const response = await apiClient.post('/getOrganizationRoles', { user: userParam });
-    if (response.data) {
+    if (Array.isArray(response.data)) {
       organizationRoles.value = response.data;
+    } else if (response.data && response.data.status === 'success') {
+      organizationRoles.value = response.data.data;
     }
   } catch (err) {
     console.error('Error fetching roles:', err);

@@ -62,38 +62,22 @@ def logAction(user_id, path, log, type):
         ip_address = ip.split(',')
     else:
         ip_address = [request.remote_addr or '127.0.0.1']
-    ip_check = ip_address[0].split('.')
-    if ip_check[0] != "192":
-        conn = mysql.connect()
-        cursor = conn.cursor()
-        #reader = geoip2.database.Reader('/app/resources/GeoLite2-City_20190903/GeoLite2-City.mmdb')
-        #--------------------------------------------------#
-        try :
-            #response = reader.city(str(ip_address[0]))
-        # sql = "INSERT INTO log VALUES (NULL, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)"
-            sql = "INSERT INTO log VALUES (NULL, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s)"
-            cursor.execute(sql, (user_id, ip_address[0], path, log, type, "None"))
-        # cursor.execute(sql, (user_id, ip_address[0], path, log, type))
-        # cursor.execute(sql, (user_id, '203.xxx', path, log, type))
-        except :
-            # ! ถ้าไม่สามารถตรวจหาประเทศจาก IP ได้ จะให้ประเทศเป็น None
-            sql = "INSERT INTO log VALUES (NULL, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s)"
-            cursor.execute(sql, (user_id, ip_address[0], path, log, type, "None"))
-        #--------------------------------------------------#
+    
+    device_info = request.headers.get('User-Agent', 'Unknown')
+    if len(device_info) > 250:
+        device_info = device_info[:250] + "..."
+        
+    conn = mysql.connect()
+    cursor = conn.cursor()
+    try:
+        sql = "INSERT INTO log (user_id, ip, path, log_detail, type, create_at, country, device) VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s, %s)"
+        cursor.execute(sql, (user_id, ip_address[0], path, log, type, "None", device_info))
+    except Exception as e:
+        current_app.logger.error(f"Error in logAction: {str(e)}")
+    finally:
         conn.commit()
         cursor.close()
-        return 'success'
-
-    else:
-        conn = mysql.connect()
-        cursor = conn.cursor()
-        sql = "INSERT INTO log VALUES (NULL, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s)"
-        cursor.execute(sql, (user_id, ip_address[0], path, log, type, "None"))
-        # cursor.execute(sql, (user_id, ip_address[0], path, log, type))
-        # cursor.execute(sql, (user_id, '203.xxx', path, log, type))
-        conn.commit()
-        cursor.close()
-        return 'success'
+    return 'success'
 
 def toJson(data,columns):
     results = []
@@ -136,7 +120,7 @@ def checkUserIsAdmin(user_data):
     conn.commit()
     cursor.close()
     if len(result_check_Permission) != 0 :
-        if str(result_check_Permission[0]['previlage_id']) not in ['3']: # previlage_id = 1 is Admin
+        if str(result_check_Permission[0]['previlage_id']) in ['3', '4']: # previlage_id = 4 is Admin
             return True #user is admin
         else :
             return False #user not admin
@@ -186,7 +170,7 @@ def createSecretKeyTwoFactor(username,option):
         # print("this is key : ",secret_key)
     #         print(secret_key)
         sql1 = """SELECT secret_key from user_secret_key where secret_key = %s"""
-        cursor.execute(sql1,(secret_key))
+        cursor.execute(sql1,(secret_key,))
         secret_key_result = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         secret_key_data = toJson(secret_key_result, columns)
@@ -200,14 +184,14 @@ def createSecretKeyTwoFactor(username,option):
                             LEFT JOIN user
                                 ON user_secret_key.user_id = user.user_id
                             WHERE username = %s"""
-                cursor.execute(sql1,(username))
+                cursor.execute(sql1,(username,))
                 user_secret_key_result = cursor.fetchall()
                 columns = [column[0] for column in cursor.description]
                 user_secret_key_data = toJson(user_secret_key_result, columns)
                 # print(user_secret_key_data)
                 if len(user_secret_key_data) == 0:
                     sql1 = """SELECT user_id from user where username = %s AND status_id != 7"""
-                    cursor.execute(sql1,(username))
+                    cursor.execute(sql1,(username,))
                     user_id_secret_key_result = cursor.fetchall()
                     columns = [column[0] for column in cursor.description]
                     user_id_secret_key = toJson(user_id_secret_key_result, columns)
@@ -238,7 +222,7 @@ def createSecretKeyTwoFactor(username,option):
         elif(option == 2):
             if len(secret_key_data) == 0:
                 sql1 = """SELECT user_id from user where username = %s AND status_id != 7"""
-                cursor.execute(sql1,(username))
+                cursor.execute(sql1,(username,))
                 user_id_secret_key_result = cursor.fetchall()
                 columns = [column[0] for column in cursor.description]
                 user_id_secret_key = toJson(user_id_secret_key_result, columns)
@@ -257,7 +241,7 @@ def createSecretKeyTwoFactor(username,option):
         line_number = exception_traceback.tb_lineno
         print("Line number: ", line_number)
         print("Error: " + str(e))
-        return ("Error: " + str(e)+"Line number "+line_number)
+        return ("Error: " + str(e)+"Line number "+str(line_number))
         # return("Error")
 #------------#
 def check_email_format(email):

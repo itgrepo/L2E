@@ -19,7 +19,7 @@ const router = createRouter({
       path: '/dashboard',
       name: 'dashboard',
       component: () => import('../views/DashboardView.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true , requiresAdmin: true}
     },
     {
       path: '/catalog',
@@ -43,13 +43,13 @@ const router = createRouter({
       path: '/api-management',
       name: 'api-management',
       component: () => import('../views/APIManagementView.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true , requiresAdmin: true}
     },
     {
       path: '/api-monitor',
       name: 'api-monitor',
       component: () => import('../views/ApiMonitorView.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true , requiresAdmin: true}
     },
     {
       path: '/contact',
@@ -89,45 +89,47 @@ const router = createRouter({
       component: () => import('../views/ResetPasswordView.vue')
     },
     {
-      path: '/user-approval',
-      name: 'user-approval',
-      component: () => import('../views/UserApprovalView.vue'),
+      path: '/dataset-approval',
+      name: 'dataset-approval',
+      component: () => import('../views/DatasetApprovalView.vue'),
       meta: { requiresAuth: true }
     },
     {
       path: '/user-management',
       name: 'user-management',
       component: () => import('../views/UserManagementView.vue')
+    ,
+      meta: { requiresAuth: true, requiresAdmin: true }
     },
     {
       path: '/permission-management',
       name: 'permission-management',
       component: () => import('../views/PermissionManagementView.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true , requiresAdmin: true}
     },
     {
       path: '/group-user-management',
       name: 'group-user-management',
       component: () => import('../views/GroupUserManagementView.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true , requiresAdmin: true}
     },
     {
       path: '/dataset-management',
       name: 'dataset-management',
       component: () => import('../views/DatasetManagementView.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true , requiresAdmin: true}
     },
     {
       path: '/group-dataset-management',
       name: 'group-dataset-management',
       component: () => import('../views/GroupDatasetManagementView.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true , requiresAdmin: true}
     },
     {
       path: '/dataset-permission-monitor',
       name: 'dataset-permission-monitor',
       component: () => import('../views/DatasetPermissionMonitorView.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true , requiresAdmin: true}
     },
     {
       path: '/favorites',
@@ -139,13 +141,13 @@ const router = createRouter({
       path: '/organization-management',
       name: 'organization-management',
       component: () => import('../views/OrganizationManagementView.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true , requiresAdmin: true}
     },
     {
       path: '/category-management',
       name: 'category-management',
       component: () => import('../views/CategoryManagementView.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true , requiresAdmin: true}
     },
     {
       path: '/monitor',
@@ -165,6 +167,14 @@ router.beforeEach((to, from, next) => {
   
   if (to.meta.requiresAuth && !user) {
     next({ name: 'login' });
+  } else if (to.meta.requiresAdmin && user) {
+    // Check if user is admin
+    const isAdmin = user.isAdmin === 'true' || user.isAdmin === true || ['3', '4'].includes(String(user.role_id));
+    if (!isAdmin) {
+      next({ name: 'home' }); // Redirect to home if not admin
+    } else {
+      next();
+    }
   } else {
     next();
   }

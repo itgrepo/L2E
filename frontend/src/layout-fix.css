@@ -1,0 +1,16 @@
+/* Fix for Header and Footer getting cut off on horizontal scroll */
+html, body {
+  min-width: fit-content;
+}
+#app, .app-layout {
+  min-width: fit-content;
+  width: 100%;
+}
+
+/* Global Flexbox trap fix: allow flex children to shrink */
+* {
+  min-width: 0;
+}
+html, body, #app, .app-layout, .navbar, .footer, main {
+  min-width: auto;
+}

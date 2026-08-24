@@ -224,13 +224,24 @@ def addService():
                         l2e_group_id, source_system_id
                     ))
                     conn.commit()
+                    
+                    # Notify All Users about the new dataset
+                    try:
+                        from .email_service import notify_dataset_created
+                        cursor.execute("SELECT email FROM user WHERE status_account = 'active' AND email IS NOT NULL")
+                        all_emails = [row[0] for row in cursor.fetchall() if row[0]]
+                        if all_emails:
+                            notify_dataset_created(service_name, description, all_emails)
+                    except Exception as e:
+                        current_app.logger.error(f"Error sending dataset creation email: {e}")
+                        
                     cursor.close()
                     conn.close()
                     return jsonify({'status': 'insert new service success'})
                 else:
                     cursor.close()
                     conn.close()
-                    return jsonify({"status":"Error: Service name or Dataset ID duplicate"})
+                    return jsonify({"status":"Error: Dataset Name หรือ Dataset ID ซ้ำ"})
             else:
                 return jsonify({"status":"Permission Denied"})
         elif request.method == 'PUT':
@@ -382,12 +393,33 @@ def addService():
                     
                     # Handle separate file upload if present
                     data_file = request.files.get('data_file')
+                    file_type = request.form.get('file_type')
                     if data_file and allowed_file(data_file.filename):
                         filename = secure_filename(f"ds_{service_id}_{data_file.filename}")
                         save_path = os.path.join(UPLOAD_FOLDER, filename)
                         data_file.save(save_path)
-                        fields.append("file_path = %s")
-                        values.append(filename)
+                        
+                        if file_type == 'dictionary':
+                            fields.append("data_dictionary_path = %s")
+                            values.append(filename)
+                            # Parse data dictionary file to extract columns
+                            try:
+                                import pandas as pd
+                                if filename.endswith('.csv'):
+                                    df = pd.read_csv(save_path, nrows=0)
+                                else:
+                                    df = pd.read_excel(save_path, nrows=0)
+                                columns = list(df.columns)
+                                fields.append("api_response_fields = %s")
+                                values.append(json.dumps(columns))
+                            except Exception as e:
+                                print(f"Error parsing dictionary file: {e}")
+                        elif file_type == 'zip':
+                            fields.append("data_sampling_path = %s")
+                            values.append(filename)
+                        else:
+                            fields.append("file_path = %s")
+                            values.append(filename)
 
                     if not fields:
                         return jsonify({"status":"No fields to update"})
@@ -397,6 +429,27 @@ def addService():
                     
                     cursor.execute(sql_update, tuple(values))
                     conn.commit()
+                    
+                    # Notify Admin and Current User about the dataset update
+                    try:
+                        from .email_service import notify_dataset_updated
+                        
+                        # Fetch admins
+                        cursor.execute("SELECT email FROM user WHERE previlage_id = 1 AND status_account = 'active' AND email IS NOT NULL")
+                        admin_emails = [row[0] for row in cursor.fetchall() if row[0]]
+                        
+                        # Fetch current user email
+                        current_user_email = user_data.get('email')
+                        
+                        notify_emails = set(admin_emails)
+                        if current_user_email:
+                            notify_emails.add(current_user_email)
+                            
+                        if notify_emails:
+                            notify_dataset_updated(service_name or str(service_id), list(notify_emails))
+                    except Exception as e:
+                        current_app.logger.error(f"Error sending dataset update email: {e}")
+                        
                     cursor.close()
                     conn.close()
                     return jsonify({'status':'update service success'})
@@ -559,11 +612,41 @@ def addServiceCredential():
         return jsonify({"status": "Error: " + str(e),"Line number": line_number})
         # return jsonify({"status": "Error"})
 
+
+@app.route('/toggleServiceStatus', methods=['POST'])
+@require_admin
+def toggleServiceStatus():
+    try:
+        dataInput = request.json
+        service_id = dataInput.get('service_id')
+        new_status = dataInput.get('status')
+        
+        if not service_id or not new_status:
+            return jsonify({'status': 'error', 'message': 'Missing service_id or status'}), 400
+            
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        sql = "UPDATE service SET status = %s WHERE service_id = %s"
+        cursor.execute(sql, (new_status, service_id))
+        conn.commit()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Error in toggleServiceStatus: {traceback.format_exc()}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route('/retrieveService', methods=['GET'])
 @app.route('/retrieveService', methods=['GET', 'POST'])
 def retrieveService():
     try:
         user_id = None
+        user_data = {}
         # Try to get user info if provided
         dataInput = request.json if request.is_json else request.form
         user_str = dataInput.get('user')
@@ -572,7 +655,7 @@ def retrieveService():
             user_data = safe_json_loads(decoded_user)
             user_id = user_data.get('user_id')
             # If user is admin (previlage_id != 3), show all active services
-            if user_data.get('previlage_id') and str(user_data.get('previlage_id')) != '3':
+            if user_data.get('previlage_id') and str(user_data.get('previlage_id')) in ['3', '4']:
                 user_id = 'ADMIN' 
 
         conn = mysql.connect()
@@ -586,8 +669,8 @@ def retrieveService():
                 SELECT s.*,
                        (CASE 
                            WHEN s.access_type = 'public' THEN 1
-                           WHEN s.access_type = 'internal' AND %s IS NOT NULL THEN 1
-                           WHEN s.access_type IN ('restricted', 'pii') AND %s IS NOT NULL AND EXISTS (SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s) THEN 1
+                           WHEN s.access_type = 'internal' AND %s IN ('1', '3', '4', '5') THEN 1
+                           WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s) THEN 1
                            WHEN s.access_type IN ('restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_group_access sga
                                JOIN group_user_detail gud ON sga.group_id = gud.group_id
@@ -601,7 +684,7 @@ def retrieveService():
                 FROM service s
                 WHERE s.status = 'Active'
             """
-            cursor.execute(sql, (user_id, user_id, user_id, user_id, user_id, user_id))
+            cursor.execute(sql, (str(user_data.get('previlage_id', '2')), user_id, user_id, user_id, user_id, user_id))
             
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
@@ -700,7 +783,7 @@ def get_dataset_api(dataset_id):
         # Enforce key check if NOT public or if access_type requires authentication
         user_id = 0
         credential_id = None
-        user_role = '3'
+        user_role = '2'
         expires_at = None
         
         if api_type != 'public' or access_type in ['internal', 'restricted', 'pii']:
@@ -752,7 +835,7 @@ def get_dataset_api(dataset_id):
                 return jsonify({'status': 'error', 'message': 'API Key has expired', 'request_id': request_id}), 403
 
             # Check Dataset Access Permissions (Group / User restrictions)
-            if str(user_role) == '3': # Regular user
+            if str(user_role) not in ['3', '4']: # Regular user
                 sql_check_restrict = """
                     SELECT 
                         (SELECT COUNT(*) FROM service_group_access WHERE service_id = %s) as group_count,
@@ -763,7 +846,7 @@ def get_dataset_api(dataset_id):
                 
                 if r_count[0] > 0 or r_count[1] > 0:
                     sql_verify = """
-                        SELECT 1 FROM service_user_access WHERE service_id = %s AND user_id = %s
+                        SELECT 1 FROM service_user_access WHERE service_id = %s AND user_id = %s AND allow_api = 1
                         UNION
                         SELECT 1 FROM service_group_access sga
                         JOIN group_user_detail gud ON sga.group_id = gud.group_id
@@ -1418,7 +1501,7 @@ def getApiMonitorStats():
         total_requests = cursor.fetchone()[0]
         
         # 2. Success vs Failed in period
-        success_where = where_clause + " AND log_detail LIKE '[200]%'"
+        success_where = where_clause + " AND log_detail LIKE '[200]%%'"
         cursor.execute(f"SELECT count(*) FROM log {success_where}", tuple(params))
         success_count = cursor.fetchone()[0]
         
@@ -1515,6 +1598,60 @@ def getApiMonitorLogs():
         import traceback
         current_app.logger.error(f"API Management Error: {traceback.format_exc()}")
         return jsonify({"status": "error", "message": "An internal error occurred"}), 500
+@app.route('/getSystemActivityLogs', methods=['POST'])
+@require_admin
+def getSystemActivityLogs():
+    """Detailed list of System Activity logs (excluding API hits) with user info."""
+    try:
+        dataInput = request.json
+        
+        limit = dataInput.get('limit', 50)
+        offset = dataInput.get('offset', 0)
+        start_date = dataInput.get('start_date')
+        end_date = dataInput.get('end_date')
+        
+        where_clause = "WHERE l.type != 'API'"
+        params = []
+        if start_date:
+            where_clause += " AND l.create_at >= %s"
+            params.append(start_date)
+        if end_date:
+            if len(end_date) == 10: end_date += " 23:59:59"
+            where_clause += " AND l.create_at <= %s"
+            params.append(end_date)
+        
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        sql = f"""
+            SELECT l.log_id, l.user_id, u.username, u.email, l.log_detail, l.path, l.type, l.ip, l.device, l.create_at 
+            FROM log l
+            LEFT JOIN user u ON l.user_id = u.user_id
+            {where_clause} 
+            ORDER BY l.create_at DESC 
+            LIMIT %s OFFSET %s
+        """
+        
+        full_params = tuple(params) + (limit, offset)
+        cursor.execute(sql, full_params)
+        
+        data = cursor.fetchall()
+        columns = [col[0] for col in cursor.description]
+        result = toJson(data, columns)
+        
+        for row in result:
+            if row.get('create_at'):
+                row['create_at'] = str(row['create_at'])
+            if not row.get('username'):
+                row['username'] = row.get('email') or f"Unknown User (ID: {row.get('user_id')})"
+
+        cursor.close()
+        conn.close()
+        return jsonify({'status': 'success', 'data': result, 'limit': limit, 'offset': offset})
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"System Activity Logs Error: {traceback.format_exc()}")
+        return jsonify({"status": "error", "message": "An internal error occurred"}), 500
 
 
 @app.route('/dashboard/stats', methods=['GET'])
@@ -1604,6 +1741,13 @@ def request_dataset_permission():
         dataInput = request.json
         user_data = getattr(request, 'current_user', {})
         user_id = user_data.get('user_id')
+        
+        user_str = dataInput.get('user')
+        if user_str and not user_id:
+            decoded_user = platform_decode(user_str)
+            parsed_user = safe_json_loads(decoded_user)
+            user_id = parsed_user.get('user_id')
+            
         service_id = dataInput.get('service_id')
         fields = dataInput.get('fields', [])
         reason = dataInput.get('reason', '')
@@ -1633,6 +1777,25 @@ def request_dataset_permission():
         # Log the action
         logAction(user_id, '/requestDatasetPermission', f'Request dataset permission for service_id {service_id}', 'info')
         
+        # Notify Admins
+        try:
+            from .email_service import notify_access_request
+            cursor.execute("SELECT email FROM user WHERE previlage_id = 1 AND status_account = 'active' AND email IS NOT NULL")
+            admin_emails = [row[0] for row in cursor.fetchall() if row[0]]
+            
+            if admin_emails:
+                cursor.execute("SELECT service_name FROM service WHERE service_id = %s", (service_id,))
+                svc = cursor.fetchone()
+                svc_name = svc[0] if svc else str(service_id)
+                
+                cursor.execute("SELECT username FROM user WHERE user_id = %s", (user_id,))
+                usr = cursor.fetchone()
+                usr_name = usr[0] if usr else str(user_id)
+                
+                notify_access_request(svc_name, usr_name, admin_emails)
+        except Exception as e:
+            current_app.logger.error(f"Error sending access request email: {e}")
+            
         cursor.close()
         conn.close()
         return jsonify({'status': 'success', 'message': 'ส่งคำขอเข้าถึงข้อมูลเรียบร้อยแล้ว'})
@@ -1646,21 +1809,38 @@ def get_pending_dataset_requests():
         dataInput = request.json
         user_data = getattr(request, 'current_user', {})
         
+        user_str = dataInput.get('user')
+        if user_str and not user_data.get('user_id'):
+            decoded_user = platform_decode(user_str)
+            user_data = safe_json_loads(decoded_user)
+            
         # Verify admin status
         if not checkUserIsAdmin(user_data) and str(user_data.get('previlage_id')) != '1':
             return jsonify({'status': 'error', 'message': 'Permission Denied'}), 403
             
+        filter_status = dataInput.get('status', 'Pending')
+        
         conn = mysql.connect()
         cursor = conn.cursor()
-        sql = """SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
-                        u.username, u.firstname, u.lastname, u.email,
-                        s.service_name, s.dataset_id
-                 FROM dataset_permission_requests r
-                 JOIN user u ON r.user_id = u.user_id
-                 JOIN service s ON r.service_id = s.service_id
-                 WHERE r.status = 'Pending'
-                 ORDER BY r.created_at DESC"""
-        cursor.execute(sql)
+        if filter_status == 'All':
+            sql = """SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
+                            u.username, u.firstname, u.lastname, u.email,
+                            s.service_name, s.dataset_id
+                     FROM dataset_permission_requests r
+                     JOIN user u ON r.user_id = u.user_id
+                     JOIN service s ON r.service_id = s.service_id
+                     ORDER BY r.created_at DESC"""
+            cursor.execute(sql)
+        else:
+            sql = """SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
+                            u.username, u.firstname, u.lastname, u.email,
+                            s.service_name, s.dataset_id
+                     FROM dataset_permission_requests r
+                     JOIN user u ON r.user_id = u.user_id
+                     JOIN service s ON r.service_id = s.service_id
+                     WHERE r.status = %s
+                     ORDER BY r.created_at DESC"""
+            cursor.execute(sql, (filter_status,))
         data = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
         result = toJson(data, columns)
@@ -1685,6 +1865,12 @@ def approve_dataset_request():
     try:
         dataInput = request.json
         user_data = getattr(request, 'current_user', {})
+        
+        user_str = dataInput.get('user')
+        if user_str and not user_data.get('user_id'):
+            decoded_user = platform_decode(user_str)
+            user_data = safe_json_loads(decoded_user)
+            
         request_id = dataInput.get('request_id')
         
         if not checkUserIsAdmin(user_data) and str(user_data.get('previlage_id')) != '1':
@@ -1705,19 +1891,52 @@ def approve_dataset_request():
             
         target_user_id, service_id = req_row
         
+        # Get granular permissions from request
+        allow_dictionary = 1 if dataInput.get('allow_dictionary', True) else 0
+        allow_dashboard = 1 if dataInput.get('allow_dashboard', True) else 0
+        allow_api = 1 if dataInput.get('allow_api', True) else 0
+
         # Update request status
-        sql_update = "UPDATE dataset_permission_requests SET status = 'Approved' WHERE request_id = %s"
-        cursor.execute(sql_update, (request_id,))
+        sql_update = """
+            UPDATE dataset_permission_requests 
+            SET status = 'Approved',
+                approved_dictionary = %s,
+                approved_dashboard = %s,
+                approved_api = %s
+            WHERE request_id = %s
+        """
+        cursor.execute(sql_update, (allow_dictionary, allow_dashboard, allow_api, request_id))
         
         # Grant access in service_user_access
-        sql_grant = "INSERT IGNORE INTO service_user_access (service_id, user_id) VALUES (%s, %s)"
-        cursor.execute(sql_grant, (service_id, target_user_id))
+        sql_grant = """
+            INSERT INTO service_user_access (service_id, user_id, allow_dictionary, allow_dashboard, allow_api) 
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE 
+            allow_dictionary = VALUES(allow_dictionary),
+            allow_dashboard = VALUES(allow_dashboard),
+            allow_api = VALUES(allow_api)
+        """
+        cursor.execute(sql_grant, (service_id, target_user_id, allow_dictionary, allow_dashboard, allow_api))
         
         conn.commit()
         
         # Log action
         logAction(user_data.get('user_id'), '/approveDatasetRequest', f'Approved request {request_id} for user_id {target_user_id} on service_id {service_id}', 'info')
         
+        # Notify User
+        try:
+            from .email_service import notify_access_approved
+            cursor.execute("SELECT email FROM user WHERE user_id = %s", (target_user_id,))
+            target_user_email = cursor.fetchone()
+            
+            if target_user_email and target_user_email[0]:
+                cursor.execute("SELECT service_name FROM service WHERE service_id = %s", (service_id,))
+                svc = cursor.fetchone()
+                svc_name = svc[0] if svc else str(service_id)
+                notify_access_approved(svc_name, [target_user_email[0]])
+        except Exception as e:
+            current_app.logger.error(f"Error sending access approved email: {e}")
+            
         cursor.close()
         conn.close()
         return jsonify({'status': 'success', 'message': 'อนุมัติคำขอเข้าถึงข้อมูลเรียบร้อยแล้ว'})
@@ -1730,6 +1949,12 @@ def reject_dataset_request():
     try:
         dataInput = request.json
         user_data = getattr(request, 'current_user', {})
+        
+        user_str = dataInput.get('user')
+        if user_str and not user_data.get('user_id'):
+            decoded_user = platform_decode(user_str)
+            user_data = safe_json_loads(decoded_user)
+            
         request_id = dataInput.get('request_id')
         
         if not checkUserIsAdmin(user_data) and str(user_data.get('previlage_id')) != '1':
@@ -1829,10 +2054,19 @@ def saveApiScopeForUser():
         if cred:
             credential_id = cred[0]
         else:
-            import uuid
-            secret_key = uuid.uuid4().hex
-            sql_insert = "INSERT INTO api_credentials (service_id, user_id, secret_key, status) VALUES (%s, %s, %s, %s)"
-            cursor.execute(sql_insert, (service_id, target_user_id, secret_key, 'Active'))
+            import secrets
+            import string
+            import hashlib
+            alphabet = string.ascii_letters + string.digits
+            public_key_id = 'datax_' + ''.join(secrets.choice(alphabet) for i in range(12))
+            secret_part = secrets.token_hex(16)
+            full_secret_key = f"{public_key_id}.{secret_part}"
+            
+            secret_hash = hashlib.sha256(full_secret_key.encode('utf-8')).hexdigest()
+            key_last_four = full_secret_key[-4:]
+            
+            sql_insert = "INSERT INTO api_credentials (service_id, user_id, public_key_id, secret_hash, key_last_four, status) VALUES (%s, %s, %s, %s, %s, 'active')"
+            cursor.execute(sql_insert, (service_id, target_user_id, public_key_id, secret_hash, key_last_four))
             credential_id = cursor.lastrowid
             
         scope_str = json.dumps(scope_json) if isinstance(scope_json, (dict, list)) else scope_json

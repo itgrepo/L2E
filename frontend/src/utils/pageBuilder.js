@@ -41,6 +41,15 @@ export const defaultLayout = [
     }
   },
   {
+    id: 'publicDashboard',
+    type: 'PublicDashboard',
+    visible: true,
+    props: {
+      title: 'สถิติภาพรวมแพลตฟอร์ม',
+      subtitle: 'สถานะการดำเนินงานแบบเรียลไทม์ (Real-time Platform Statistics)'
+    }
+  },
+  {
     id: 'statsBanner',
     type: 'StatsBanner',
     visible: true,

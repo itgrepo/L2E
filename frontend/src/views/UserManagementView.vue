@@ -1,4 +1,6 @@
 <script setup>
+import { encodePassword } from '../utils/crypto';
+
 import { ref, onMounted, computed } from 'vue';
 import AppSidebar from '../components/AppSidebar.vue';
 import { postWithUser } from '../utils/api';
@@ -49,6 +51,16 @@ const closeAddModal = () => {
 const handleSaveUser = async () => {
     if (!formData.value.username || !formData.value.email || !formData.value.password) {
         showAlert('กรุณากรอกข้อมูล Username, Email และ Password ให้ครบถ้วน', 'error');
+        return;
+    }
+
+    const invalidCharsRegex = /[<>"\'/;`%&]/;
+    if (invalidCharsRegex.test(formData.value.username)) {
+        showAlert('ชื่อผู้ใช้มีตัวอักษรพิเศษที่ไม่อนุญาต', 'error');
+        return;
+    }
+    if (invalidCharsRegex.test(formData.value.email)) {
+        showAlert('อีเมลมีตัวอักษรพิเศษที่ไม่อนุญาต', 'error');
         return;
     }
     
@@ -283,7 +295,7 @@ onMounted(() => {
                 <td>{{ u.email || '-' }}</td>
                 <td>{{ formatDate(u.create_at) }}</td>
                 <td>
-                  <span class="role-badge" :class="u.previlage_name?.toLowerCase()">
+                  <span class="role-badge" :class="'role-' + u.previlage_id">
                     {{ u.previlage_name || 'No Role' }}
                   </span>
                 </td>
@@ -448,9 +460,16 @@ h1 {
 .alert-banner {
     padding: 14px 24px;
     border-radius: 12px;
-    margin-bottom: 24px;
     font-weight: 600;
     font-size: 0.95rem;
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    min-width: 300px;
+    text-align: center;
 }
 
 .alert-banner.success {
@@ -544,11 +563,16 @@ h1 {
     border-radius: 20px;
     font-size: 0.8rem;
     font-weight: 700;
+    display: inline-block;
+    white-space: nowrap;
+    text-align: center;
 }
 
-.role-badge.rootadmin { background: #fee2e2; color: #991b1b; }
-.role-badge.admin { background: #dbeafe; color: #1e40af; }
-.role-badge.user { background: #f1f5f9; color: #475569; }
+.role-badge.role-1 { background: #f3f4f6; color: #374151; } /* R1 ภายนอก */
+.role-badge.role-2 { background: #f1f5f9; color: #475569; } /* R2 ทั่วไป */
+.role-badge.role-3 { background: #fef3c7; color: #92400e; } /* R3 ดูแลข้อมูล */
+.role-badge.role-4 { background: #fee2e2; color: #991b1b; } /* R4 ดูแลระบบ */
+.role-badge.role-5 { background: #dcfce7; color: #166534; } /* R5 ภายในมีสิทธิ */
 
 /* Select Dropdown */
 /* Actions */

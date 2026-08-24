@@ -29,6 +29,31 @@ const selectedService = ref(null);
 const credentials = ref([]);
 const showKey = ref(null);
 
+const toggleMainServiceStatus = async (svc) => {
+  const isCurrentlyActive = (svc.status === 'Active' || svc.status === 'active');
+  const newStatus = isCurrentlyActive ? 'Inactive' : 'Active';
+  
+  if (!confirm(`Are you sure you want to change the status of ${svc.service_name} to ${newStatus}?`)) return;
+  
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await apiClient.post('/toggleServiceStatus', {
+      user: encodeUserData(userData),
+      service_id: svc.service_id,
+      status: newStatus
+    });
+    
+    if (res.data.status === 'success') {
+      await fetchServices(); // Refresh list
+    } else {
+      alert('Error: ' + res.data.message);
+    }
+  } catch (e) {
+    console.error(e);
+    alert('An error occurred while updating the status.');
+  }
+};
+
 const fetchServices = async () => {
   isLoading.value = true;
   try {
@@ -475,6 +500,7 @@ const formatScopeJson = (scopeJson) => {
                 <th>API SERVICE NAME</th>
                 <th>API ENDPOINT</th>
                 <th>API DESCRIPTION</th>
+                <th>ACTIVE</th>
                 <th>STATUS</th>
                 <th class="text-center">SELECT</th>
               </tr>
@@ -485,7 +511,13 @@ const formatScopeJson = (scopeJson) => {
                 <td>{{ svc.api_endpoint }}</td>
                 <td>{{ svc.service_description || svc.service_name }}</td>
                 <td>
-                  <span class="status-badge active">active</span>
+                  <label class="toggle-switch" title="Toggle Service Status" @click.prevent="toggleMainServiceStatus(svc)">
+                    <input type="checkbox" :checked="svc.status === 'Active' || svc.status === 'active'">
+                    <span class="slider"></span>
+                  </label>
+                </td>
+                <td>
+                  <span :class="['status-badge', (svc.status || 'inactive').toLowerCase()]">{{ svc.status || 'INACTIVE' }}</span>
                 </td>
                 <td class="text-center">
                   <button @click="openManageAccess(svc)" class="btn-outline">
@@ -516,6 +548,7 @@ const formatScopeJson = (scopeJson) => {
                 <th>API SERVICE NAME</th>
                 <th>API ENDPOINT</th>
                 <th>API DESCRIPTION</th>
+                <th>ACTIVE</th>
                 <th>STATUS</th>
                 <th class="text-center">SELECT</th>
               </tr>
@@ -526,7 +559,13 @@ const formatScopeJson = (scopeJson) => {
                 <td>{{ svc.api_endpoint }}</td>
                 <td>{{ svc.service_description || svc.service_name }}</td>
                 <td>
-                  <span class="status-badge active">active</span>
+                  <label class="toggle-switch" title="Toggle Service Status" @click.prevent="toggleMainServiceStatus(svc)">
+                    <input type="checkbox" :checked="svc.status === 'Active' || svc.status === 'active'">
+                    <span class="slider"></span>
+                  </label>
+                </td>
+                <td>
+                  <span :class="['status-badge', (svc.status || 'inactive').toLowerCase()]">{{ svc.status || 'INACTIVE' }}</span>
                 </td>
                 <td class="text-center">
                   <button @click="openScopesForService(svc)" class="btn-outline">
@@ -639,51 +678,53 @@ const formatScopeJson = (scopeJson) => {
                 ADD USER
               </button>
             </div>
-            <table class="api-table">
-              <thead>
-                <tr>
-                  <th>USERNAME</th>
-                  <th>PUBLIC KEY ID</th>
-                  <th>API KEY (Last 4)</th>
-                  <th>EXPIRES AT</th>
-                  <th>STATUS</th>
-                  <th>ACTIONS</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="cred in credentials" :key="cred.credential_id">
-                  <td>{{ cred.username }}</td>
-                  <td>{{ cred.public_key_id }}</td>
-                  <td class="key-cell">
-                    <span class="secret-box">••••••••••••{{ cred.key_last_four }}</span>
-                  </td>
-                  <td>{{ formatDateTime(cred.expires_at) }}</td>
-                  <td>
-                    <span :class="['status-badge', cred.status]">{{ cred.status }}</span>
-                  </td>
-                  <td>
-                    <div class="action-btns">
-                      <label class="toggle-switch" title="Toggle Status" @click.prevent="toggleCredentialStatus(cred)" v-if="cred.status !== 'revoked'">
-                        <input type="checkbox" :checked="cred.status === 'active'">
-                        <span class="slider"></span>
-                      </label>
-                      <button v-if="cred.status !== 'revoked'" class="btn-icon btn-icon-primary" @click="openEditExpiryForm(cred)" title="Set Expiry">
-                        📅
-                      </button>
-                      <button v-if="cred.status !== 'revoked'" class="btn-icon btn-icon-danger" @click="handleCredentialAction('revokeApiCredential', cred)" title="Revoke">
-                        🚫
-                      </button>
-                      <button class="btn-icon btn-icon-danger" @click="handleCredentialAction('deleteApiCredential', cred)" title="Delete">
-                        🗑️
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-                <tr v-if="credentials.length === 0">
-                  <td colspan="6" class="text-center text-muted py-4">ไม่มีข้อมูลผู้ใช้งาน</td>
-                </tr>
-              </tbody>
-            </table>
+            <div class="table-scroll-wrapper">
+              <table class="api-table">
+                <thead>
+                  <tr>
+                    <th>USERNAME</th>
+                    <th>PUBLIC KEY ID</th>
+                    <th>API KEY (Last 4)</th>
+                    <th>EXPIRES AT</th>
+                    <th>STATUS</th>
+                    <th style="text-align:center;">ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="cred in credentials" :key="cred.credential_id">
+                    <td style="font-weight:600;">{{ cred.username }}</td>
+                    <td><span class="mono-cell">{{ cred.public_key_id }}</span></td>
+                    <td class="key-cell">
+                      <span class="secret-box">••••••••{{ cred.key_last_four }}</span>
+                    </td>
+                    <td>{{ formatDateTime(cred.expires_at) }}</td>
+                    <td>
+                      <span :class="['status-badge', cred.status]">{{ cred.status }}</span>
+                    </td>
+                    <td>
+                      <div class="action-btns">
+                        <label class="toggle-switch" title="Toggle Status" @click.prevent="toggleCredentialStatus(cred)" v-if="cred.status !== 'revoked'">
+                          <input type="checkbox" :checked="cred.status === 'active'">
+                          <span class="slider"></span>
+                        </label>
+                        <button v-if="cred.status !== 'revoked'" class="btn-icon-clean" @click="openEditExpiryForm(cred)" title="ตั้งวันหมดอายุ">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" stroke-width="1.5"/><line x1="16" y1="2" x2="16" y2="6" stroke-width="1.5"/><line x1="8" y1="2" x2="8" y2="6" stroke-width="1.5"/><line x1="3" y1="10" x2="21" y2="10" stroke-width="1.5"/></svg>
+                        </button>
+                        <button v-if="cred.status !== 'revoked'" class="btn-icon-clean btn-icon-clean--danger" @click="handleCredentialAction('revokeApiCredential', cred)" title="เพิกถอน">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="1.5"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" stroke-width="1.5"/></svg>
+                        </button>
+                        <button class="btn-icon-clean btn-icon-clean--danger" @click="handleCredentialAction('deleteApiCredential', cred)" title="ลบ">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><polyline points="3 6 5 6 21 6" stroke-width="1.5"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" stroke-width="1.5"/></svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr v-if="credentials.length === 0">
+                    <td colspan="6" class="text-center text-muted py-4">ไม่มีข้อมูลผู้ใช้งาน</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -740,6 +781,9 @@ const formatScopeJson = (scopeJson) => {
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                         </svg>
+                      </button>
+                      <button v-if="sc.status !== 'revoked'" class="btn-icon" @click="openEditExpiryForm(sc)" title="ตั้งวันหมดอายุ">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" stroke-width="2"/><line x1="16" y1="2" x2="16" y2="6" stroke-width="2"/><line x1="8" y1="2" x2="8" y2="6" stroke-width="2"/><line x1="3" y1="10" x2="21" y2="10" stroke-width="2"/></svg>
                       </button>
                       <label class="toggle-switch" title="Toggle Status" @click.prevent="toggleCredentialStatus(sc)" v-if="sc.status !== 'revoked'">
                         <input type="checkbox" :checked="sc.status === 'active'">
@@ -896,7 +940,7 @@ const formatScopeJson = (scopeJson) => {
 .header-titles h1 { font-size: 2rem; font-weight: 700; color: var(--primary); margin-bottom: 4px; text-transform: uppercase; }
 .header-titles p { color: #64748b; font-size: 1rem; }
 
-.api-card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #e2e8f0; overflow: hidden; }
+.api-card { background: white; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); border: 1px solid #e2e8f0; overflow: hidden; }
 
 .tabs-container { display: flex; border-bottom: 1px solid #e2e8f0; }
 .tab-btn { flex: 1; padding: 16px; background: none; border: none; font-size: 1.125rem; font-weight: 700; color: #94a3b8; cursor: pointer; border-bottom: 3px solid transparent; text-transform: uppercase; }
@@ -905,39 +949,47 @@ const formatScopeJson = (scopeJson) => {
 .tab-content { padding: 24px; }
 .table-actions { display: flex; justify-content: flex-end; margin-bottom: 16px; }
 
-.btn-primary { background: var(--primary); color: white; border: none; padding: 10px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
-.btn-primary:hover { background: var(--primary-hover); }
-.btn-outline { background: white; color: var(--primary); border: 1px solid var(--primary); padding: 6px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 0.875rem; text-transform: uppercase; }
-.btn-outline:hover { background: #e6f4ea; }
-.btn-outline-primary { background: white; color: var(--primary); border: 1px solid var(--primary); padding: 8px 16px; border-radius: 4px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
-.btn-cancel { background: #fff; border: 1px solid #cbd5e1; color: #475569; padding: 10px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+.btn-primary { background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: white; border: none; padding: 10px 24px; border-radius: 10px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.2); }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(15, 23, 42, 0.3); }
+.btn-outline { background: white; color: #0f172a; border: 1.5px solid #e2e8f0; padding: 8px 18px; border-radius: 10px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 0.875rem; text-transform: uppercase; transition: all 0.2s; }
+.btn-outline:hover { border-color: #0f172a; background: #f8fafc; }
+.btn-outline-primary { background: white; color: #0f172a; border: 1.5px solid #e2e8f0; padding: 8px 18px; border-radius: 10px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s; }
+.btn-outline-primary:hover { border-color: #0f172a; background: #f8fafc; }
+.btn-cancel { background: #fff; border: 1.5px solid #e2e8f0; color: #475569; padding: 10px 24px; border-radius: 10px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.btn-cancel:hover { border-color: #94a3b8; background: #f8fafc; }
 
-.api-table { width: 100%; border-collapse: collapse; }
-.api-table th { text-align: left; padding: 16px; font-size: 0.875rem; font-weight: 700; color: #64748b; border-bottom: 1px solid #e2e8f0; background: #f8fafc; text-transform: uppercase; }
-.api-table td { padding: 16px; border-bottom: 1px solid #e2e8f0; font-size: 0.9375rem; color: #1e293b; vertical-align: middle; }
+.api-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.api-table th { text-align: left; padding: 14px 16px; font-size: 0.75rem; font-weight: 700; color: #94a3b8; border-bottom: 2px solid #f1f5f9; background: transparent; text-transform: uppercase; letter-spacing: 0.05em; }
+.api-table td { padding: 14px 16px; border-bottom: 1px solid #f1f5f9; font-size: 0.875rem; color: #334155; vertical-align: middle; transition: background 0.15s; }
+.api-table tbody tr:hover td { background: #f8fafc; }
 .api-table th.text-center, .api-table td.text-center { text-align: center; }
 
-.status-badge { padding: 4px 12px; border-radius: 4px; font-size: 0.8125rem; font-weight: 600; text-transform: uppercase; }
+.status-badge { padding: 5px 14px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
 .status-badge.active { background: #dcfce7; color: #166534; }
-.status-badge.paused { background: #fef08a; color: #854d0e; }
+.status-badge.paused { background: #fef3c7; color: #92400e; }
 .status-badge.revoked { background: #fee2e2; color: #991b1b; }
 
-.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-content { background: white; border-radius: 4px; width: 90%; max-width: 600px; max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column; }
-.modal-content.modal-lg { max-width: 800px; }
-.modal-content.modal-xl { max-width: 1000px; }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; background: var(--primary); color: white; }
-.modal-header h3 { font-size: 1.125rem; font-weight: 600; text-transform: uppercase; margin: 0; }
-.modal-close { background: none; border: none; font-size: 1.5rem; color: white; cursor: pointer; }
-.modal-body { padding: 24px; background: #f8fafc; }
-.modal-footer { padding: 16px 24px; background: white; border-top: 1px solid #e2e8f0; display: flex; }
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; animation: fadeInOverlay 0.2s ease; }
+@keyframes fadeInOverlay { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUpModal { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.modal-content { background: white; border-radius: 20px; width: 90%; max-width: 600px; max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column; box-shadow: 0 25px 60px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05); animation: slideUpModal 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.modal-content.modal-md { max-width: 520px; }
+.modal-content.modal-lg { max-width: 860px; }
+.modal-content.modal-xl { max-width: 1060px; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 28px; background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: white; border-radius: 20px 20px 0 0; }
+.modal-header h3 { font-size: 1.125rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; margin: 0; }
+.modal-close { background: rgba(255,255,255,0.15); border: none; font-size: 1.25rem; color: white; cursor: pointer; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all 0.2s; line-height: 1; }
+.modal-close:hover { background: rgba(255,255,255,0.3); transform: rotate(90deg); }
+.modal-body { padding: 28px; background: #f8fafc; }
+.modal-footer { padding: 16px 28px; background: white; border-top: 1px solid #e2e8f0; display: flex; border-radius: 0 0 20px 20px; }
 .justify-end { justify-content: flex-end; }
 
 .form-grid { display: flex; flex-direction: column; gap: 16px; }
 .form-row { display: flex; align-items: center; }
 .form-row label { width: 140px; font-size: 0.875rem; font-weight: 600; color: #475569; text-align: right; padding-right: 16px; }
 .form-row .required { color: #ef4444; }
-.form-row input, .form-row select { flex: 1; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.9375rem; }
+.form-row input, .form-row select { flex: 1; padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 10px; font-size: 0.9375rem; transition: all 0.2s; outline: none; }
+.form-row input:focus, .form-row select:focus { border-color: #0f172a; box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08); }
 
 .checkbox-sections { display: flex; gap: 40px; padding-left: 140px; margin-top: 24px; }
 .checkbox-col { flex: 1; display: flex; flex-direction: column; gap: 12px; }
@@ -945,20 +997,27 @@ const formatScopeJson = (scopeJson) => {
 .checkbox-label { display: flex; align-items: center; gap: 8px; font-size: 0.9375rem; color: #1e293b; cursor: pointer; }
 
 .key-cell { display: flex; align-items: center; gap: 8px; }
-.secret-box { background: #f1f5f9; padding: 6px 12px; border-radius: 4px; font-family: monospace; font-size: 0.875rem; color: #475569; }
-.toggle-btn, .btn-icon { background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px; }
-.toggle-btn:hover, .btn-icon:hover { color: #475569; }
+.secret-box { background: #f1f5f9; padding: 6px 12px; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 0.8125rem; color: #475569; letter-spacing: 0.02em; }
+.toggle-btn, .btn-icon { background: none; border: none; color: #94a3b8; cursor: pointer; padding: 6px; border-radius: 8px; transition: all 0.2s; font-size: 1rem; }
+.toggle-btn:hover, .btn-icon:hover { color: #475569; background: #f1f5f9; }
+.btn-icon-primary { color: #3b82f6 !important; }
+.btn-icon-primary:hover { color: #2563eb !important; background: #eff6ff !important; }
 .btn-icon-danger { color: #ef4444 !important; }
-.btn-icon-danger:hover { color: #dc2626 !important; }
+.btn-icon-danger:hover { color: #dc2626 !important; background: #fef2f2 !important; }
 .text-right { text-align: right; }
 .mb-4 { margin-bottom: 16px; }
 .py-4 { padding-top: 16px; padding-bottom: 16px; }
 
-.mono-cell { font-family: monospace; font-size: 0.85em; background: #f1f5f9; padding: 4px 8px; border-radius: 4px; display: inline-block; color: #475569; }
-.scope-badge { font-family: monospace; font-size: 0.85em; background: #f1f5f9; padding: 4px 8px; border-radius: 4px; display: inline-block; color: #475569; word-break: break-all; max-width: 200px; }
-.action-btns { display: flex; gap: 8px; }
+.mono-cell { font-family: 'JetBrains Mono', monospace; font-size: 0.8125em; background: #f1f5f9; padding: 4px 10px; border-radius: 6px; display: inline-block; color: #475569; }
+.scope-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.8125em; background: #f1f5f9; padding: 4px 10px; border-radius: 6px; display: inline-block; color: #475569; word-break: break-all; max-width: 200px; }
+.action-btns { display: flex; gap: 6px; align-items: center; justify-content: center; }
 
-/* Scope form styles */
+.table-scroll-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; padding: 0 4px; }
+
+.btn-icon-clean { background: none; border: 1px solid #e2e8f0; color: #64748b; cursor: pointer; padding: 6px; border-radius: 8px; transition: all 0.2s; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; }
+.btn-icon-clean:hover { color: #0f172a; border-color: #cbd5e1; background: #f8fafc; }
+.btn-icon-clean--danger { color: #94a3b8; border-color: #e2e8f0; }
+.btn-icon-clean--danger:hover { color: #ef4444; border-color: #fecaca; background: #fef2f2; }
 .scope-section { margin-top: 8px; padding: 16px; background: white; border-radius: 6px; border: 1px solid #e2e8f0; }
 .scope-section-title { font-size: 0.9375rem; font-weight: 700; color: var(--primary); margin-bottom: 12px; }
 .scope-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }

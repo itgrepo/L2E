@@ -19,15 +19,16 @@ from email.mime.text import MIMEText
 #SERVER = '203.150.212.13'  #DEVEVELOP
 # SERVER = '10.252.3.157'   #PRODUCTION
 # SERVER = 'outgoing.mail.go.th'  # PRODUCTION (old, unreachable from Docker)
-SERVER = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
+SERVER = os.environ.get('MAIL_SERVER', 'outgoing.workd.go.th')
 
 # LINK = 'http://localhost:8080'  #DEVEVELOP
 LINK = os.environ.get('FRONTEND_URL', 'http://10.20.11.91')  #PRODUCTION
 # LINK = ''  # PRODUCTION
 ### User And Password Mail ###
-username_mail = os.environ.get('MAIL_USERNAME', 'sixanate@gmail.com')
-password_mail = os.environ.get('MAIL_PASSWORD', 'inljvvpjdtsvglwn')
-MAIL_FROM = os.environ.get('MAIL_FROM', 'DEX Data Exchange <sixanate@gmail.com>')
+MAIL_USE_SSL = os.environ.get('MAIL_USE_SSL', 'true').lower() == 'true'
+username_mail = os.environ.get('MAIL_USERNAME', 'learn2earn@bde.go.th')
+password_mail = os.environ.get('MAIL_PASSWORD', 'L2E@Start2026!')
+MAIL_FROM = os.environ.get('MAIL_FROM', 'DEX Data Exchange <learn2earn@bde.go.th>')
 MAIL_PORT = int(os.environ.get('MAIL_PORT', '465'))
 ###############################
 #socks.setdefaultproxy(TYPE, ADDR, PORT)
@@ -74,6 +75,7 @@ def triggerLoginFailureAlert(username, is_invalid_username=False, user_id=0):
         """
         msg.attach(MIMEText(body, 'html', "utf-8"))
         server = smtplib.SMTP_SSL(SERVER, 465, timeout=3)
+        server.login(username_mail, password_mail)
         text = msg.as_string()
         server.sendmail(fromaddr, toaddr, text)
         server.quit()
@@ -105,6 +107,8 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         result = toJson(data, columns)
+        if len(result) > 0 and "password" in result[0]:
+            del result[0]["password"]
         conn.commit()
         cursor.close()
         conn.close()
@@ -264,7 +268,7 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
                 # print(user_id)
                 # print(result)
 
-                if str(result[0]['previlage_id']) == '3':  # User
+                if str(result[0]['previlage_id']) not in ['3', '4']:  # Normal Users
                     result[0]['isAdmin'] = 'false'
                     conn = mysql.connect()
                     cursor = conn.cursor()
@@ -361,11 +365,12 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
                 conn.commit()
                 cursor.close()
                 conn.close()
-                if str(result[0]['previlage_id']) == '3':  # User
-                    # check_policy ????? check Ver. consent ??? user
-                    return jsonify({"status": "success", "data": result[0], "status2": check_policy})
-                else:
+                if str(result[0]['previlage_id']) in ['3', '4']:  # Admin or Department Admin
+                    result[0]['isAdmin'] = 'true'
                     return jsonify({"status": "user is admin", "data": result[0]})
+                else:  # Normal Users
+                    result[0]['isAdmin'] = 'false'
+                    return jsonify({"status": "success", "data": result[0], "status2": check_policy})
                 # return jsonify({"status": "User already to use", "data": result[0]['user_id']})
             # else:
             #     return jsonify({"status": "User already to use", "data": result[0]['user_id']})
@@ -598,8 +603,12 @@ def sendMailResetPassword(token, email, link, user_id):
     </div>""".format(firstname=firstname, lastname=lastname, link=reset_link, footer=footer)
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
-        server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=10)
-        server.login(username_mail, password_mail)
+        if MAIL_USE_SSL:
+            server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=10)
+        else:
+            server = smtplib.SMTP(SERVER, MAIL_PORT, timeout=10)
+        if username_mail and password_mail:
+            server.login(username_mail, password_mail)
         text = msg.as_string()
         server.sendmail(fromaddr, toaddr, text)
         server.quit()
@@ -754,12 +763,12 @@ def resetPassword():
         columns = [column[0] for column in cursor.description]
         result = toJson(data, columns)
         # M&M ????1_5
-        sql_pass = "SELECT password FROM (SELECT sequence_no , password FROM user_password_history WHERE user_id = %s ORDER BY sequence_no DESC LIMIT 3) AS new WHERE password = %s "
+        sql_pass = "SELECT password FROM (SELECT history_id , password FROM user_password_history WHERE user_id = %s ORDER BY history_id DESC LIMIT 3) AS new WHERE password = %s "
         cursor.execute(sql_pass, (user_id, password))
         data_pass = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         result_pass = toJson(data_pass, columns)
-        sql_max = "SELECT MAX(sequence_no) FROM user_password_history WHERE user_id = %s "
+        sql_max = "SELECT MAX(history_id) FROM user_password_history WHERE user_id = %s "
         cursor.execute(sql_max, user_id)
         data_max = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
@@ -791,9 +800,10 @@ def resetPassword():
                 # M&M ????1_6
                 conn = mysql.connect()
                 cursor = conn.cursor()
+                max_seq = int(result_max[0]['MAX(password_rank)']) if result_max[0]['MAX(password_rank)'] is not None else 0
                 sql = "INSERT INTO user_password_history VALUES(NULL, %s,%s,%s,UNIX_TIMESTAMP())"
                 cursor.execute(
-                    sql, (user_id, int(result_max[0]['MAX(sequence_no)']) + 1, password))
+                    sql, (user_id, max_seq + 1, password))
                 conn.commit()
                 cursor.close()
                 conn.close()
@@ -811,6 +821,8 @@ def resetPassword():
 
 @app.route('/changePassword', methods=['POST'])
 def changePassword():
+    return jsonify({"status": "error", "message": "Direct password change is disabled. Please use email reset link."})
+    
     try:
         dataInput = request.json
         # username = dataInput['username']
@@ -833,12 +845,12 @@ def changePassword():
         columns = [column[0] for column in cursor.description]
         result = toJson(data, columns)
         # M&M ????1_5
-        sql_pass = "SELECT password FROM (SELECT sequence_no , password FROM user_password_history WHERE user_id = %s ORDER BY sequence_no DESC LIMIT 3) AS new WHERE password = %s "
+        sql_pass = "SELECT password FROM (SELECT history_id , password FROM user_password_history WHERE user_id = %s ORDER BY history_id DESC LIMIT 3) AS new WHERE password = %s "
         cursor.execute(sql_pass, (user_id, password))
         data_pass = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         result_pass = toJson(data_pass, columns)
-        sql_max = "SELECT MAX(sequence_no) FROM user_password_history WHERE user_id = %s "
+        sql_max = "SELECT MAX(password_rank) as max_rank FROM user_password_history WHERE user_id = %s "
         cursor.execute(sql_max, user_id)
         data_max = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
@@ -872,9 +884,12 @@ def changePassword():
                 # M&M ????1_6
                 conn = mysql.connect()
                 cursor = conn.cursor()
+                
+                max_seq = int(result_max[0]['max_rank']) if result_max[0]['max_rank'] is not None else 0
+                
                 sql = "INSERT INTO user_password_history VALUES(NULL, %s,%s,%s,UNIX_TIMESTAMP())"
                 cursor.execute(
-                    sql, (user_id, int(result_max[0]['MAX(sequence_no)']) + 1, password))
+                    sql, (user_id, max_seq + 1, password))
                 conn.commit()
                 cursor.close()
                 conn.close()
@@ -895,7 +910,7 @@ def sendMailEditPassword(dataInput, firstname, lastname):
     link = LINK
     # token = 'klsakdfjlksdjflkj'
     # email = 'sirawit14@gmail.com'
-    fromaddr = "Department Operation Center <adminbd@customs.go.th>"
+    fromaddr = MAIL_FROM
     toaddr = dataInput
     msg = MIMEMultipart()
     msg['From'] = fromaddr
@@ -911,7 +926,7 @@ def sendMailEditPassword(dataInput, firstname, lastname):
         server = smtplib.SMTP_SSL(SERVER, 465)
         text = msg.as_string()
         ##Login Mail server##
-        # server.login(username_mail, password_mail)
+        server.login(username_mail, password_mail)
         #-------------------#
         server.sendmail(fromaddr, toaddr, text)
         server.quit()
@@ -935,7 +950,7 @@ def sendMailResetPasswordSuccess(email):
     cursor.close()
     conn.close()
     #print(email)
-    fromaddr = "Department Operation Center <adminbd@customs.go.th>"
+    fromaddr = MAIL_FROM
     toaddr = email
     msg = MIMEMultipart()
     msg['From'] = fromaddr
@@ -948,10 +963,14 @@ def sendMailResetPasswordSuccess(email):
         "<br>You are successfully unlock your account at Department Operation Center. <br>You can log-in with your Username and Password to explore. " + footer
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
-        server = smtplib.SMTP_SSL(SERVER, 465)
+        if MAIL_USE_SSL:
+            server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=10)
+        else:
+            server = smtplib.SMTP(SERVER, MAIL_PORT, timeout=10)
         text = msg.as_string()
         ##Login Mail server##
-        # server.login(username_mail, password_mail)
+        if username_mail and password_mail:
+            server.login(username_mail, password_mail)
         #-------------------#
         server.sendmail(fromaddr, toaddr, text)
         server.quit()
@@ -975,7 +994,7 @@ def sendMailUnlockAccountSuccess(email):
     conn.commit()
     cursor.close()
     conn.close()
-    fromaddr = "Department Operation Center <adminbd@customs.go.th>"
+    fromaddr = MAIL_FROM
     toaddr = email
     msg = MIMEMultipart()
     msg['From'] = fromaddr
@@ -991,7 +1010,7 @@ def sendMailUnlockAccountSuccess(email):
         server = smtplib.SMTP_SSL(SERVER, 465)
         text = msg.as_string()
         ##Login Mail server##
-        # server.login(username_mail, password_mail)
+        server.login(username_mail, password_mail)
         #-------------------#
         server.sendmail(fromaddr, toaddr, text)
         server.quit()
@@ -1058,7 +1077,7 @@ def sendMailUnlockAccount(token, email, link, username, user_id):
         server = smtplib.SMTP_SSL(SERVER, 465)
         text = msg.as_string()
         ##Login Mail server##
-        # server.login(username_mail, password_mail)
+        server.login(username_mail, password_mail)
         #-------------------#
         server.sendmail(fromaddr, toaddr, text)
         server.quit()

@@ -135,6 +135,30 @@ const handleAddGroup = async () => {
   }
 };
 
+const deleteGroup = async (group) => {
+  if (!confirm(`คุณต้องการลบกลุ่ม "${group.group_name}" หรือไม่?\n\nข้อมูลสมาชิกและชุดข้อมูลที่กำหนดไว้ในกลุ่มนี้จะถูกลบทั้งหมด`)) {
+    return;
+  }
+  
+  try {
+    const userParam = getUserParam();
+    const response = await apiClient.post('/deleteGroup', {
+      user: userParam,
+      group_id: group.group_id
+    });
+    
+    if (response.data.status === 'success') {
+      alert('ลบกลุ่มเรียบร้อยแล้ว');
+      fetchGroups();
+    } else {
+      alert('Error: ' + (response.data.message || 'ไม่สามารถลบกลุ่มได้'));
+    }
+  } catch (err) {
+    console.error('Error deleting group:', err);
+    alert('ไม่สามารถลบกลุ่มได้ กรุณาลองใหม่');
+  }
+};
+
 onMounted(() => {
   fetchGroups();
 });
@@ -146,7 +170,7 @@ onMounted(() => {
     <main class="content">
       <header class="page-header">
         <div>
-          <h1>Group Dataset Access</h1>
+          <h1>Group Dataset Management</h1>
           <p class="subtitle">จัดการสิทธิ์การเข้าถึงชุดข้อมูลของแต่ละกลุ่มผู้ใช้</p>
         </div>
         <button class="btn-primary" @click="showAddGroupModal = true">+ สร้างกลุ่มใหม่</button>
@@ -181,6 +205,10 @@ onMounted(() => {
           <div class="card-footer">
             <button class="btn-manage" @click="openManageModal(group)">
               <span>⚙️</span> จัดการชุดข้อมูล
+            </button>
+            <button class="btn-delete-group" @click="deleteGroup(group)" title="ลบกลุ่ม">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+              ลบกลุ่ม
             </button>
           </div>
         </div>
@@ -302,7 +330,7 @@ h1 {
 }
 
 .btn-primary {
-  background-color: var(--primary);
+  background-color: var(--primary, #4f46e5);
   color: white;
   border: none;
   padding: 12px 24px;
@@ -365,7 +393,7 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--mso-pink-dark);
+  background: #eef2ff;
   border-radius: 14px;
 }
 
@@ -409,10 +437,12 @@ h3 {
 
 .card-footer {
   margin-top: auto;
+  display: flex;
+  gap: 8px;
 }
 
 .btn-manage {
-  width: 100%;
+  flex: 1;
   padding: 12px;
   border-radius: 12px;
   background-color: #f8fafc;
@@ -430,6 +460,28 @@ h3 {
 .btn-manage:hover {
   background-color: #eff6ff;
   border-color: #bfdbfe;
+}
+
+.btn-delete-group {
+  padding: 12px;
+  border-radius: 12px;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.btn-delete-group:hover {
+  background-color: #fee2e2;
+  border-color: #f87171;
 }
 
 /* Modal Styles */
@@ -489,6 +541,7 @@ h3 {
   padding: 32px;
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
 }
 
 .access-layout {
@@ -507,7 +560,7 @@ h3 {
 
 .assigned-panel {
   border-color: #bbf7d0;
-  background-color: var(--mso-pink-dark);
+  background-color: #eef2ff;
 }
 
 .panel-header {
@@ -519,7 +572,7 @@ h3 {
 }
 
 .assigned-panel .panel-header {
-  background-color: var(--mso-pink-dark);
+  background-color: #eef2ff;
   border-bottom-color: #bbf7d0;
 }
 
@@ -659,5 +712,38 @@ h3 {
 .btn-save:disabled {
   opacity: 0.7;
   cursor: not-allowed;
+}
+
+/* ============================================
+   RESPONSIVE: Tablet (≤ 1024px)
+   ============================================ */
+@media (max-width: 1024px) {
+  .content { padding: 24px; }
+  .access-layout { flex-direction: column; min-height: 0; }
+  .access-panel { max-height: none; height: 350px; flex: none; min-height: 350px; }
+  .table-wrapper { overflow-x: auto; }
+}
+
+/* ============================================
+   RESPONSIVE: Mobile (≤ 768px)
+   ============================================ */
+@media (max-width: 768px) {
+  .content { padding: 16px; }
+  .page-header { flex-direction: column; align-items: flex-start; gap: 16px; }
+  .header-actions { width: 100%; justify-content: flex-start; }
+  .search-wrapper { width: 100%; max-width: none; }
+  .search-wrapper input { width: 100%; }
+}
+
+/* ============================================
+   RESPONSIVE: Small Mobile (≤ 480px)
+   ============================================ */
+@media (max-width: 480px) {
+  .content { padding: 12px; }
+  .modal { width: 95%; padding: 0; }
+  .modal-header { padding: 16px; }
+  .modal-body { padding: 16px; }
+  .modal-footer { padding: 16px; flex-direction: column; }
+  .btn-save, .btn-cancel { width: 100%; }
 }
 </style>

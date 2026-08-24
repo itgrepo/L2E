@@ -13,6 +13,9 @@ const stats = ref({
 });
 const trend = ref([]);
 const recentLogs = ref([]);
+const systemLogs = ref([]);
+const activeTab = ref('api'); // 'api', 'system'
+
 const message = ref({ text: '', type: '' });
 
 // Filter & Pagination State
@@ -21,6 +24,9 @@ const startDate = ref('');
 const endDate = ref('');
 const logsOffset = ref(0);
 const hasMoreLogs = ref(true);
+const systemLogsOffset = ref(0);
+const hasMoreSystemLogs = ref(true);
+const isSystemLogsLoading = ref(false);
 const PAGE_SIZE = 50;
 
 const setRange = (range) => {
@@ -49,6 +55,9 @@ const handleFilterChange = () => {
   logsOffset.value = 0;
   recentLogs.value = [];
   hasMoreLogs.value = true;
+  systemLogsOffset.value = 0;
+  systemLogs.value = [];
+  hasMoreSystemLogs.value = true;
   fetchMonitorData();
 };
 
@@ -70,6 +79,7 @@ const fetchMonitorData = async () => {
 
         // Fetch initial Logs
         await fetchMoreLogs(true);
+        await fetchMoreSystemLogs(true);
     } catch (error) {
         console.error('Error fetching monitor data:', error);
         message.value = { text: 'ไม่สามารถโหลดข้อมูล Monitor ได้', type: 'error' };
@@ -109,6 +119,40 @@ const fetchMoreLogs = async (reset = false) => {
         console.error('Error fetching logs:', error);
     } finally {
         isLogsLoading.value = false;
+    }
+};
+
+const fetchMoreSystemLogs = async (reset = false) => {
+    if (isSystemLogsLoading.value) return;
+    isSystemLogsLoading.value = true;
+    try {
+        const userData = JSON.parse(localStorage.getItem('user') || '{}');
+        const payload = {
+            start_date: startDate.value,
+            end_date: endDate.value,
+            limit: PAGE_SIZE,
+            offset: systemLogsOffset.value
+        };
+
+        const logsRes = await postWithUser('/getSystemActivityLogs', userData, payload);
+        if (logsRes.data.status === 'success') {
+            const newLogs = logsRes.data.data;
+            if (reset) {
+                systemLogs.value = newLogs;
+            } else {
+                systemLogs.value = [...systemLogs.value, ...newLogs];
+            }
+            
+            if (newLogs.length < PAGE_SIZE) {
+                hasMoreSystemLogs.value = false;
+            } else {
+                systemLogsOffset.value += PAGE_SIZE;
+            }
+        }
+    } catch (error) {
+        console.error('Error fetching system logs:', error);
+    } finally {
+        isSystemLogsLoading.value = false;
     }
 };
 
@@ -277,17 +321,22 @@ onMounted(() => {
 
       <!-- Real-time / Historical Logs -->
       <div class="card table-card shadow-premium">
-        <div class="card-header">
-          <h3>Detailed Activity Logs</h3>
-          <div class="header-actions">
-            <span v-if="filterRange === 'today'" class="live-indicator">
-              <span class="pulse"></span> LIVE
-            </span>
-            <span v-else class="text-muted text-xs">Viewing Historical Data</span>
+        <div class="card-header" style="display: flex; flex-direction: column; align-items: flex-start; gap: 16px;">
+          <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+            <div class="tabs-container">
+              <button :class="['tab-button', { active: activeTab === 'api' }]" @click="activeTab = 'api'">API Logs</button>
+              <button :class="['tab-button', { active: activeTab === 'system' }]" @click="activeTab = 'system'">ประวัติการใช้งาน (System Activity Logs)</button>
+            </div>
+            <div class="header-actions">
+              <span v-if="filterRange === 'today'" class="live-indicator">
+                <span class="pulse"></span> LIVE
+              </span>
+              <span v-else class="text-muted text-xs">Viewing Historical Data</span>
+            </div>
           </div>
         </div>
         
-        <div class="table-responsive">
+        <div class="table-responsive" v-if="activeTab === 'api'">
           <table class="monitor-table">
             <thead>
               <tr>
@@ -317,11 +366,52 @@ onMounted(() => {
               </tr>
             </tbody>
           </table>
-          
           <div v-if="hasMoreLogs" class="load-more">
             <button @click="fetchMoreLogs(false)" :disabled="isLogsLoading" class="btn-load-more">
               <span v-if="isLogsLoading" class="spinner-small"></span>
               {{ isLogsLoading ? 'Loading Logs...' : 'Show More Logs' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- System Activity Logs Table -->
+        <div class="table-responsive" v-if="activeTab === 'system'">
+          <table class="monitor-table">
+            <thead>
+              <tr>
+                <th style="width: 60px;">ลำดับ</th>
+                <th style="width: 160px;">วันที่</th>
+                <th>ผู้กระทำ</th>
+                <th>เมนู/โมดูล</th>
+                <th>การกระทำ</th>
+                <th>รายละเอียดการเปลี่ยนแปลง</th>
+                <th>IP Address</th>
+                <th>อุปกรณ์</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(log, index) in systemLogs" :key="log.log_id">
+                <td>{{ index + 1 }}</td>
+                <td class="time-cell">{{ formatThaiTime(log.create_at) }}</td>
+                <td style="font-weight: 600;">{{ log.username }}</td>
+                <td class="path-cell"><code>{{ log.path }}</code></td>
+                <td><span class="status-chip status-success">{{ log.type }}</span></td>
+                <td>{{ log.log_detail }}</td>
+                <td>{{ log.ip }}</td>
+                <td style="font-size: 0.75rem; color: #64748b;">{{ log.device }}</td>
+              </tr>
+              <tr v-if="systemLogs.length === 0 && !isLoading && !isSystemLogsLoading">
+                <td colspan="8" class="no-data-table">
+                  ไม่พบข้อมูลประวัติการใช้งานในช่วงเวลานี้
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          
+          <div v-if="hasMoreSystemLogs" class="load-more">
+            <button @click="fetchMoreSystemLogs(false)" :disabled="isSystemLogsLoading" class="btn-load-more">
+              <span v-if="isSystemLogsLoading" class="spinner-small"></span>
+              {{ isSystemLogsLoading ? 'Loading Logs...' : 'Show More Logs' }}
             </button>
           </div>
         </div>
@@ -391,6 +481,11 @@ onMounted(() => {
 .live-indicator { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; font-weight: 800; color: #ef4444; background: #fef2f2; padding: 4px 10px; border-radius: 20px; }
 .pulse { width: 8px; height: 8px; background: #ef4444; border-radius: 50%; animation: pulse 1.5s infinite; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+
+.tabs-container { display: flex; gap: 8px; background: #f1f5f9; padding: 4px; border-radius: 12px; }
+.tab-button { padding: 8px 16px; border: none; background: transparent; border-radius: 8px; font-weight: 700; font-size: 0.875rem; color: #64748b; cursor: pointer; transition: all 0.2s; }
+.tab-button:hover { color: #0f172a; }
+.tab-button.active { background: white; color: #0f172a; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
 
 .monitor-table { width: 100%; border-collapse: collapse; min-width: 800px; }
 .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 24px; }

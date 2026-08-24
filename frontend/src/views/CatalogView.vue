@@ -1,9 +1,59 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { encodeUserData } from '../utils/api';
 
+const router = useRouter();
 const searchQuery = ref('');
+
+
+const showSuggestions = ref(false);
+
+const searchSuggestions = computed(() => {
+  if (!searchQuery.value.trim()) return [];
+  const query = searchQuery.value.toLowerCase().trim();
+  const suggestions = [];
+  const maxSuggestions = 8;
+  
+  datasets.value.forEach(ds => {
+    if (ds.title.toLowerCase().includes(query) && !suggestions.find(s => s.text === ds.title)) {
+      suggestions.push({ text: ds.title, type: 'ชุดข้อมูล' });
+    }
+  });
+  
+  datasets.value.forEach(ds => {
+    if (ds.tags) {
+      const tagsList = ds.tags.split(',');
+      tagsList.forEach(t => {
+        const tag = t.trim();
+        if (tag.toLowerCase().includes(query) && !suggestions.find(s => s.text === tag)) {
+          suggestions.push({ text: tag, type: 'แท็ก' });
+        }
+      });
+    }
+  });
+  
+  return suggestions.slice(0, maxSuggestions);
+});
+
+const selectSuggestion = (text) => {
+  searchQuery.value = text;
+  showSuggestions.value = false;
+};
+
+const hideSuggestions = () => {
+  setTimeout(() => {
+    showSuggestions.value = false;
+  }, 200);
+};
+
+const highlight = (text, query) => {
+  if (!query) return text;
+  const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escapedQuery})`, 'gi');
+  return text.replace(regex, '<strong style="color: var(--primary);">$1</strong>');
+};
 
 const requestForm = ref({
   fields: [],
@@ -14,10 +64,6 @@ const reqError = ref('');
 const reqSuccess = ref('');
 
 const submitPermissionRequest = async () => {
-  if (requestForm.value.fields.length === 0) {
-    reqError.value = 'โปรดเลือกอย่างน้อย 1 ฟิลด์ข้อมูล';
-    return;
-  }
   if (!requestForm.value.reason.trim()) {
     reqError.value = 'โปรดระบุวัตถุประสงค์ในการขอเข้าถึง';
     return;
@@ -57,7 +103,7 @@ const errorMessage = ref('');
 
 // Pagination State
 const currentPage = ref(1);
-const itemsPerPage = 2; // Fixed at 2 for the demo (6 items = 3 pages)
+const itemsPerPage = 10; // Increased to 10
 
 const user = ref(JSON.parse(localStorage.getItem('user') || '{}'));
 
@@ -83,6 +129,17 @@ const activeTab = ref('info');
 const openPreview = (type) => {
   previewType.value = type;
   isPreviewModalOpen.value = true;
+};
+
+const downloadFile = () => {
+  if (selectedDataset.value) {
+    let fileTypeParam = 'data';
+    if (previewType.value === 'DICTIONARY') fileTypeParam = 'dictionary';
+    else if (previewType.value === 'SAMPLING') fileTypeParam = 'sampling';
+    
+    window.open(`/api/downloadFile/${selectedDataset.value.service_id}?type=${fileTypeParam}`, '_blank');
+    isPreviewModalOpen.value = false;
+  }
 };
 
 const closePreview = () => {
@@ -153,7 +210,8 @@ const filteredDatasets = computed(() => {
     result = result.filter(ds => 
       ds.title.toLowerCase().includes(query) || 
       ds.agency.toLowerCase().includes(query) ||
-      ds.description.toLowerCase().includes(query)
+      ds.description.toLowerCase().includes(query) ||
+      (ds.tags && ds.tags.toLowerCase().includes(query))
     );
   }
 
@@ -220,6 +278,13 @@ const toggleFormat = (format) => {
   }
 };
 
+const handleDatasetCardClick = (ds) => {
+  if (!ds.has_access) {
+    openDatasetDetail(ds);
+  } else {
+    router.push('/dataset/' + ds.id);
+  }
+};
 const openDatasetDetail = (ds) => {
   selectedDataset.value = ds;
   activeTab.value = 'info';
@@ -266,7 +331,17 @@ const fetchDatasets = async () => {
   isLoading.value = true;
   errorMessage.value = '';
   try {
-    const response = await apiClient.get('/retrieveService');
+    const userDataStr = localStorage.getItem('user');
+    let userPayload = '';
+    if (userDataStr) {
+        // Base64 encode the user JSON string to match backend platform_decode logic
+        // btoa expects a string, we encodeURIComponent to handle unicode then btoa, 
+        // wait, the backend uses base64.b64decode().decode('utf-8'). 
+        // The common frontend encoding in this app:
+        // btoa(unescape(encodeURIComponent(userDataStr)))
+        userPayload = btoa(unescape(encodeURIComponent(userDataStr)));
+    }
+    const response = await apiClient.post('/retrieveService', { user: userPayload });
     if (response.data.status === 'success') {
       console.log('Catalog Raw Data (first 3):', response.data.data.slice(0, 3).map(i => ({ name: i.service_name, api: i.api_enabled })));
       datasets.value = response.data.data.map(item => ({
@@ -364,9 +439,23 @@ onMounted(async () => {
             <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            <input type="text" v-model="searchQuery" placeholder="ค้นหาชุดข้อมูล เช่น Course Data, Job Market...">
+            <input type="text" v-model="searchQuery" @focus="showSuggestions = true" @blur="hideSuggestions" placeholder="ค้นหาชุดข้อมูล เช่น Course Data, Job Market...">
+            
+            <ul v-if="showSuggestions && searchSuggestions.length > 0" class="auto-suggestions-dropdown">
+              <li v-for="(sug, index) in searchSuggestions" :key="index" @mousedown.prevent="selectSuggestion(sug.text)">
+                <div class="sug-content">
+                  <svg v-if="sug.type === 'ชุดข้อมูล'" xmlns="http://www.w3.org/2000/svg" class="sug-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+                  </svg>
+                  <svg v-else xmlns="http://www.w3.org/2000/svg" class="sug-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                  </svg>
+                  <span v-html="highlight(sug.text, searchQuery)"></span>
+                </div>
+                <span class="sug-type">{{ sug.type }}</span>
+              </li>
+            </ul>
             <button class="btn-search">ค้นหา</button>
-            <router-link to="/dataset-config" class="btn-add-dataset">Add Dataset</router-link>
           </div>
         </div>
       </header>
@@ -439,7 +528,7 @@ onMounted(async () => {
           </div>
 
           <div v-if="paginatedDatasets.length > 0" class="datasets-list-vertical">
-            <router-link v-for="ds in paginatedDatasets" :key="ds.id" :to="'/dataset/' + ds.id" class="ds-horizontal-card">
+            <a v-for="ds in paginatedDatasets" :key="ds.id" href="#" @click.prevent="handleDatasetCardClick(ds)" class="ds-horizontal-card">
               <div class="ds-main-content">
                 <div class="ds-header">
                   <h4 class="ds-title">
@@ -470,7 +559,7 @@ onMounted(async () => {
                   </div>
                 </div>
               </div>
-            </router-link>
+            </a>
           </div>
           
           <div v-else-if="!isLoading" class="no-results">
@@ -619,17 +708,6 @@ onMounted(async () => {
                     
                     <!-- If no request yet or rejected and user clicks request again -->
                     <div v-if="!selectedDataset?.permission_status" class="request-access-form-wrapper">
-                      <!-- Field selector -->
-                      <div class="form-group mb-4" style="margin-bottom: 12px;">
-                        <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px;">ฟิลด์ข้อมูลที่ต้องการ *</label>
-                        <div class="field-checkbox-list" style="max-height:120px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;padding:8px;background:#f8fafc; text-align:left;">
-                          <label v-for="field in selectedDataset?.api_response_fields" :key="field" class="flex items-center gap-2 mb-1 cursor-pointer" style="display:flex;align-items:center;gap:6px;font-size:0.85rem; margin-bottom: 4px; cursor:pointer;">
-                            <input type="checkbox" :value="field" v-model="requestForm.fields">
-                            <span>{{ field }}</span>
-                          </label>
-                        </div>
-                      </div>
-                      
                       <!-- Reason input -->
                       <div class="form-group mb-4" style="margin-bottom: 12px;">
                         <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px;">วัตถุประสงค์ในการขอเข้าถึง *</label>
@@ -976,7 +1054,7 @@ onMounted(async () => {
             <button @click="closePreview" style="padding: 8px 16px; border: none; background: none; color: #64748b; font-weight: 600; cursor: pointer; border-radius: 8px; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
               ยกเลิก
             </button>
-            <button @click="closePreview" style="padding: 8px 24px; background-color: var(--mso-accent); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 4px rgba(233, 30, 99, 0.2); transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='var(--primary)'" onmouseout="this.style.backgroundColor='var(--mso-accent)'">
+            <button @click="downloadFile" style="padding: 8px 24px; background-color: var(--mso-accent); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 4px rgba(233, 30, 99, 0.2); transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='var(--primary)'" onmouseout="this.style.backgroundColor='var(--mso-accent)'">
               <svg xmlns="http://www.w3.org/2000/svg" style="height: 16px; width: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
@@ -1752,6 +1830,21 @@ onMounted(async () => {
 
 /* ===== RESPONSIVE: Mobile ===== */
 @media (max-width: 768px) {
+  .catalog-layout {
+    flex-direction: column !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    overflow-x: hidden !important;
+  }
+  
+  .catalog-content {
+    width: 100% !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
   .catalog-header {
     padding: 20px 16px 16px;
   }
@@ -1946,4 +2039,69 @@ onMounted(async () => {
     font-size: 0.8rem;
   }
 }
+
 </style>
+<style scoped>
+.search-input-wrapper {
+  position: relative;
+}
+
+.auto-suggestions-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 8px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+  list-style: none;
+  padding: 8px 0;
+  z-index: 50;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.auto-suggestions-dropdown li {
+  padding: 10px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid #f8fafc;
+}
+
+.auto-suggestions-dropdown li:last-child {
+  border-bottom: none;
+}
+
+.auto-suggestions-dropdown li:hover {
+  background-color: #f1f5f9;
+}
+
+.sug-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  color: #334155;
+}
+
+.sug-icon {
+  width: 16px;
+  height: 16px;
+  color: #94a3b8;
+}
+
+.sug-type {
+  font-size: 0.7rem;
+  background: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+</style>
+

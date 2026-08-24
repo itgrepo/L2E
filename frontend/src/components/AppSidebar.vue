@@ -15,6 +15,7 @@ onMounted(() => {
 const userName = ref('User');
 const userRole = ref('Guest');
 const isAdmin = ref(false);
+const userRoleId = ref('');
 const route = useRoute();
 const router = useRouter();
 
@@ -25,7 +26,6 @@ const checkSettingsExpanded = (currentPath) => {
   }
 };
 
-// Close mobile sidebar on route change & auto-expand settings
 watch(route, (newRoute) => {
   isMobileMenuOpen.value = false;
   checkSettingsExpanded(newRoute.path);
@@ -36,10 +36,34 @@ onMounted(() => {
   if (savedUser.firstname) {
     userName.value = `${savedUser.firstname} ${savedUser.lastname || ''}`;
     userRole.value = savedUser.role || (savedUser.isAdmin === 'true' || savedUser.isAdmin === true ? 'Administrator' : 'User');
-    isAdmin.value = savedUser.isAdmin === 'true' || savedUser.isAdmin === true || String(savedUser.previlage_id) !== '3';
+    userRoleId.value = String(savedUser.previlage_id);
+    isAdmin.value = userRoleId.value === '4' || savedUser.isAdmin === 'true' || savedUser.isAdmin === true;
   }
   checkSettingsExpanded(route.path);
 });
+
+const hasMenuAccess = (path) => {
+  if (isAdmin.value) return true;
+  
+  const role = userRoleId.value;
+  // Guest (1)
+  if (role === '1') {
+    return ['/catalog'].includes(path);
+  }
+  // Normal User (2)
+  if (role === '2') {
+    return ['/dashboard', '/catalog', '/favorites'].includes(path);
+  }
+  // Agency Admin (3)
+  if (role === '3') {
+    return ['/dashboard', '/catalog', '/favorites', '/api-management', '/api-monitor', '/dataset-approval', '/dataset-management', '/analytics'].includes(path);
+  }
+  // Internal User (5)
+  if (role === '5') {
+    return ['/dashboard', '/catalog', '/favorites', '/api-management'].includes(path);
+  }
+  return false;
+};
 
 const toggleSettings = () => {
   isSettingsExpanded.value = !isSettingsExpanded.value;
@@ -108,7 +132,7 @@ const settingItems = [
     <nav class="sidebar-nav">
       <div class="nav-section">หลัก</div>
       <router-link 
-        v-for="item in menuItems" 
+        v-for="item in menuItems.filter(i => hasMenuAccess(i.path))" 
         :key="item.name"
         :to="item.path"
         class="nav-item"
@@ -120,9 +144,9 @@ const settingItems = [
         <span>{{ item.name }}</span>
       </router-link>
 
-      <div v-if="toolItems.filter(item => isAdmin || ['/api-management'].includes(item.path)).length > 0" class="nav-section">เครื่องมือ</div>
+      <div v-if="toolItems.filter(i => hasMenuAccess(i.path)).length > 0" class="nav-section">เครื่องมือ</div>
       <router-link 
-        v-for="item in toolItems.filter(item => isAdmin || ['/api-management'].includes(item.path))" 
+        v-for="item in toolItems.filter(i => hasMenuAccess(i.path))" 
         :key="item.name"
         :to="item.path"
         class="nav-item"
@@ -134,8 +158,8 @@ const settingItems = [
         <span>{{ item.name }}</span>
       </router-link>
 
-      <div v-if="isAdmin" class="nav-section">การตั้งค่า</div>
-      <div v-if="isAdmin" class="nav-group" :class="{ 'expanded': isSettingsExpanded }">
+      <div v-if="settingItems.filter(i => hasMenuAccess(i.path)).length > 0" class="nav-section">การตั้งค่า</div>
+      <div v-if="settingItems.filter(i => hasMenuAccess(i.path)).length > 0" class="nav-group" :class="{ 'expanded': isSettingsExpanded }">
         <button class="nav-item group-toggle" @click="toggleSettings">
           <svg xmlns="http://www.w3.org/2000/svg" class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -148,7 +172,7 @@ const settingItems = [
         
         <div class="sub-menu">
           <router-link 
-            v-for="item in settingItems" 
+            v-for="item in settingItems.filter(i => hasMenuAccess(i.path))" 
             :key="item.name"
             :to="item.path"
             class="nav-item sub-item"

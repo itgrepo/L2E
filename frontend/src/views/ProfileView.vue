@@ -17,38 +17,33 @@ const passwordForm = ref({
   confirmPassword: ''
 });
 
+const showCurrentPassword = ref(false);
+const showNewPassword = ref(false);
+const showConfirmPassword = ref(false);
+
 const handlePasswordChange = async () => {
-  if (!passwordForm.value.currentPassword || !passwordForm.value.newPassword || !passwordForm.value.confirmPassword) {
-    message.value = { text: 'กรุณากรอกข้อมูลให้ครบถ้วน', type: 'error' };
-    return;
-  }
-  if (passwordForm.value.newPassword !== passwordForm.value.confirmPassword) {
-    message.value = { text: 'รหัสผ่านใหม่ไม่ตรงกัน', type: 'error' };
-    return;
-  }
-  
   isSavingPassword.value = true;
   message.value = { text: '', type: '' };
   
   try {
-    const response = await apiClient.post('/changePassword', {
-      currentPassword: passwordForm.value.currentPassword,
-      password: passwordForm.value.newPassword,
-      user_id: encodeUserData(user.value.user_id.toString())
+    const response = await apiClient.post('/forgotPassword', {
+      username: user.value.username,
+      link: window.location.origin
     });
     
-    if (response.data.status === 'success') {
-      message.value = { text: 'เปลี่ยนรหัสผ่านเรียบร้อยแล้ว!', type: 'success' };
-      showPasswordForm.value = false;
-      passwordForm.value = { currentPassword: '', newPassword: '', confirmPassword: '' };
-    } else if (response.data.status === 'same password') {
-      message.value = { text: 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่าน 3 ครั้งล่าสุด', type: 'error' };
+    const result = response.data;
+    const status = typeof result === 'string' ? result : result.status;
+    
+    if (status === 'success') {
+      message.value = { text: 'ส่งลิงก์รีเซ็ตรหัสผ่านไปที่อีเมลของคุณแล้ว', type: 'success' };
+    } else if (status === 'success (not have email)') {
+      message.value = { text: 'ระบบรีเซ็ตรหัสผ่านแล้ว แต่ไม่พบอีเมลในระบบ โปรดติดต่อแอดมิน', type: 'error' };
     } else {
-      message.value = { text: 'รหัสผ่านปัจจุบันไม่ถูกต้อง', type: 'error' };
+      message.value = { text: 'เกิดข้อผิดพลาดในการส่งลิงก์รีเซ็ตรหัสผ่าน', type: 'error' };
     }
   } catch (error) {
-    console.error('Password change error:', error);
-    message.value = { text: 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน', type: 'error' };
+    console.error('Password reset error:', error);
+    message.value = { text: 'เกิดข้อผิดพลาดในการส่งลิงก์', type: 'error' };
   } finally {
     isSavingPassword.value = false;
   }
@@ -56,7 +51,6 @@ const handlePasswordChange = async () => {
 
 const cancelPasswordChange = () => {
   showPasswordForm.value = false;
-  passwordForm.value = { currentPassword: '', newPassword: '', confirmPassword: '' };
 };
 
 // Notifications states & methods
@@ -130,9 +124,17 @@ const user = ref({
 onMounted(() => {
   const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
   if (savedUser) {
+    let calculatedRole = 'User';
+    const privId = String(savedUser.previlage_id);
+    if (privId === '4') calculatedRole = 'System Administrator';
+    else if (privId === '3') calculatedRole = 'Department Admin';
+    else if (privId === '2') calculatedRole = 'General User';
+    else if (privId === '1') calculatedRole = 'External User';
+
     user.value = {
       ...user.value,
-      ...savedUser
+      ...savedUser,
+      role: calculatedRole
     };
   }
 });
@@ -287,27 +289,12 @@ const saveChanges = async () => {
             </div>
             
             <div v-else class="password-form-card" style="background: #f8fafc; padding: 24px; border-radius: 16px; border: 1px solid #e2e8f0; text-align: left;">
-              <h4 style="margin: 0 0 8px 0; font-weight:700; color:#1e293b;">Change Password</h4>
-              <p style="font-size:0.875rem; color:#64748b; margin-bottom: 20px;">กรุณากรอกรหัสผ่านเดิมและกำหนดรหัสผ่านใหม่เพื่อความปลอดภัย</p>
-              
-              <div class="form-group mb-4" style="margin-bottom: 16px;">
-                <label style="display:block; margin-bottom:6px; font-weight:600; font-size:0.875rem;">Current Password *</label>
-                <input type="password" v-model="passwordForm.currentPassword" placeholder="รหัสผ่านปัจจุบัน" required style="width:100%; box-sizing:border-box;">
-              </div>
-              
-              <div class="form-group mb-4" style="margin-bottom: 16px;">
-                <label style="display:block; margin-bottom:6px; font-weight:600; font-size:0.875rem;">New Password *</label>
-                <input type="password" v-model="passwordForm.newPassword" placeholder="รหัสผ่านใหม่" required style="width:100%; box-sizing:border-box;">
-              </div>
-              
-              <div class="form-group mb-4" style="margin-bottom: 20px;">
-                <label style="display:block; margin-bottom:6px; font-weight:600; font-size:0.875rem;">Confirm New Password *</label>
-                <input type="password" v-model="passwordForm.confirmPassword" placeholder="ยืนยันรหัสผ่านใหม่" required style="width:100%; box-sizing:border-box;">
-              </div>
+              <h4 style="margin: 0 0 8px 0; font-weight:700; color:#1e293b;">Request Password Reset</h4>
+              <p style="font-size:0.875rem; color:#64748b; margin-bottom: 20px;">ระบบจะส่งลิงก์สำหรับตั้งรหัสผ่านใหม่ไปยังอีเมลของคุณ <strong>{{ user.email }}</strong></p>
               
               <div class="form-actions" style="display: flex; gap: 12px;">
                 <button class="btn-primary" :disabled="isSavingPassword" @click="handlePasswordChange">
-                  {{ isSavingPassword ? 'Saving...' : 'Save Password' }}
+                  {{ isSavingPassword ? 'Sending...' : 'Send Reset Link' }}
                 </button>
                 <button class="btn-ghost" @click="cancelPasswordChange">Cancel</button>
               </div>
@@ -536,6 +523,11 @@ input:disabled {
   border-radius: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-dark);
 }
 
 .btn-ghost {
@@ -597,5 +589,31 @@ input:disabled {
   .settings-tabs { overflow-x: auto; white-space: nowrap; flex-wrap: nowrap; }
   .tab-pane { padding: 24px 16px; }
   .security-item { flex-direction: column; align-items: flex-start; gap: 16px; }
+}
+
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-wrapper input {
+  width: 100%;
+  padding-right: 40px;
+}
+
+.toggle-password {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  color: #64748b;
+  height: 100%;
 }
 </style>

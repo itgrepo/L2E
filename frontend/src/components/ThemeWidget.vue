@@ -314,4 +314,22 @@ const resetTheme = () => {
 .btn-save:hover {
   background-color: var(--primary-hover);
 }
+
+@media (max-width: 768px) {
+  .theme-widget-container {
+    bottom: calc(16px + env(safe-area-inset-bottom)) !important;
+    right: 16px !important;
+  }
+  
+  .widget-toggle {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .widget-panel {
+    width: calc(100vw - 32px);
+    right: 0;
+    bottom: calc(64px + env(safe-area-inset-bottom));
+  }
+}
 </style>

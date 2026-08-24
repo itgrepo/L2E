@@ -59,13 +59,18 @@ const sourceSystems = ref([]);
 
 const fetchMasters = async () => {
   try {
-    const userParam = getUserParam ? getUserParam() : '';
-    const groupRes = await apiClient.post('/getDatasetGroups', { user: userParam });
-    if (groupRes.data) {
+    const userData = localStorage.getItem('user');
+    const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
+    const groupRes = await apiClient.post('/getGroups', { user: userParam });
+    if (groupRes.data && groupRes.data.status === 'success') {
+      datasetGroups.value = groupRes.data.data;
+    } else if (groupRes.data) {
       datasetGroups.value = groupRes.data;
     }
     const sysRes = await apiClient.post('/getSourceSystems', { user: userParam });
-    if (sysRes.data) {
+    if (sysRes.data && sysRes.data.status === 'success') {
+      sourceSystems.value = sysRes.data.data;
+    } else if (sysRes.data) {
       sourceSystems.value = sysRes.data;
     }
   } catch (err) {
@@ -75,27 +80,17 @@ const fetchMasters = async () => {
 
 const fetchDatasets = async () => {
   try {
-    // Use retrieveService which works without admin auth
-    const response = await apiClient.get('/retrieveService');
-    if (response.data && response.data.data) {
+    const userData = localStorage.getItem('user');
+    const response = await apiClient.post('/getService', {
+      user: encodeUserData(JSON.parse(userData))
+    });
+    if (response.data.status === 'success') {
       datasets.value = response.data.data;
     } else if (Array.isArray(response.data)) {
       datasets.value = response.data;
     }
   } catch (error) {
     console.error('Fetch error:', error);
-    // Fallback to getService if retrieveService fails
-    try {
-      const userData = localStorage.getItem('user');
-      const res = await apiClient.post('/getService', {
-        user: encodeUserData(JSON.parse(userData))
-      });
-      if (res.data.status === 'success') {
-        datasets.value = res.data.data;
-      }
-    } catch (e) {
-      console.error('Fallback fetch also failed:', e);
-    }
   }
 };
 
@@ -157,8 +152,8 @@ const selectForEdit = (item) => {
     objective_type: item.objective_type || 'ภารกิจหน่วยงาน',
     external_dashboard_url: item.external_dashboard_url || '',
     external_api_url: item.external_api_url || '',
-    date_start: item.date_start || '',
-    date_updated: item.date_updated || '',
+    date_start: item.date_start ? item.date_start.split('T')[0] : '',
+    date_updated: new Date().toISOString().split('T')[0], // Default to today on edit
     is_high_value: item.is_high_value || 'ไม่ใช่',
     is_reference: item.is_reference || 'ไม่ใช่',
     dataset_type: item.dataset_type || 'record',
@@ -214,6 +209,9 @@ const resetForm = () => {
     objective_type: '',
     external_dashboard_url: '',
     external_api_url: '',
+    date_start: '',
+    date_updated: new Date().toISOString().split('T')[0], // Default to today on create
+    is_high_value: 'ไม่ใช่',
     dataset_type: 'record',
     stat_year_start: '',
     stat_year_latest: '',
@@ -618,8 +616,8 @@ const onCategoryChange = () => {
 
 const updateDatasetPrefix = () => {
   if (editingId.value) return; // ห้ามเขียนทับ Dataset ID เดิมอัตโนมัติ
-  const selectedGroup = datasetGroups.value.find(g => g.id === formData.value.l2e_group_id);
-  if (selectedGroup) {
+  const selectedGroup = datasetGroups.value.find(g => g.group_id === formData.value.l2e_group_id);
+  if (selectedGroup && selectedGroup.prefix) {
     formData.value.dataset_id = selectedGroup.prefix;
   }
 };
@@ -658,7 +656,7 @@ const updateDatasetPrefix = () => {
 
         <div class="header-titles">
           <h1>Dataset Configuration</h1>
-          <p>จัดการและตั้งค่าชุดข้อมูลในระบบ Intelligist DataX Portal</p>
+          <p>จัดการและตั้งค่าชุดข้อมูลในระบบ DataX Portal</p>
         </div>
       </header>
 
@@ -686,10 +684,7 @@ const updateDatasetPrefix = () => {
               <button v-if="editingId" @click="resetForm" class="btn-cancel-mini">คืนค่าสถานะสร้างใหม่</button>
             </div>
             
-            <div v-if="successMessage" class="alert alert-success">{{ successMessage }}</div>
-            <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
-
-            <form @submit.prevent="handleSubmit" class="config-form">
+                                    <form @submit.prevent="handleSubmit" class="config-form">
               <div class="dataset-type-selector mt-4 mb-6">
                 <label class="block text-slate-700 font-semibold mb-2" style="font-size: 1.1rem; border-bottom: 2px solid var(--primary); padding-bottom: 0.5rem; display: inline-block;">ประเภทชุดข้อมูล (Dataset Type) *</label>
                 <div class="flex flex-wrap gap-2 mt-2" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem;">
@@ -720,7 +715,7 @@ const updateDatasetPrefix = () => {
                     <label>กลุ่มชุดข้อมูล (Dataset Group) *</label>
                     <select v-model="formData.l2e_group_id" @change="updateDatasetPrefix" class="form-select-custom" required>
                       <option value="">เลือกกลุ่มชุดข้อมูล</option>
-                      <option v-for="group in datasetGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
+                      <option v-for="group in datasetGroups" :key="group.group_id" :value="group.group_id">{{ group.group_name }}</option>
                     </select>
                   </div>
                   <div class="form-group">
@@ -778,7 +773,7 @@ const updateDatasetPrefix = () => {
                     <label>ระบบต้นทาง (Source System) *</label>
                     <select v-model="formData.source_system_id" required class="form-select-custom">
                       <option value="">เลือกระบบต้นทาง</option>
-                      <option v-for="sys in sourceSystems" :key="sys.id" :value="sys.id">{{ sys.name }}</option>
+                      <option v-for="sys in sourceSystems" :key="sys.id" :value="sys.id">{{ sys.name_th }}</option>
                     </select>
                   </div>
                 </div>
@@ -853,7 +848,7 @@ const updateDatasetPrefix = () => {
                 <div class="form-row">
                   <div class="form-group">
                     <label>วันที่เริ่มต้นสร้าง *</label>
-                    <input type="date" v-model="formData.date_start" class="form-input-custom" required>
+                    <input type="date" v-model="formData.date_start" class="form-input-custom" required disabled>
                   </div>
                   <div class="form-group">
                     <label>วันที่ปรับปรุงข้อมูลล่าสุด *</label>
@@ -1190,18 +1185,17 @@ const updateDatasetPrefix = () => {
               </label>
             </div>
 
-            <div v-if="successMessage" class="alert alert-success">{{ successMessage }}</div>
-            <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
-
-            <div class="upload-zone" @click="triggerFileUpload">
-              <input type="file" id="fileInput" @change="handleFileSelect" style="display: none;">
+                                    <div class="upload-zone" @click="triggerFileUpload">
+              <input type="file" id="fileInput" @change="handleFileSelect" style="display: none;" :accept="fileType === 'zip' ? '.zip' : '.csv,.xls,.xlsx'">
               <div class="upload-inner">
                 <svg xmlns="http://www.w3.org/2000/svg" style="width: 48px; height: 48px; margin: 0 auto; color: #475569;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
                 <p v-if="!selectedFile">ลากไฟล์มาวางที่นี่ หรือ <span>คลิกเพื่อเลือกไฟล์</span></p>
                 <p v-else class="text-green-600 font-bold">เลือกไฟล์แล้ว: {{ selectedFile.name }}</p>
-                <span class="text-xs text-slate-400">รองรับไฟล์ CSV, XLS, XLSX, ZIP (สูงสุด 500MB)</span>
+                <span class="text-xs text-slate-400" v-if="fileType === 'dictionary'">รองรับไฟล์ CSV, XLS, XLSX (เฉพาะพจนานุกรมข้อมูล)</span>
+                <span class="text-xs text-slate-400" v-else-if="fileType === 'excel'">รองรับไฟล์ CSV, XLS, XLSX (สำหรับใช้งานผ่าน API)</span>
+                <span class="text-xs text-slate-400" v-else-if="fileType === 'zip'">รองรับไฟล์ ZIP (สำหรับการดาวน์โหลดข้อมูลสุ่ม)</span>
               </div>
             </div>
 
@@ -1214,10 +1208,7 @@ const updateDatasetPrefix = () => {
 
           <!-- LINK TAB -->
           <div v-else-if="activeTab === 'link'" class="link-section" style="max-width: 800px; padding-top: 2rem;">
-            <div v-if="successMessage" class="alert alert-success">{{ successMessage }}</div>
-            <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
-
-            <div class="flex items-center p-1 bg-slate-100 rounded-xl w-fit mb-10 mt-2 border border-slate-200 shadow-inner">
+                                    <div class="flex items-center p-1 bg-slate-100 rounded-xl w-fit mb-10 mt-2 border border-slate-200 shadow-inner">
               <button 
                 @click="linkType = 'api'" 
                 class="flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold transition-all duration-200"
@@ -1271,10 +1262,7 @@ const updateDatasetPrefix = () => {
 
           <!-- API TAB -->
           <div v-else-if="activeTab === 'api'" class="api-section">
-            <div v-if="successMessage" class="alert alert-success">{{ successMessage }}</div>
-            <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
-
-            <div class="form-group mb-8">
+                                    <div class="form-group mb-8">
               <label class="text-xs text-slate-500 font-bold tracking-wide uppercase">รหัสชุดข้อมูล</label>
               <select v-model="apiDatasetId" @change="fetchDatabases()" style="width:100%;padding:10px 16px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:0.9375rem;outline:none;">
                 <option value="">-- เลือกชุดข้อมูล --</option>
@@ -1403,6 +1391,28 @@ const updateDatasetPrefix = () => {
           <div class="modal-footer">
             <button class="btn-cancel" @click="showAddSubCatModal = false">ยกเลิก</button>
             <button class="btn-save" @click="handleAddSubCategory">บันทึกข้อมูล</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Notification Modal -->
+      <div v-if="successMessage || errorMessage" class="modal-overlay" style="z-index: 10000; display: flex; align-items: center; justify-content: center; background-color: rgba(0,0,0,0.5);">
+        <div class="modal" style="max-width: 400px; text-align: center; border-radius: 12px; overflow: hidden; background: white; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+          <div style="padding: 32px 24px;">
+            <!-- Success Icon -->
+            <div v-if="successMessage" style="width: 64px; height: 64px; border-radius: 50%; background: #d4edda; color: #28a745; display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 16px;">&#10003;</div>
+            <!-- Error Icon -->
+            <div v-if="errorMessage" style="width: 64px; height: 64px; border-radius: 50%; background: #f8d7da; color: #dc3545; display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 16px;">&#10005;</div>
+            
+            <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 8px; color: #333;">
+              {{ successMessage ? 'สำเร็จ' : 'ข้อผิดพลาด' }}
+            </h3>
+            <p style="color: #666; margin-bottom: 24px; font-size: 16px; line-height: 1.5;">
+              {{ successMessage || errorMessage }}
+            </p>
+            <button type="button" @click="successMessage = ''; errorMessage = ''" style="background-color: var(--primary); color: white; border: none; border-radius: 8px; padding: 10px 32px; font-size: 16px; font-weight: 500; cursor: pointer; transition: background 0.2s;">
+              ตกลง
+            </button>
           </div>
         </div>
       </div>

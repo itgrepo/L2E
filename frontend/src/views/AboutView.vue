@@ -7,7 +7,7 @@ import AppFooter from '../components/AppFooter.vue';
   <div class="about-page">
     <section class="about-hero">
       <div class="container">
-        <h1>About Intelligist DataX Portal</h1>
+        <h1>About DataX Portal</h1>
         <p class="subtitle">The central hub for MSDHS data exchange and API management.</p>
       </div>
     </section>
@@ -16,7 +16,7 @@ import AppFooter from '../components/AppFooter.vue';
       <div class="container grid">
         <div class="mission-content">
           <h2>Our Mission</h2>
-          <p>Intelligist DataX Portal (MSDHS Data Exchange & API Management Platform) is designed to streamline the way government agencies share, discover, and utilize data. Our mission is to create a seamless, secure, and standardized ecosystem that empowers developers and policy-makers with high-quality data.</p>
+          <p>DataX Portal (MSDHS Data Exchange & API Management Platform) is designed to streamline the way government agencies share, discover, and utilize data. Our mission is to create a seamless, secure, and standardized ecosystem that empowers developers and policy-makers with high-quality data.</p>
           <div class="stats-mini">
             <div class="stat">
               <span class="num">50+</span>
@@ -36,7 +36,7 @@ import AppFooter from '../components/AppFooter.vue';
           <div class="abstract-shape">
             <div class="circle c1"></div>
             <div class="circle c2"></div>
-            <div class="logo-placeholder">Intelligist DataX</div>
+            <div class="logo-placeholder">DataX</div>
           </div>
         </div>
       </div>

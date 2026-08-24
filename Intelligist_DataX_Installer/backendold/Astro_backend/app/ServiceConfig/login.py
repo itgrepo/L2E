@@ -19,15 +19,15 @@ from email.mime.text import MIMEText
 #SERVER = '203.150.212.13'  #DEVEVELOP
 # SERVER = '10.252.3.157'   #PRODUCTION
 # SERVER = 'outgoing.mail.go.th'  # PRODUCTION (old, unreachable from Docker)
-SERVER = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
+SERVER = os.environ.get('MAIL_SERVER', 'outgoing.workd.go.th')
 
 # LINK = 'http://localhost:8080'  #DEVEVELOP
 LINK = os.environ.get('FRONTEND_URL', 'http://10.20.11.91')  #PRODUCTION
 # LINK = ''  # PRODUCTION
 ### User And Password Mail ###
-username_mail = os.environ.get('MAIL_USERNAME', 'sixanate@gmail.com')
-password_mail = os.environ.get('MAIL_PASSWORD', 'inljvvpjdtsvglwn')
-MAIL_FROM = os.environ.get('MAIL_FROM', 'DEX Data Exchange <sixanate@gmail.com>')
+username_mail = os.environ.get('MAIL_USERNAME', 'learn2earn@bde.go.th')
+password_mail = os.environ.get('MAIL_PASSWORD', 'L2E@Start2026!')
+MAIL_FROM = os.environ.get('MAIL_FROM', 'DEX Data Exchange <learn2earn@bde.go.th>')
 MAIL_PORT = int(os.environ.get('MAIL_PORT', '465'))
 ###############################
 #socks.setdefaultproxy(TYPE, ADDR, PORT)

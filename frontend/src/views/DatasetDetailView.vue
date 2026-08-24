@@ -43,7 +43,12 @@ const fetchDatasetDetail = async () => {
   isLoading.value = true;
   errorMessage.value = '';
   try {
-    const response = await apiClient.get('/retrieveService');
+    const userStr = localStorage.getItem('user');
+    let payload = {};
+    if (userStr) {
+      payload.user = encodeUserData(JSON.parse(userStr));
+    }
+    const response = await apiClient.post('/retrieveService', payload);
     if (response.data.status === 'success') {
       const found = response.data.data.find(item => item.service_id.toString() === route.params.id.toString());
       if (found) {
@@ -155,7 +160,16 @@ const submitPermissionRequest = async () => {
 };
 
 const openPreview = (format) => {
-  alert(`กำลังเปิดดาวน์โหลดไฟล์/แสดงพรีวิวในรูปแบบ ${format}`);
+  if (selectedDataset.value) {
+    let fileTypeParam = 'data';
+    if (format === 'DICTIONARY') fileTypeParam = 'dictionary';
+    else if (format === 'SAMPLING') fileTypeParam = 'sampling';
+    
+    // For CSV, XLS, API, etc. it corresponds to the main data file.
+    window.open(`/api/downloadFile/${selectedDataset.value.id}?type=${fileTypeParam}`, '_blank');
+  } else {
+    alert(`กำลังเปิดดาวน์โหลดไฟล์/แสดงพรีวิวในรูปแบบ ${format}`);
+  }
 };
 
 onMounted(() => {
@@ -286,7 +300,8 @@ onMounted(() => {
                       <button class="btn-download csv" @click="openPreview('CSV')">CSV</button>
                       <button class="btn-download xls" @click="openPreview('Excel')">Excel</button>
                     </div>
-                    <button v-if="selectedDataset.file_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('ไฟล์แนบต้นฉบับ')">ดาวน์โหลดไฟล์แนบ</button>
+                    <button v-if="selectedDataset.file_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('ไฟล์แนบต้นฉบับ')">ดาวน์โหลดไฟล์แนบ (API File)</button>
+                    <button v-if="selectedDataset.data_sampling_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('ชุดข้อมูลสุ่ม (Zip File)')">ดาวน์โหลดชุดข้อมูลสุ่ม (Zip File)</button>
                   </div>
                   
                   <!-- If does NOT have access, show Request Access form -->

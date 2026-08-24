@@ -12,7 +12,7 @@
             </span>
             System Monitor & Logs
           </h1>
-          <p class="text-slate-500 mt-1 font-medium ml-12">ตรวจสอบสถานะการทำงานและ Log ของระบบ Intelligist DataX</p>
+          <p class="text-slate-500 mt-1 font-medium ml-12">ตรวจสอบสถานะการทำงานและ Log ของระบบ DataX</p>
         </div>
         <div class="flex gap-2 ml-12 md:ml-0">
           <div class="flex items-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-700 rounded-full text-sm font-bold border border-emerald-200">
@@ -54,7 +54,7 @@
                 <div class="w-3 h-3 rounded-full bg-amber-500"></div>
                 <div class="w-3 h-3 rounded-full bg-emerald-500"></div>
               </div>
-              <span class="text-xs font-mono text-slate-400 ml-4">intelligist-datax-platform-logs.stdout</span>
+              <span class="text-xs font-mono text-slate-400 ml-4">datax-platform-logs.stdout</span>
             </div>
             <div class="flex gap-4">
               <span class="text-[10px] font-mono text-emerald-500">LIVE STREAMING</span>
@@ -96,7 +96,7 @@
           </div>
 
           <div class="bg-gradient-to-br from-[var(--primary)] to-[var(--primary-hover)] p-6 rounded-2xl shadow-lg text-white">
-            <h3 class="text-lg font-bold mb-2">Intelligist DataX Quick Action</h3>
+            <h3 class="text-lg font-bold mb-2">DataX Quick Action</h3>
             <p class="text-xs text-pink-100 mb-6 opacity-80">จัดการบริการพื้นฐานของระบบได้อย่างรวดเร็ว</p>
             <div class="grid grid-cols-2 gap-3">
               <button class="bg-white/10 hover:bg-white/20 p-3 rounded-xl text-center transition-all">
@@ -120,57 +120,23 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 
 const stats = ref([
-  { label: 'CPU Usage', value: '12.4%', trend: '-2.1%', trendClass: 'bg-emerald-50 text-emerald-600', percentage: 12, barClass: 'bg-pink-500' },
-  { label: 'Memory', value: '1.42 GB', trend: '+0.5%', trendClass: 'bg-amber-50 text-amber-600', percentage: 45, barClass: 'bg-[var(--primary)]' },
-  { label: 'Network In', value: '240 KB/s', trend: 'Stable', trendClass: 'bg-slate-50 text-slate-600', percentage: 15, barClass: 'bg-pink-400' },
-  { label: 'Active Tasks', value: '24', trend: '+4', trendClass: 'bg-emerald-50 text-emerald-600', percentage: 60, barClass: 'bg-pink-700' },
+  { label: 'CPU Usage', value: '0%', trend: 'Stable', trendClass: 'bg-emerald-50 text-emerald-600', percentage: 0, barClass: 'bg-pink-500' },
+  { label: 'Memory', value: '0 GB', trend: 'Stable', trendClass: 'bg-amber-50 text-amber-600', percentage: 0, barClass: 'bg-[var(--primary)]' },
+  { label: 'Network In', value: '0 KB/s', trend: 'Stable', trendClass: 'bg-slate-50 text-slate-600', percentage: 0, barClass: 'bg-pink-400' },
+  { label: 'Active Tasks', value: '0', trend: 'Stable', trendClass: 'bg-emerald-50 text-emerald-600', percentage: 0, barClass: 'bg-pink-700' },
 ]);
 
 const services = ref([
-  { name: 'Intelligist DataX API Service', port: 'PORT 3000', status: 'online' },
-  { name: 'Intelligist DataX Portal Web', port: 'PORT 3001', status: 'online' },
+  { name: 'DataX API Service', port: 'PORT 3000', status: 'online' },
+  { name: 'DataX Portal Web', port: 'PORT 3001', status: 'online' },
   { name: 'MariaDB Instance', port: 'PORT 3307', status: 'online' },
   { name: 'Redis Cache', port: 'INTERNAL', status: 'online' },
   { name: 'SMTP Relay', port: 'PORT 465', status: 'online' },
 ]);
 
-const mockLogMessages = [
-  { type: 'info', message: 'API Request: GET /api/v1/datasets/stats' },
-  { type: 'info', message: 'User "admin" logged in from 10.20.31.31' },
-  { type: 'success', message: 'Successfully imported dataset: POP-001_v2' },
-  { type: 'warning', message: 'Slow query detected in psu_backend.activity_log (1.2s)' },
-  { type: 'info', message: 'Auto-sync completed for 12 data sources' },
-  { type: 'info', message: 'Cleaning up temporary upload buffers...' },
-  { type: 'success', message: 'System Health Check passed' },
-  { type: 'info', message: 'New link configuration added: intelligist-datax-dashboard-2566' },
-];
-
 const visibleLogs = ref([]);
 const logContainer = ref(null);
 let logInterval = null;
-
-const addLog = () => {
-  const mock = mockLogMessages[Math.floor(Math.random() * mockLogMessages.length)];
-  const now = new Date();
-  const time = now.toTimeString().split(' ')[0];
-  
-  visibleLogs.value.push({
-    time,
-    type: mock.type,
-    message: mock.message
-  });
-
-  if (visibleLogs.value.length > 100) {
-    visibleLogs.value.shift();
-  }
-
-  // Auto scroll
-  setTimeout(() => {
-    if (logContainer.value) {
-      logContainer.value.scrollTop = logContainer.value.scrollHeight;
-    }
-  }, 50);
-};
 
 const getLogClass = (type) => {
   switch (type) {
@@ -182,14 +148,45 @@ const getLogClass = (type) => {
   }
 };
 
-const refreshLogs = () => {
-  visibleLogs.value = [];
-  for (let i = 0; i < 15; i++) addLog();
+const fetchRealStats = async () => {
+  try {
+    const res = await fetch('/api/monitor/stats');
+    if (!res.ok) return;
+    const data = await res.json();
+    
+    if (data.status === 'success') {
+      // Update stats
+      stats.value[0].value = data.stats.cpu;
+      stats.value[0].percentage = data.stats.cpu_val;
+      
+      stats.value[1].value = data.stats.mem;
+      stats.value[1].percentage = data.stats.mem_val;
+      
+      stats.value[2].value = data.stats.net;
+      stats.value[2].percentage = data.stats.net_val;
+      
+      stats.value[3].value = data.stats.tasks.toString();
+      stats.value[3].percentage = (data.stats.tasks / 100) * 100;
+      
+      // Update logs (reverse them so newest is at the bottom, or just replace)
+      // The API returns newest first (DESC), so we reverse to put newest at bottom
+      visibleLogs.value = data.logs.reverse();
+      
+      // Auto scroll
+      setTimeout(() => {
+        if (logContainer.value) {
+          logContainer.value.scrollTop = logContainer.value.scrollHeight;
+        }
+      }, 50);
+    }
+  } catch (error) {
+    console.error("Monitor fetch error:", error);
+  }
 };
 
 onMounted(() => {
-  refreshLogs();
-  logInterval = setInterval(addLog, 3000);
+  fetchRealStats();
+  logInterval = setInterval(fetchRealStats, 3000); // Fetch real data every 3 seconds
 });
 
 onUnmounted(() => {

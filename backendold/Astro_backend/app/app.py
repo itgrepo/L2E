@@ -8,6 +8,8 @@ from ServiceConfig.organization_service import *
 from ServiceConfig.category_service import *
 from ServiceConfig.master_data_service import *
 from ServiceConfig.site_config import *
+from ServiceConfig.file_download_service import *
+from ServiceConfig.monitor import *
 from Management import *
 from Management.groupMgmt import *
 from Management.rolesMgmt import *

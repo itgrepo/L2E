@@ -171,6 +171,7 @@ def getGroupMembers():
 @app.route('/updateGroupMembers', methods=['POST'])
 def updateGroupMembers():
     try:
+        from .email_service import notify_added_to_group
         dataInput = request.json
         decoded_user = platform_decode(dataInput.get('user'))
         user_data = safe_json_loads(decoded_user)
@@ -183,8 +184,18 @@ def updateGroupMembers():
         conn = mysql.connect()
         cursor = conn.cursor()
         
+        # 1. Fetch group name
+        cursor.execute("SELECT group_name FROM group_user WHERE group_id = %s", (group_id,))
+        group_res = cursor.fetchone()
+        group_name = group_res[0] if group_res else f"Group {group_id}"
+        
+        # 2. Fetch existing members to find who is newly added
+        cursor.execute("SELECT user_id FROM group_user_detail WHERE group_id = %s", (group_id,))
+        existing_users = {row[0] for row in cursor.fetchall()}
+        
+        new_users = set(user_ids) - existing_users
+        
         # Simple approach: Clear and refill
-        # (For production, a diff approach is better, but this is consistent with local uat)
         sql_clear = "DELETE FROM group_user_detail WHERE group_id = %s"
         cursor.execute(sql_clear, (group_id,))
         
@@ -192,6 +203,14 @@ def updateGroupMembers():
             sql_insert = "INSERT INTO group_user_detail (group_id, user_id) VALUES (%s, %s)"
             for uid in user_ids:
                 cursor.execute(sql_insert, (group_id, uid))
+                
+        # 3. If there are new users, fetch their emails and notify
+        if new_users:
+            format_strings = ','.join(['%s'] * len(new_users))
+            cursor.execute(f"SELECT email FROM user WHERE user_id IN ({format_strings}) AND status_account = 'active'", tuple(new_users))
+            emails = [row[0] for row in cursor.fetchall() if row[0]]
+            if emails:
+                notify_added_to_group(group_name, emails)
         
         conn.commit()
         conn.close()

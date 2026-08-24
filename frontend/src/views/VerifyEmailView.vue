@@ -27,6 +27,11 @@ onMounted(async () => {
       status.value = 'success';
       email.value = result.email;
       username.value = result.username;
+      
+      // Auto redirect to login
+      setTimeout(() => {
+        router.push('/login?verified=true');
+      }, 1500);
     } else if (result.status === 'link expire') {
       status.value = 'expired';
     } else if (result.status === 'not found') {

@@ -336,3 +336,16 @@ h1, h2, h3, h4, h5, h6 {
     min-width: 600px; /* Let it scroll inside the wrapper */
   }
 }
+/* Fix for Header and Footer getting cut off on horizontal scroll */
+html, body {
+  min-width: fit-content;
+}
+#app, .app-layout {
+  min-width: fit-content;
+  width: 100%;
+}
+
+/* Prevent text from breaking layout */
+p, span, div, h1, h2, h3, h4, h5, h6, a, li, td, th {
+  overflow-wrap: break-word;
+}

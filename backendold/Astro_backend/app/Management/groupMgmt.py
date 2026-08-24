@@ -75,7 +75,7 @@ def getRoles():
         if user_data and checkUserIsAdmin(user_data) :
             previlage_id = int(user_data.get('previlage_id', 0))
             # In this DB: 1=RootAdmin, 2=Admin, 3=User
-            if(previlage_id == 1):
+            if(previlage_id == 4):
                 conn = mysql.connect()
                 cursor = conn.cursor()
                 sql = "SELECT * FROM codename_previlage"
@@ -89,7 +89,7 @@ def getRoles():
             else:
                 conn = mysql.connect()
                 cursor = conn.cursor()
-                sql = "SELECT * FROM codename_previlage WHERE previlage_id != 1"
+                sql = "SELECT * FROM codename_previlage WHERE previlage_id != 4"
                 cursor.execute(sql,)
                 data = cursor.fetchall()
                 columns = [column[0] for column in cursor.description]

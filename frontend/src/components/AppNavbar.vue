@@ -126,7 +126,7 @@ onMounted(() => {
   <header class="navbar">
     <div class="container nav-inner">
       <router-link to="/" class="logo-group">
-        <img v-if="themeConfig.logoUrl" :src="themeConfig.logoUrl" alt="Logo" class="intelligist-datax-logo" />
+        <img v-if="themeConfig.logoUrl" :src="themeConfig.logoUrl" alt="Logo" class="datax-logo" />
         <span class="logo-text">{{ themeConfig.siteName }}</span>
       </router-link>
       <nav class="nav-links">
@@ -186,7 +186,7 @@ onMounted(() => {
       <div :class="['mobile-menu', { 'open': isMobileMenuOpen }]">
         <div class="mobile-menu-header">
           <div class="logo-group">
-            <img v-if="themeConfig.logoUrl" :src="themeConfig.logoUrl" alt="Logo" class="intelligist-datax-logo-small" />
+            <img v-if="themeConfig.logoUrl" :src="themeConfig.logoUrl" alt="Logo" class="datax-logo-small" />
             <span class="logo-text">{{ themeConfig.siteName }}</span>
           </div>
           <button class="close-menu-btn" @click="closeMobileMenu">
@@ -238,13 +238,13 @@ onMounted(() => {
   text-decoration: none;
 }
 
-.intelligist-datax-logo {
+.datax-logo {
   height: 70px; /* Increased from 60px */
   width: auto;
   transition: height 0.3s ease;
 }
 
-.intelligist-datax-logo-small {
+.datax-logo-small {
   height: 45px;
   width: auto;
 }
@@ -264,6 +264,7 @@ onMounted(() => {
 
 .nav-links a {
   font-weight: 600;
+  white-space: nowrap;
   font-size: 0.95rem;
   color: #1e293b;
   transition: color 0.2s;
@@ -281,6 +282,7 @@ onMounted(() => {
 
 .btn-navbar {
   padding: 10px 25px;
+  white-space: nowrap;
   border-radius: 25px;
   font-weight: 700;
   font-size: 0.9rem;
@@ -383,9 +385,16 @@ onMounted(() => {
   visibility: visible;
 }
 
-@media (max-width: 1024px) {
-  .nav-links { gap: 1.5rem; }
-  .logo-text { font-size: 1.2rem; }
+@media (max-width: 1250px) {
+  .nav-links { gap: 1rem; }
+  .logo-text { font-size: 1.1rem; }
+  .nav-links a { font-size: 0.85rem; }
+  .btn-navbar { padding: 8px 16px; font-size: 0.85rem; }
+}
+@media (max-width: 850px) {
+  .nav-links, .nav-actions { display: none; }
+  .mobile-menu-btn { display: block; }
+  .mobile-side-tab { display: flex; }
 }
 
 @media (max-width: 767px) {
@@ -422,7 +431,7 @@ onMounted(() => {
     height: 70px;
   }
   
-  .intelligist-datax-logo {
+  .datax-logo {
     height: 45px;
   }
   
@@ -430,7 +439,7 @@ onMounted(() => {
     font-size: 1.1rem;
   }
   
-  .nav-links, .nav-actions { display: none; }
+  /* Moved to 991px */
   .mobile-menu-btn { display: block; }
   .mobile-side-tab { display: flex; }
 }

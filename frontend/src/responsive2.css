@@ -1,0 +1,77 @@
+/* --- Global Responsive Enhancements --- */
+
+/* Fix long text wrapping */
+.text-wrap-all, p, span, div {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+/* Fix specific long strings like API Keys or URLs */
+.api-key-display, .endpoint-url, .long-text-container, td, th {
+  word-break: break-all;
+  white-space: normal !important;
+}
+
+/* Fix Tables */
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* Modals */
+.modal-overlay {
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+/* Button Wrapping */
+.button-group, .action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Sidebars and Navigation on Mobile */
+@media (max-width: 991px) {
+  .app-sidebar, .sidebar, .filter-sidebar {
+    position: fixed !important;
+    left: -100% !important;
+    top: 0;
+    z-index: 2000 !important;
+    transition: left 0.3s ease-in-out !important;
+    width: 280px !important;
+    height: 100dvh !important;
+    background: white !important;
+    box-shadow: 4px 0 15px rgba(0,0,0,0.1) !important;
+  }
+  .app-sidebar.is-open, .sidebar.open, .filter-sidebar.open {
+    left: 0 !important;
+  }
+  .sidebar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0,0,0,0.5);
+    z-index: 1999;
+  }
+  
+  .layout-main, .main-content, .dashboard-content {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+  
+  .navbar .nav-inner {
+    padding: 0 16px !important;
+  }
+  
+  .form-row {
+    grid-template-columns: 1fr !important;
+  }
+}

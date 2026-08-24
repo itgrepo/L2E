@@ -182,7 +182,7 @@ UI_HTML = """<!DOCTYPE html>
                             <div class="flex space-x-3">
                                  <div class="w-1/2">
                                      <label class="block text-xs font-medium text-gray-700 mb-1">อีเมลผู้ส่ง (Username)</label>
-                                     <input type="email" id="MAIL_USERNAME" name="MAIL_USERNAME" value="sixanate@gmail.com"
+                                     <input type="email" id="MAIL_USERNAME" name="MAIL_USERNAME" value="learn2earn@bde.go.th"
                                          class="w-full px-3 py-2 text-sm rounded-md border border-gray-300">
                                  </div>
                                  <div class="w-1/2">
@@ -360,10 +360,10 @@ MYSQL_PORT_EXTERNAL=3307
 BACKEND_PORT_EXTERNAL={data.get('BACKEND_PORT', '3000')}
 MAIL_SERVER={data.get('MAIL_SERVER', 'smtp.gmail.com')}
 MAIL_PORT={data.get('MAIL_PORT', '465')}
-MAIL_USERNAME={data.get('MAIL_USERNAME', 'sixanate@gmail.com')}
+MAIL_USERNAME={data.get('MAIL_USERNAME', 'learn2earn@bde.go.th')}
 MAIL_PASSWORD={data.get('MAIL_PASSWORD', 'inljvvpjdtsvglwn')}
 MAIL_USE_SSL=true
-MAIL_FROM=Intelligist DataX <{data.get('MAIL_USERNAME', 'sixanate@gmail.com')}>
+MAIL_FROM=Intelligist DataX <{data.get('MAIL_USERNAME', 'learn2earn@bde.go.th')}>
 
 # --- Frontend Configuration ---
 FRONTEND_PORT_EXTERNAL={data.get('FRONTEND_PORT', '3001')}
