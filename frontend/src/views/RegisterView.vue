@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import apiClient from '../utils/api';
+import { encodePassword } from '../utils/crypto';
 
 const router = useRouter();
 
@@ -93,7 +94,7 @@ const handleRegister = async () => {
   try {
     const response = await apiClient.post('/registerSimple', {
       username: username.value,
-      password: password.value,
+      password: encodePassword(password.value),
       email: email.value,
       firstname: firstname.value,
       lastname: lastname.value,
