@@ -272,11 +272,6 @@ const goToVerify = () => {
             <div class="flow-arrow">→</div>
             <div class="flow-step">
               <div class="flow-number">3</div>
-              <span>รออนุมัติ</span>
-            </div>
-            <div class="flow-arrow">→</div>
-            <div class="flow-step">
-              <div class="flow-number">4</div>
               <span>ใช้งานได้</span>
             </div>
           </div>
