@@ -60,8 +60,14 @@ const isStep1Valid = computed(() => {
          password.value === confirmPassword.value;
 });
 
-const isStep2Valid = computed(() => {
-  return firstname.value.trim() && lastname.value.trim() && agreeTerms.value;
+const isFormValid = computed(() => {
+  return username.value.trim().length >= 3 &&
+         email.value.includes('@') &&
+         password.value.length >= 8 &&
+         password.value === confirmPassword.value &&
+         firstname.value.trim() && 
+         lastname.value.trim() && 
+         agreeTerms.value;
 });
 
 const nextStep = () => {
@@ -79,7 +85,7 @@ const prevStep = () => {
 };
 
 const handleRegister = async () => {
-  if (!isStep2Valid.value) return;
+  if (!isFormValid.value) return;
   
   isLoading.value = true;
   errorMessage.value = '';
@@ -153,22 +159,7 @@ const goToVerify = () => {
     <div class="register-form-side">
       <div class="form-card">
         <!-- Progress Steps -->
-        <div class="steps-indicator" v-if="currentStep < 3">
-          <div class="step" :class="{ active: currentStep >= 1, done: currentStep > 1 }">
-            <div class="step-circle">{{ currentStep > 1 ? '✓' : '1' }}</div>
-            <span>บัญชีผู้ใช้</span>
-          </div>
-          <div class="step-line" :class="{ active: currentStep >= 2 }"></div>
-          <div class="step" :class="{ active: currentStep >= 2, done: currentStep > 2 }">
-            <div class="step-circle">{{ currentStep > 2 ? '✓' : '2' }}</div>
-            <span>ข้อมูลส่วนตัว</span>
-          </div>
-          <div class="step-line" :class="{ active: currentStep >= 3 }"></div>
-          <div class="step" :class="{ active: currentStep >= 3 }">
-            <div class="step-circle">3</div>
-            <span>ยืนยัน</span>
-          </div>
-        </div>
+
 
         <!-- Step 1: Account Info -->
         <div v-if="currentStep === 1" class="step-content">
