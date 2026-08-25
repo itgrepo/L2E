@@ -48,9 +48,8 @@ def _send_email_task(to_emails, subject, body_html):
         print(f"Failed to connect to SMTP server: {e}")
 
 def send_email_async(to_emails, subject, body_html):
-    thread = threading.Thread(target=_send_email_task, args=(to_emails, subject, body_html))
-    thread.daemon = True
-    thread.start()
+    # Make synchronous for uWSGI compatibility
+    _send_email_task(to_emails, subject, body_html)
 
 def notify_dataset_created(dataset_name, dataset_desc, to_emails):
     subject = f"New Dataset Available: {dataset_name}"
