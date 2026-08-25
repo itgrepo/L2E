@@ -168,7 +168,7 @@ const goToVerify = () => {
           
           <div v-if="errorMessage" class="error-alert">{{ errorMessage }}</div>
 
-          <form @submit.prevent="nextStep">
+          <form @submit.prevent="handleRegister">
             <div class="form-group">
               <label for="reg-username">ชื่อผู้ใช้ (Username)</label>
               <input id="reg-username" v-model="username" type="text" placeholder="ตัวอย่าง: somchai_intelligist-datax" required minlength="3" :disabled="isLoading">
@@ -203,21 +203,8 @@ const goToVerify = () => {
               <small v-if="confirmPassword && password !== confirmPassword" class="field-hint error">รหัสผ่านไม่ตรงกัน</small>
             </div>
 
-            <button type="submit" class="btn-primary" :disabled="!isStep1Valid || isLoading">
-              ถัดไป →
-            </button>
-          </form>
-        </div>
-
-        <!-- Step 2: Personal Info -->
-        <div v-if="currentStep === 2" class="step-content">
-          <h2>ข้อมูลส่วนตัว</h2>
-          <p class="subtitle">กรุณากรอกข้อมูลเพิ่มเติม</p>
-
-          <div v-if="errorMessage" class="error-alert">{{ errorMessage }}</div>
-
-          <form @submit.prevent="handleRegister">
-            <div class="form-row">
+            
+            <div class="form-row" style="margin-top: 1rem;">
               <div class="form-group">
                 <label for="reg-firstname">ชื่อ</label>
                 <input id="reg-firstname" v-model="firstname" type="text" placeholder="ชื่อจริง" required :disabled="isLoading">
@@ -241,17 +228,15 @@ const goToVerify = () => {
               </label>
             </div>
 
-            <div class="btn-row">
-              <button type="button" class="btn-secondary" @click="prevStep" :disabled="isLoading">
-                ← ย้อนกลับ
-              </button>
-              <button type="submit" class="btn-primary" :disabled="!isStep2Valid || isLoading">
-                <span v-if="isLoading" class="loader"></span>
-                <span v-else>สมัครสมาชิก</span>
-              </button>
-            </div>
+            <button type="submit" class="btn-primary" :disabled="!isFormValid || isLoading" style="width: 100%; margin-top: 1rem;">
+              <span v-if="isLoading" class="loader"></span>
+              <span v-else>สมัครสมาชิก</span>
+            </button>
+
           </form>
         </div>
+
+        
 
         <!-- Step 3: Success -->
         <div v-if="currentStep === 3" class="step-content success-content">
