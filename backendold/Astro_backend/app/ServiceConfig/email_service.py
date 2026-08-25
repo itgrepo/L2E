@@ -9,7 +9,7 @@ MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', 'L2E@Start2026!')
 MAIL_SERVER = os.environ.get('MAIL_SERVER', 'outgoing.workd.go.th')
 MAIL_PORT = int(os.environ.get('MAIL_PORT', 465))
 MAIL_USE_SSL = os.environ.get('MAIL_USE_SSL', 'true').lower() == 'true'
-MAIL_FROM = os.environ.get('MAIL_FROM', "L2E Data Exchange <learn2earn@bde.go.th>")
+MAIL_FROM = os.environ.get('MAIL_FROM', "L2E Data Exchange <learn2earn@bde.go.th>").strip('"')
 BASE_URL = os.environ.get('FRONTEND_URL', 'http://134.185.172.127:3003')
 
 def _send_email_task(to_emails, subject, body_html):
