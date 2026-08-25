@@ -1,9 +1,30 @@
 <script setup>
-import { defineProps } from 'vue';
+import { defineProps, ref, onMounted } from 'vue';
 import HeroMockup from './HeroMockup.vue';
+import apiClient from '../utils/api';
 
 const props = defineProps({
   config: Object
+});
+
+const realStats = ref(null);
+
+onMounted(async () => {
+  try {
+    const response = await apiClient.get('/dashboard/stats');
+    if (response.data && response.data.status === 'success') {
+      const hero = response.data.hero_stats;
+      if (hero) {
+        realStats.value = [
+          { num: hero.datasets_count.toString(), label: 'ชุดข้อมูล' },
+          { num: hero.organizations_count.toString(), label: 'หน่วยงานเครือข่าย' },
+          { num: (hero.api_calls_count > 1000 ? (hero.api_calls_count / 1000).toFixed(1) + 'k+' : hero.api_calls_count.toString()), label: 'API Calls/เดือน' }
+        ];
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load real stats:', error);
+  }
 });
 </script>
 
@@ -20,8 +41,8 @@ const props = defineProps({
           <button class="btn btn-primary btn-lg" style="border-radius: 20px; background-color: var(--primary); border-color: var(--primary);">{{ config?.btnPrimary || 'เริ่มต้นใช้งาน →' }}</button>
           <button class="btn btn-outline btn-lg" style="border-radius: 20px; color: var(--primary); border-color: var(--primary);">{{ config?.btnSecondary || 'เรียนรู้เพิ่มเติม' }}</button>
         </div>
-        <div class="hero-stats" v-if="config?.stats && config.stats.length">
-          <div class="stat-block" v-for="(stat, index) in config.stats" :key="index">
+        <div class="hero-stats" v-if="(realStats && realStats.length) || (config?.stats && config.stats.length)">
+          <div class="stat-block" v-for="(stat, index) in (realStats || config.stats)" :key="index">
             <span class="stat-num">{{ stat.num }}</span>
             <span class="stat-label">{{ stat.label }}</span>
           </div>

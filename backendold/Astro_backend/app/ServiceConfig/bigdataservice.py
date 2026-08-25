@@ -1672,11 +1672,17 @@ def get_dashboard_stats():
         cursor.execute("SELECT COUNT(*) as count FROM log WHERE type = 'API' AND MONTH(create_at) = MONTH(CURRENT_DATE()) AND YEAR(create_at) = YEAR(CURRENT_DATE())")
         api_calls_count = cursor.fetchone()[0]
         
+
         # 4. Downloads Count (Mock logic based on logs)
         cursor.execute("SELECT COUNT(*) as count FROM log WHERE log_detail LIKE '%Download%' AND MONTH(create_at) = MONTH(CURRENT_DATE())")
         downloads_count = cursor.fetchone()[0]
         
+        # 4.5. Organizations Count
+        cursor.execute("SELECT COUNT(*) as count FROM organization")
+        organizations_count = cursor.fetchone()[0]
+        
         # 5. Recent Activity (Last 5 logs)
+
         cursor.execute("SELECT log_detail as text, create_at as time, type FROM log ORDER BY create_at DESC LIMIT 5")
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
@@ -1700,6 +1706,11 @@ def get_dashboard_stats():
                 { 'label': 'API Calls This Month', 'value': str(api_calls_count), 'trend': '+0%', 'color': '#8b5cf6', 'icon': 'M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16' },
                 { 'label': 'Downloads This Month', 'value': str(downloads_count), 'trend': '+0%', 'color': '#ef4444', 'icon': 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4' }
             ],
+            'hero_stats': {
+                'datasets_count': datasets_count,
+                'organizations_count': organizations_count,
+                'api_calls_count': api_calls_count
+            },
             'recentActivity': recent_activity
         })
     except Exception as e:
