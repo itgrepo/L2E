@@ -67,7 +67,9 @@ const handleSaveUser = async () => {
     isSubmitting.value = true;
     try {
         const userStored = JSON.parse(localStorage.getItem('user') || '{}');
-        const response = await postWithUser('/mgmt/createUser', userStored, formData.value);
+        const submitData = { ...formData.value };
+        submitData.password = encodePassword(submitData.password);
+        const response = await postWithUser('/mgmt/createUser', userStored, submitData);
         
         if (response.data.status === 'success') {
             showAlert(`สร้างผู้ใช้ ${formData.value.username} สำเร็จ`, 'success');

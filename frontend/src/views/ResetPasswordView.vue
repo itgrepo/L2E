@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import apiClient from '../utils/api';
+import { encodePassword } from '../utils/crypto';
 
 const route = useRoute();
 const router = useRouter();
@@ -53,7 +54,7 @@ const handleSubmit = async () => {
   try {
     const response = await apiClient.post('/resetPasswordByToken', {
       token,
-      password: newPassword.value
+      password: encodePassword(newPassword.value)
     });
     const result = response.data;
     if (result.status === 'success') {
