@@ -104,7 +104,7 @@ const handleLogin = async () => {
       }
     } else if (result.status === 'pending_approval') {
       errorMessage.value = 'บัญชีของคุณกำลังรอการอนุมัติจากผู้ดูแลระบบ กรุณารอการอนุมัติ';
-    } else if (result.status === 'Please check in your email confirmation') {
+    } else if (result.status.includes('Please check in your email confirmation')) {
       errorMessage.value = 'กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ ตรวจสอบกล่องจดหมายของคุณ';
     } else if (result.status === 'not found' || result.status === 'username is incorrect') {
       if (result.attempts !== undefined) {
