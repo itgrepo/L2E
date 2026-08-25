@@ -38,7 +38,7 @@ services:
       - MAIL_PASSWORD=${MAIL_PASSWORD:-L2E@Start2026!}
       - MAIL_USE_SSL=${MAIL_USE_SSL:-true}
       - MAIL_FROM=${MAIL_FROM:-"L2E Data Exchange <learn2earn@bde.go.th>"}
-      - FRONTEND_URL=http://110.78.210.129:3005
+      - FRONTEND_URL=http://134.185.175.106
     restart: always
     networks:
       - datax-network
@@ -48,7 +48,7 @@ services:
     build: ./frontend
     container_name: datax_frontend
     ports:
-      - "3005:80"
+      - "80:80"
     depends_on:
       - backend
     restart: always
