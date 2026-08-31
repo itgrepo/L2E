@@ -98,7 +98,7 @@ const resetTheme = () => {
       <div class="panel-body">
         <div class="form-group">
           <label>ชื่อเว็บไซต์</label>
-          <input type="text" v-model="themeConfig.siteName" placeholder="เช่น MSDHS DATA PORTAL" />
+          <input type="text" v-model="themeConfig.siteName" placeholder="เช่น BDE DATA PORTAL" />
         </div>
 
         <div class="form-group">

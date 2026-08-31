@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue';
+import { postWithUser } from '../utils/api';
 import { useRoute, useRouter } from 'vue-router';
 import intelligistDataxLogo from '../assets/intelligist-datax-logo.png';
 import { themeConfig } from '../utils/theme';
@@ -31,6 +32,23 @@ watch(route, (newRoute) => {
   checkSettingsExpanded(newRoute.path);
 });
 
+
+const userPermissions = ref(null);
+
+onMounted(async () => {
+  const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+  if (savedUser.username) {
+    try {
+      const res = await postWithUser('/getMenuByPermission', savedUser);
+      if (res.data && res.data.status === 'Success') {
+        userPermissions.value = res.data.data.map(m => m.menu_name.toLowerCase());
+      }
+    } catch (e) {
+      console.error('Failed to load dynamic permissions', e);
+    }
+  }
+});
+
 onMounted(() => {
   const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
   if (savedUser.firstname) {
@@ -42,28 +60,61 @@ onMounted(() => {
   checkSettingsExpanded(route.path);
 });
 
+
+const menuMapping = {
+    '/dashboard': 'dashboard',
+    '/catalog': 'catalog',
+    '/api-management': 'api management',
+    '/api-monitor': 'api monitor',
+    '/dataset-approval': 'dataset approval',
+    '/analytics': 'analytics',
+    '/group-user-management': 'group user management',
+    '/dataset-management': 'dataset management',
+    '/group-dataset-management': 'group dataset management',
+    '/permission-management': 'permission management',
+    '/user-management': 'user management'
+};
+
 const hasMenuAccess = (path) => {
   if (isAdmin.value) return true;
   
   const role = userRoleId.value;
-  // Guest (1)
+  
+  // If we have dynamic permissions loaded from DB
+  if (userPermissions.value) {
+      const mappedName = menuMapping[path];
+      if (mappedName) {
+          if (mappedName === 'catalog') {
+              return userPermissions.value.includes('catalog') || userPermissions.value.includes('data catalog');
+          }
+          return userPermissions.value.includes(mappedName);
+      }
+      
+      // Fallback for paths not in DB menu_name table
+      if (path === '/favorites') return userPermissions.value.includes('catalog') || userPermissions.value.includes('data catalog');
+      if (path === '/dataset-permission-monitor') return role === '3';
+      if (path === '/organization-management') return role === '3';
+      if (path === '/category-management') return role === '3';
+      if (path === '/monitor') return role === '3';
+      return false;
+  }
+  
+  // Fallback to legacy hardcoded logic while loading or if API fails
   if (role === '1') {
     return ['/catalog'].includes(path);
   }
-  // Normal User (2)
   if (role === '2') {
     return ['/dashboard', '/catalog', '/favorites'].includes(path);
   }
-  // Agency Admin (3)
   if (role === '3') {
-    return ['/dashboard', '/catalog', '/favorites', '/api-management', '/api-monitor', '/dataset-approval', '/dataset-management', '/analytics'].includes(path);
+    return ['/dashboard', '/catalog', '/favorites', '/api-management', '/api-monitor', '/dataset-approval', '/dataset-management', '/analytics', '/group-dataset-management'].includes(path);
   }
-  // Internal User (5)
   if (role === '5') {
     return ['/dashboard', '/catalog', '/favorites', '/api-management'].includes(path);
   }
   return false;
 };
+
 
 const toggleSettings = () => {
   isSettingsExpanded.value = !isSettingsExpanded.value;
@@ -90,7 +141,7 @@ const toolItems = [
   { name: 'API Monitor', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10', path: '/api-monitor' },
   { name: 'User Management', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z', path: '/user-management' },
   { name: 'ติดตามสิทธิ์ข้อมูล', icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1', path: '/dataset-permission-monitor' },
-  { name: 'อนุมัติสมาชิก', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', path: '/user-approval' },
+  { name: 'คำขอเข้าถึงข้อมูล', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', path: '/dataset-approval' },
   { name: 'Analytics', icon: 'M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z', path: '/analytics' },
   { name: 'Monitor & Logs', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10', path: '/monitor' },
 ];
@@ -352,7 +403,7 @@ const settingItems = [
 }
 
 .expanded .sub-menu {
-  max-height: 300px;
+  max-height: 500px;
   margin-top: 4px;
   margin-bottom: 8px;
 }

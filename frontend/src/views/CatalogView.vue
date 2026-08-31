@@ -133,11 +133,16 @@ const openPreview = (type) => {
 
 const downloadFile = () => {
   if (selectedDataset.value) {
-    let fileTypeParam = 'data';
-    if (previewType.value === 'DICTIONARY') fileTypeParam = 'dictionary';
-    else if (previewType.value === 'SAMPLING') fileTypeParam = 'sampling';
-    
-    window.open(`/api/downloadFile/${selectedDataset.value.service_id}?type=${fileTypeParam}`, '_blank');
+    if (previewType.value === 'CSV' || previewType.value === 'Excel') {
+        const format = previewType.value === 'Excel' ? 'xls' : 'csv';
+        window.open(`/api/exportData/${selectedDataset.value.dataset_id}?format=${format}`, '_blank');
+    } else {
+        let fileTypeParam = 'data';
+        if (previewType.value === 'DICTIONARY') fileTypeParam = 'dictionary';
+        else if (previewType.value === 'SAMPLING') fileTypeParam = 'sampling';
+        
+        window.open(`/api/downloadFile/${selectedDataset.value.service_id}?type=${fileTypeParam}`, '_blank');
+    }
     isPreviewModalOpen.value = false;
   }
 };
@@ -194,8 +199,8 @@ const fetchCategories = async () => {
 };
 
 const accessLevels = ref([
-  { name: 'Open Data', count: 5, active: false },
-  { name: 'Restricted', count: 1, active: false },
+  { name: 'Open Data', count: 0, active: false },
+  { name: 'Restricted', count: 0, active: false },
   { name: 'Confidential', count: 0, active: false }
 ]);
 
@@ -206,12 +211,14 @@ const filteredDatasets = computed(() => {
 
   // 1. Search Query Filter
   if (searchQuery.value) {
-    const query = searchQuery.value.toLowerCase();
+    const query = String(searchQuery.value).toLowerCase();
     result = result.filter(ds => 
-      ds.title.toLowerCase().includes(query) || 
-      ds.agency.toLowerCase().includes(query) ||
-      ds.description.toLowerCase().includes(query) ||
-      (ds.tags && ds.tags.toLowerCase().includes(query))
+      String(ds.title || '').toLowerCase().includes(query) || 
+      String(ds.agency || '').toLowerCase().includes(query) ||
+      String(ds.description || '').toLowerCase().includes(query) ||
+      String(ds.tags || '').toLowerCase().includes(query) ||
+      String(ds.category || '').toLowerCase().includes(query) ||
+      String(ds.dataset_id || '').toLowerCase().includes(query)
     );
   }
 
@@ -356,7 +363,12 @@ const fetchDatasets = async () => {
         contact_email: item.contact_email || '-',
         tags: item.tags || '',
         purpose: item.purpose || '-',
-        accessibility: item.accessibility || 'Open Data',
+        accessibility: (() => {
+          let raw = (item.access_type || item.accessibility || 'public').toLowerCase();
+          if (raw === 'restricted') return 'Restricted';
+          if (raw === 'internal' || raw === 'confidential' || raw === 'pii') return 'Confidential';
+          return 'Open Data';
+        })(),
         access_type: item.access_type || '-',
         dept_contact: item.dept_contact || '-',
         update_freq: (item.update_freq_value || '-') + ' ' + (item.update_freq_unit || ''),
@@ -383,7 +395,17 @@ const fetchDatasets = async () => {
         isNew: Math.random() > 0.7
       }));
       
+      
+      // Ensure all unique categories from datasets exist in the sidebar
+      const datasetCategories = [...new Set(datasets.value.map(ds => ds.category))];
+      datasetCategories.forEach(catName => {
+        if (catName && !categories.value.find(c => c.name === catName)) {
+          categories.value.push({ name: catName, count: 0, active: false });
+        }
+      });
+      
       // Update dynamic counts
+
       categories.value.forEach(cat => {
         cat.count = datasets.value.filter(ds => ds.category === cat.name).length;
       });
@@ -552,10 +574,8 @@ onMounted(async () => {
                   </div>
                   <div class="ds-meta">
                     <span class="agency">{{ ds.agency }}</span>
-                    <span class="separator">•</span>
-                    <span class="views">{{ ds.views }}</span>
-                    <span class="separator">•</span>
-                    <span class="updated">{{ ds.updated }}</span>
+                    
+                    
                   </div>
                 </div>
               </div>
@@ -623,7 +643,7 @@ onMounted(async () => {
 
           <nav class="modal-tabs">
             <button :class="{ active: activeTab === 'info' }" @click="activeTab = 'info'">คำอธิบายข้อมูล</button>
-            <button :class="{ active: activeTab === 'dictionary' }" @click="activeTab = 'dictionary'">พจนานุกรมข้อมูล</button>
+            <button :class="{ active: activeTab === 'dictionary' }" @click="selectedDataset?.has_access ? activeTab = 'dictionary' : alert('กรุณาส่งคำขอเข้าถึงข้อมูลก่อน')"><span v-if="!selectedDataset?.has_access" style="font-size:0.8rem">🔒</span> พจนานุกรมข้อมูล</button>
             <button :class="{ active: activeTab === 'visual' }" @click="activeTab = 'visual'">แดชบอร์ด</button>
             <button :class="{ active: activeTab === 'api' }" @click="activeTab = 'api'">ข้อมูล API</button>
           </nav>

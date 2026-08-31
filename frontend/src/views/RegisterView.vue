@@ -22,6 +22,7 @@ const errorMessage = ref('');
 const successData = ref(null);
 const currentStep = ref(1);
 const showPassword = ref(false);
+const showConfirmPassword = ref(false);
 
 // Password encryption (matching backend)
 const encryptPassword = (pwd) => {
@@ -93,7 +94,7 @@ const handleRegister = async () => {
 
   try {
     const response = await apiClient.post('/registerSimple', {
-      username: username.value,
+      username: username.value.trim(),
       password: encodePassword(password.value),
       email: email.value,
       firstname: firstname.value,
@@ -128,7 +129,7 @@ const goToVerify = () => {
   <div class="register-container">
     <div class="register-branding">
       <div class="branding-content">
-        <h1>Intelligist DataX Portal</h1>
+        <h1>DataX Portal</h1>
         <p class="tagline">ระบบแลกเปลี่ยนข้อมูลอัจฉริยะ</p>
         <div class="feature-list">
           <div class="feature-item">
@@ -165,14 +166,14 @@ const goToVerify = () => {
         <!-- Step 1: Account Info -->
         <div v-if="currentStep === 1" class="step-content">
           <h2>สร้างบัญชีผู้ใช้</h2>
-          <p class="subtitle">กรอกข้อมูลเพื่อเริ่มต้นใช้งาน Intelligist DataX Portal</p>
+          <p class="subtitle">กรอกข้อมูลเพื่อเริ่มต้นใช้งาน DataX Portal</p>
           
           <div v-if="errorMessage" class="error-alert">{{ errorMessage }}</div>
 
           <form @submit.prevent="handleRegister">
             <div class="form-group">
               <label for="reg-username">ชื่อผู้ใช้ (Username)</label>
-              <input id="reg-username" v-model="username" type="text" placeholder="ตัวอย่าง: somchai_intelligist-datax" required minlength="3" :disabled="isLoading">
+              <input id="reg-username" v-model="username" type="text" placeholder="ตัวอย่าง: somchai_datax" required minlength="3" :disabled="isLoading">
               <small v-if="username && username.length < 3" class="field-hint error">ต้องมีอย่างน้อย 3 ตัวอักษร</small>
             </div>
 
@@ -200,7 +201,13 @@ const goToVerify = () => {
 
             <div class="form-group">
               <label for="reg-confirm">ยืนยันรหัสผ่าน</label>
-              <input id="reg-confirm" v-model="confirmPassword" type="password" placeholder="กรอกรหัสผ่านอีกครั้ง" required :disabled="isLoading">
+              <div class="password-input-wrapper">
+                <input id="reg-confirm" v-model="confirmPassword" :type="showConfirmPassword ? 'text' : 'password'" placeholder="กรอกรหัสผ่านอีกครั้ง" required :disabled="isLoading">
+                <button type="button" class="toggle-password" @click="showConfirmPassword = !showConfirmPassword" tabindex="-1">
+                  <svg v-if="!showConfirmPassword" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #64748b;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #64748b;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                </button>
+              </div>
               <small v-if="confirmPassword && password !== confirmPassword" class="field-hint error">รหัสผ่านไม่ตรงกัน</small>
             </div>
 

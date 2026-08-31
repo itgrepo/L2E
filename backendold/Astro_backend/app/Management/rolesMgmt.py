@@ -11,8 +11,9 @@ def addUser():
 
         conn = mysql.connect()
         cursor = conn.cursor()
-        sql = """SELECT user.user_id, user.national_id, user.national_id_book, user.email, cp.previlage_name, cp.previlage_id, user.username, user.create_at FROM `user`
+        sql = """SELECT user.user_id, user.national_id, user.national_id_book, user.email, cp.previlage_name, cp.previlage_id, user.username, user.create_at, user.org_id, org.org_name FROM `user`
                         LEFT JOIN codename_previlage as cp ON cp.previlage_id = user.previlage_id
+                        LEFT JOIN organization org ON user.org_id = org.org_id
                             WHERE user.status_id != '7'"""
         cursor.execute(sql,)
         data = cursor.fetchall()
@@ -83,6 +84,7 @@ def updateUserById():
     try:
         dataInput = request.json
         previlage_id = dataInput.get('previlage_id')
+        org_id = dataInput.get('org_id')
         target_user_id = dataInput.get('target_user_id') # New field for clarity
         
         user_data = safe_json_loads(platform_decode(dataInput.get('user', '')))
@@ -92,8 +94,8 @@ def updateUserById():
             cursor = conn.cursor()
             
             if target_user_id and previlage_id:
-                sql = """UPDATE user SET previlage_id = %s WHERE user_id = %s"""
-                cursor.execute(sql, (previlage_id, target_user_id))
+                sql = """UPDATE user SET previlage_id = %s, org_id = %s WHERE user_id = %s"""
+                cursor.execute(sql, (previlage_id, org_id, target_user_id))
                 logAction( user_id =user_data['user_id'] , path = "/mgmt/updateUserById" , log = "Update user: "+str(target_user_id)+" To previlage_id: "+str(previlage_id)+" success" , type = "info" )
 
             conn.commit()
@@ -207,6 +209,7 @@ def createUser():
         password = dataInput.get('password')
         status_id = dataInput.get('status_id', 1)
         previlage_id = dataInput.get('previlage_id', 3)
+        org_id = dataInput.get('org_id')
         groups = dataInput.get('groups', [])
         
         if not username or not email or not password:
@@ -231,15 +234,15 @@ def createUser():
         sql_user = """
             INSERT INTO user (username, password, email, firstname, lastname,
                               national_id, national_id_book, national_id_mode,
-                              status_id, status_account, previlage_id, job_title,
+                              status_id, status_account, previlage_id, org_id, job_title,
                               policy_id, usage_objective, create_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
         """
         cursor.execute(sql_user, (
             username, password, email, '', '',
-            username, '', 1,        
-            status_id, 'active', previlage_id, '',     
-            1, '' 
+            username, '', 1,
+            status_id, 'active', previlage_id, org_id, '',
+            1, ''
         ))
         user_id = cursor.lastrowid
         
@@ -263,7 +266,7 @@ def createUser():
         # Handle groups
         if groups and len(groups) > 0:
             for group_id in groups:
-                cursor.execute("INSERT INTO user_groups_relation (user_id, group_id) VALUES (%s, %s)", (user_id, group_id))
+                cursor.execute("INSERT INTO group_user_detail (user_id, group_id) VALUES (%s, %s)", (user_id, group_id))
                 
         conn.commit()
         cursor.close()

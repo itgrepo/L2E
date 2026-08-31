@@ -8,7 +8,7 @@ import AppFooter from '../components/AppFooter.vue';
     <section class="about-hero">
       <div class="container">
         <h1>About DataX Portal</h1>
-        <p class="subtitle">The central hub for MSDHS data exchange and API management.</p>
+        <p class="subtitle">The central hub for BDE data exchange and API management.</p>
       </div>
     </section>
     
@@ -16,21 +16,8 @@ import AppFooter from '../components/AppFooter.vue';
       <div class="container grid">
         <div class="mission-content">
           <h2>Our Mission</h2>
-          <p>DataX Portal (MSDHS Data Exchange & API Management Platform) is designed to streamline the way government agencies share, discover, and utilize data. Our mission is to create a seamless, secure, and standardized ecosystem that empowers developers and policy-makers with high-quality data.</p>
-          <div class="stats-mini">
-            <div class="stat">
-              <span class="num">50+</span>
-              <span class="lbl">Agencies</span>
-            </div>
-            <div class="stat">
-              <span class="num">2,000+</span>
-              <span class="lbl">Datasets</span>
-            </div>
-            <div class="stat">
-              <span class="num">10M+</span>
-              <span class="lbl">API Calls</span>
-            </div>
-          </div>
+          <p>DataX Portal (BDE Data Exchange & API Management Platform) is designed to streamline the way government agencies share, discover, and utilize data. Our mission is to create a seamless, secure, and standardized ecosystem that empowers developers and policy-makers with high-quality data.</p>
+
         </div>
         <div class="mission-image">
           <div class="abstract-shape">

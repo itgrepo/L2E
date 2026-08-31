@@ -59,10 +59,8 @@ const removeFavorite = (id) => {
               </div>
               <div class="ds-meta">
                 <span class="agency">{{ ds.agency }}</span>
-                <span class="separator">•</span>
-                <span class="views">{{ ds.views }}</span>
-                <span class="separator">•</span>
-                <span class="updated">{{ ds.updated }}</span>
+                
+                
               </div>
             </div>
           </div>

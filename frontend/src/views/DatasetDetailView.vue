@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { encodeUserData } from '../utils/api';
@@ -11,14 +11,17 @@ const activeTab = ref('info');
 const isLoading = ref(true);
 const errorMessage = ref('');
 
+const user = ref(JSON.parse(localStorage.getItem('user') || '{}'));
 const selectedDataset = ref(null);
+const apiBaseUrl = computed(() => `${window.location.origin}/dataapi/api/v1/`);
+const userApiKey = computed(() => user.value.apikey || '[YOUR_API_KEY]');
 const requestForm = ref({ fields: [], reason: '' });
 const reqError = ref('');
 const reqSuccess = ref('');
 const isSubmittingReq = ref(false);
+const customApiEndpoints = ref([]);
 
 const favorites = ref(JSON.parse(localStorage.getItem('user_favorites') || '[]'));
-const user = ref(JSON.parse(localStorage.getItem('user') || '{}'));
 
 const isFavorite = (ds) => {
   return favorites.value.some(fav => fav.id === ds.id);
@@ -85,6 +88,8 @@ const fetchDatasetDetail = async () => {
           api_enabled: found.api_enabled == 1 || found.api_enabled === '1' || found.api_enabled === true,
           formats: found.data_format ? found.data_format.split(',') : ['CSV', 'API', 'JSON'],
           file_path: found.file_path,
+          data_dictionary_path: found.data_dictionary_path,
+          data_sampling_path: found.data_sampling_path,
           views: (Math.floor(Math.random() * 900) + 100) + 'K records',
           updated: 'ปรับปรุงเมื่อ 2 วันที่แล้ว',
           dataset_type: found.dataset_type || 'general',
@@ -161,12 +166,19 @@ const submitPermissionRequest = async () => {
 
 const openPreview = (format) => {
   if (selectedDataset.value) {
+    
     let fileTypeParam = 'data';
     if (format === 'DICTIONARY') fileTypeParam = 'dictionary';
     else if (format === 'SAMPLING') fileTypeParam = 'sampling';
     
+    // Fallback: If they want data (CSV/Excel) but it's null, and dictionary exists, download dictionary instead
+    if (fileTypeParam === 'data' && !selectedDataset.value.file_path && selectedDataset.value.data_dictionary_path) {
+        fileTypeParam = 'dictionary';
+    }
+    
     // For CSV, XLS, API, etc. it corresponds to the main data file.
     window.open(`/api/downloadFile/${selectedDataset.value.id}?type=${fileTypeParam}`, '_blank');
+
   } else {
     alert(`กำลังเปิดดาวน์โหลดไฟล์/แสดงพรีวิวในรูปแบบ ${format}`);
   }
@@ -174,6 +186,12 @@ const openPreview = (format) => {
 
 onMounted(() => {
   fetchDatasetDetail();
+});
+
+watch(() => route.params.id, (newId) => {
+  if (newId) {
+    fetchDatasetDetail();
+  }
 });
 </script>
 
@@ -296,10 +314,12 @@ onMounted(() => {
                   <div v-if="selectedDataset.has_access" class="action-card">
                     <h4>ดาวน์โหลดข้อมูล</h4>
                     <p>ดาวน์โหลดไฟล์ข้อมูลต้นฉบับในรูปแบบต่างๆ</p>
+                    
                     <div class="download-buttons">
                       <button class="btn-download csv" @click="openPreview('CSV')">CSV</button>
                       <button class="btn-download xls" @click="openPreview('Excel')">Excel</button>
                     </div>
+                    <button v-if="selectedDataset.data_dictionary_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('DICTIONARY')">ดาวน์โหลดพจนานุกรมข้อมูล (Data Dictionary)</button>
                     <button v-if="selectedDataset.file_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('ไฟล์แนบต้นฉบับ')">ดาวน์โหลดไฟล์แนบ (API File)</button>
                     <button v-if="selectedDataset.data_sampling_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('ชุดข้อมูลสุ่ม (Zip File)')">ดาวน์โหลดชุดข้อมูลสุ่ม (Zip File)</button>
                   </div>
@@ -464,12 +484,11 @@ onMounted(() => {
                   </h3>
                   <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px;">GET</div>
                   <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem;">
-                    {{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/datasets/' + selectedDataset.dataset_id + '/file' }}
+                    {{ selectedDataset.external_api_url || apiBaseUrl + selectedDataset.dataset_id + '/file?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>
                   </code>
                   <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
                     <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
-curl -X GET "{{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/datasets/' + selectedDataset.dataset_id + '/file' }}" \
-  -H "Authorization: Bearer YOUR_API_KEY"</pre>
+curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + selectedDataset.dataset_id + '/file?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>"</pre>
                   </div>
                 </div>
 
@@ -481,14 +500,40 @@ curl -X GET "{{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/
                   </h3>
                   <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px;">GET</div>
                   <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem;">
-                    {{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/datasets/' + selectedDataset.dataset_id }}
+                    {{ selectedDataset.external_api_url || apiBaseUrl + selectedDataset.dataset_id + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>
                   </code>
                   <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
                     <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
-curl -X GET "{{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/datasets/' + selectedDataset.dataset_id }}" \
-  -H "Authorization: Bearer YOUR_API_KEY"</pre>
+curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + selectedDataset.dataset_id + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>"</pre>
                   </div>
                 </div>
+
+                
+                <!-- Custom Endpoints List -->
+                <div v-if="customApiEndpoints.length > 0" class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white; margin-top: 1rem;">
+                  <h3 style="margin: 0 0 16px 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    Custom API Endpoints
+                  </h3>
+                  <div v-for="ep in customApiEndpoints" :key="ep.api_endpoint" style="margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #1e293b;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 8px;">
+                      <div>
+                        <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 8px;">GET</div>
+                        <strong style="color:#e2e8f0; margin-left:8px; font-size:1rem;">{{ ep.service_name }}</strong>
+                        <span style="background: #334155; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; margin-left: 8px; text-transform: uppercase;">{{ ep.api_type || 'general' }}</span>
+                      </div>
+                    </div>
+                    <p v-if="ep.description" style="color: #94a3b8; font-size: 0.85rem; margin: 0 0 12px 0;">{{ ep.description }}</p>
+                    <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 12px; font-size:0.9rem;">
+                      {{ apiBaseUrl + ep.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span><span v-if="ep.api_type === 'scope'">&[column_name]=[value]</span>
+                    </code>
+                    <div class="code-block" style="background: #1e293b; padding: 12px 16px; border-radius: 8px; position: relative;">
+                      <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
+curl -X GET "{{ apiBaseUrl + ep.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span><span v-if="ep.api_type === 'scope'">&[column_name]=[value]</span>"</pre>
+                    </div>
+                  </div>
+                </div>
+
 
                 <!-- Card 3: Scope API -->
                 <div class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
@@ -496,16 +541,14 @@ curl -X GET "{{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
                     Scope API (Granular Access)
                   </h3>
-                  <div class="method-badge" style="display: inline-block; background: #2563eb; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px;">POST</div>
+                  <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px;">GET</div>
                   <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem;">
-                    {{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/datasets/' + selectedDataset.dataset_id + '/query' }}
+                    {{ selectedDataset.external_api_url || apiBaseUrl + selectedDataset.dataset_id + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>&[column_name]=[value]
                   </code>
                   <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
                     <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
-curl -X POST "{{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/datasets/' + selectedDataset.dataset_id + '/query' }}" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"columns":["field1","field2"], "filters":{"status":"active"}}'</pre>
+curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + selectedDataset.dataset_id + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>&[column_name]=[value]"
+</pre>
                   </div>
                 </div>
 
@@ -519,6 +562,11 @@ curl -X POST "{{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1
 </template>
 
 <style scoped>
+.blur-key { filter: blur(4px); transition: filter 0.3s; user-select: text; }
+.blur-key:hover { filter: blur(0px); }
+.endpoint-url { display: flex; align-items: center; gap: 8px; }
+.copy-btn { background: #334155; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; transition: background 0.2s; }
+.copy-btn:hover { background: #475569; }
 .loading-state, .error-state {
   display: flex;
   flex-direction: column;

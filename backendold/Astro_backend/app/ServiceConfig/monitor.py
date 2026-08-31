@@ -60,3 +60,65 @@ def monitor_stats():
         })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/analytics/usage', methods=['GET', 'POST'])
+def get_analytics_usage():
+    try:
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        # 1. Total API Requests from log
+        cursor.execute("SELECT COUNT(*) FROM log WHERE path LIKE '/dataapi/%'")
+        total_requests = cursor.fetchone()[0] or 0
+        
+        # 2. Unique Users from log
+        cursor.execute("SELECT COUNT(DISTINCT user_id) FROM log WHERE path LIKE '/dataapi/%' AND user_id IS NOT NULL")
+        unique_users = cursor.fetchone()[0] or 0
+        
+        # 3. Top Datasets
+        cursor.execute("""
+            SELECT REPLACE(path, '/dataapi/api/v1/', '') as api_name, COUNT(*) as calls 
+            FROM log 
+            WHERE path LIKE '/dataapi/%' 
+            GROUP BY path 
+            ORDER BY calls DESC 
+            LIMIT 4
+        """)
+        top_rows = cursor.fetchall()
+        top_datasets = []
+        for row in top_rows:
+            api_name = row[0]
+            calls = row[1]
+            top_datasets.append({
+                "name": api_name,
+                "calls": f"{calls}",
+                "trend": min(100, calls * 2) # mock trend line
+            })
+            
+        cursor.close()
+        conn.close()
+        
+        # Mocking data consumption (approx 1.2 KB per request)
+        data_consumption = (total_requests * 1.2) / 1024 # MB
+        data_consumption_str = f"{data_consumption:.1f} MB"
+        if data_consumption > 1024:
+            data_consumption_str = f"{(data_consumption/1024):.1f} GB"
+            
+        # Mocking latency
+        avg_latency = "142ms"
+        
+        metrics = [
+          { "label": 'Total API Requests', "value": str(total_requests), "growth": '+0%', "positive": True },
+          { "label": 'Data Consumption', "value": data_consumption_str, "growth": '+0%', "positive": True },
+          { "label": 'Unique Users', "value": str(unique_users), "growth": '+0%', "positive": True },
+          { "label": 'Avg. Latency', "value": avg_latency, "growth": '+0%', "positive": True }
+        ]
+        
+        return jsonify({
+            "status": "success",
+            "metrics": metrics,
+            "topDatasets": top_datasets
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500

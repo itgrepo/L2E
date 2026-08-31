@@ -55,12 +55,12 @@ def notify_dataset_created(dataset_name, dataset_desc, to_emails):
     subject = f"New Dataset Available: {dataset_name}"
     body = f"""
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-        <h2 style="color: #19b5fe;">New Dataset Created</h2>
+        <h2 style="color: #10b981;">New Dataset Created</h2>
         <p>A new dataset has been published on DataX Portal.</p>
         <p><strong>Name:</strong> {dataset_name}</p>
         <p><strong>Description:</strong> {dataset_desc}</p>
         <br>
-        <a href="{BASE_URL}/catalog" style="display: inline-block; padding: 10px 20px; background-color: #19b5fe; color: white; text-decoration: none; border-radius: 4px;">View Catalog</a>
+        <a href="{BASE_URL}/catalog" style="display: inline-block; padding: 10px 20px; background-color: #10b981; color: white; text-decoration: none; border-radius: 4px;">View Catalog</a>
     </div>
     """
     send_email_async(to_emails, subject, body)
@@ -81,11 +81,11 @@ def notify_access_request(dataset_name, requester_name, to_emails):
     subject = f"New Access Request for {dataset_name}"
     body = f"""
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-        <h2 style="color: #19b5fe;">Access Request</h2>
+        <h2 style="color: #10b981;">Access Request</h2>
         <p>User <strong>{requester_name}</strong> has requested access to the dataset <strong>{dataset_name}</strong>.</p>
         <p>Please log in to the admin panel to review and approve/reject this request.</p>
         <br>
-        <a href="{BASE_URL}/dataset-approval" style="display: inline-block; padding: 10px 20px; background-color: #19b5fe; color: white; text-decoration: none; border-radius: 4px;">Manage Requests</a>
+        <a href="{BASE_URL}/dataset-approval" style="display: inline-block; padding: 10px 20px; background-color: #10b981; color: white; text-decoration: none; border-radius: 4px;">Manage Requests</a>
     </div>
     """
     send_email_async(to_emails, subject, body)
@@ -107,7 +107,7 @@ def notify_added_to_group(group_name, to_emails):
     subject = f"Added to Group: {group_name}"
     body = f"""
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-        <h2 style="color: #19b5fe;">Group Assignment</h2>
+        <h2 style="color: #10b981;">Group Assignment</h2>
         <p>You have been assigned to the user group: <strong>{group_name}</strong>.</p>
         <p>This may grant you access to new datasets and features associated with this group.</p>
     </div>
@@ -117,12 +117,12 @@ def notify_verification_email(firstname, lastname, verify_url, to_emails):
     subject = "Verify Email Address for DataX Portal"
     body = f"""
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-        <h2 style="color: #19b5fe;">Verify Your Email Address</h2>
+        <h2 style="color: #10b981;">Verify Your Email Address</h2>
         <p>Hi {firstname} {lastname},</p>
         <p>Thank you for signing up with DataX Portal.</p>
         <p>Please click the button below to verify your email address and activate your account:</p>
         <br>
-        <a href="{verify_url}" style="display: inline-block; padding: 12px 24px; background-color: #19b5fe; color: white; text-decoration: none; border-radius: 4px; font-weight: bold;">Verify Email</a>
+        <a href="{verify_url}" style="display: inline-block; padding: 12px 24px; background-color: #10b981; color: white; text-decoration: none; border-radius: 4px; font-weight: bold;">Verify Email</a>
         <br><br>
         <p style="font-size: 12px; color: #777;">If you did not register for an account, please ignore this email.</p>
     </div>

@@ -5,19 +5,27 @@ import AppSidebar from '../components/AppSidebar.vue';
 const selectedPeriod = ref('Last 30 Days');
 const periods = ['Last 7 Days', 'Last 30 Days', 'Last Year', 'Custom'];
 
-const metrics = [
-  { label: 'Total API Requests', value: '4.2M', growth: '+15.4%', positive: true },
-  { label: 'Data Consumption', value: '1.8 TB', growth: '+8.2%', positive: true },
-  { label: 'Unique Users', value: '12.4k', growth: '-2.1%', positive: false },
-  { label: 'Avg. Latency', value: '142ms', growth: '-12%', positive: true }
-];
+const metrics = ref([]);
+const topDatasets = ref([]);
+import { onMounted } from 'vue';
+import { postWithUser } from '../utils/api';
 
-const topDatasets = [
-  { name: 'สถิติประชากรกรุงเทพมหา... ', calls: '842k', trend: 60 },
-  { name: 'ดัชนีราคาผู้บริโภคราย...', calls: '521k', trend: 45 },
-  { name: 'รายงานคุณภาพน้ำประปา', calls: '312k', trend: 30 },
-  { name: 'จำนวนผู้ประกันตนมาตรา 33', calls: '245k', trend: 20 }
-];
+const fetchAnalytics = async () => {
+    try {
+        const response = await postWithUser('/api/analytics/usage', {});
+        if (response.data.status === 'success') {
+            metrics.value = response.data.metrics;
+            topDatasets.value = response.data.topDatasets;
+        }
+    } catch (e) {
+        console.error('Failed to fetch analytics', e);
+    }
+};
+
+onMounted(() => {
+    fetchAnalytics();
+});
+
 </script>
 
 <template>

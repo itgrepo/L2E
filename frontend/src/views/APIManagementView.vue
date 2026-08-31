@@ -17,7 +17,7 @@ const apiForm = ref({
   service_description: '',
   api_type: 'general',
   api_enabled: 'Active = Enable',
-  api_db_name: 'WAREHOUSE',
+  api_db_name: '',
   api_source_name: '',
   request_fields: [],
   response_fields: []
@@ -30,34 +30,36 @@ const credentials = ref([]);
 const showKey = ref(null);
 
 const toggleMainServiceStatus = async (svc) => {
-  const isCurrentlyActive = (svc.status === 'Active' || svc.status === 'active');
-  const newStatus = isCurrentlyActive ? 'Inactive' : 'Active';
+  const isCurrentlyEnabled = (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true);
+  const newStatus = isCurrentlyEnabled ? 0 : 1;
+  const newStatusStr = newStatus === 1 ? 'Enabled' : 'Disabled';
   
-  if (!confirm(`Are you sure you want to change the status of ${svc.service_name} to ${newStatus}?`)) return;
+  if (!confirm(`Are you sure you want to change the API status of ${svc.service_name} to ${newStatusStr}?`)) return;
   
   try {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
-    const res = await apiClient.post('/toggleServiceStatus', {
-      user: encodeUserData(userData),
+    const res = await postWithUser('/toggleApiEnabled', userData, {
       service_id: svc.service_id,
-      status: newStatus
+      api_enabled: newStatus
     });
     
     if (res.data.status === 'success') {
-      await fetchServices(); // Refresh list
+      await fetchServices();
+      fetchDatabases(); // Refresh list
     } else {
       alert('Error: ' + res.data.message);
     }
   } catch (e) {
     console.error(e);
-    alert('An error occurred while updating the status.');
+    alert('An error occurred while updating the API status.');
   }
 };
 
 const fetchServices = async () => {
   isLoading.value = true;
   try {
-    const response = await apiClient.get('/retrieveService');
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const response = await postWithUser('/getApiServices', userData);
     if (response.data.status === 'success') {
       services.value = response.data.data;
     }
@@ -125,6 +127,7 @@ const saveEditExpiry = async () => {
     if (res.data.status === 'success') {
       showEditExpiryModal.value = false;
       fetchServices();
+  fetchDatabases();
       if (selectedService.value) {
         fetchCredentialsForService(selectedService.value.service_id);
       }
@@ -171,6 +174,7 @@ const formatDateTime = (dateStr) => {
 
 onMounted(() => {
   fetchServices();
+  fetchDatabases();
 });
 
 const toggleCredentialStatus = async (item) => {
@@ -190,6 +194,7 @@ const toggleCredentialStatus = async (item) => {
     if (res.data.status === 'success') {
       // Refresh list
       fetchServices();
+  fetchDatabases();
       if (scopeSelectedService.value) {
         fetchScopesForService(scopeSelectedService.value.service_id);
       }
@@ -202,6 +207,56 @@ const toggleCredentialStatus = async (item) => {
   } catch (e) { console.error(e); }
 };
 
+const availableDatabases = ref([]);
+const availableTables = ref([]);
+const isLoadingMeta = ref(false);
+
+const fetchDatabases = async () => {
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await apiClient.post('/getAvailableDatabases', { user: encodeUserData(userData) });
+    if (res.data.status === 'success') availableDatabases.value = res.data.data;
+  } catch (e) { console.error('DB fetch error:', e); }
+};
+
+const fetchTables = async (dbName) => {
+  if (!dbName) { availableTables.value = []; return; }
+  isLoadingMeta.value = true;
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await apiClient.post('/getAvailableTables', { user: encodeUserData(userData), db_name: dbName });
+    if (res.data.status === 'success') availableTables.value = res.data.data;
+  } catch (e) { console.error('Table fetch error:', e); }
+  finally { isLoadingMeta.value = false; }
+};
+
+const onDbChange = async () => {
+  apiForm.value.api_source_name = '';
+  newApiColumns.value = [];
+  if (apiForm.value.api_db_name) {
+    await fetchTables(apiForm.value.api_db_name);
+  }
+};
+
+const onTableChange = async () => {
+  newApiColumns.value = [];
+  if (apiForm.value.api_db_name && apiForm.value.api_source_name) {
+    try {
+      const userData = JSON.parse(localStorage.getItem('user') || '{}');
+      const res = await apiClient.post('/getTableColumns', {
+        user: encodeUserData(userData),
+        db_name: apiForm.value.api_db_name,
+        table_name: apiForm.value.api_source_name
+      });
+      if (res.data.status === 'success') {
+        newApiColumns.value = res.data.data;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+};
+
 const newApiColumns = ref([]);
 
 const onReportSelect = async () => {
@@ -210,19 +265,16 @@ const onReportSelect = async () => {
     apiForm.value.service_name = selected.service_name || '';
     apiForm.value.api_endpoint = `API-${selected.dataset_id || selected.service_id}`;
     apiForm.value.service_description = selected.description || selected.service_name || '';
+    apiForm.value.api_db_name = selected.api_db_name || selected.db_name || '';
+    apiForm.value.api_source_name = selected.api_source_name || selected.source_name || '';
     
-    try {
-      const userData = JSON.parse(localStorage.getItem('user') || '{}');
-      const res = await apiClient.post('/getTableColumns', {
-        user: encodeUserData(userData),
-        db_name: selected.db_name || 'WAREHOUSE',
-        table_name: selected.source_name
-      });
-      if (res.data.status === 'success') {
-        newApiColumns.value = res.data.data;
+    // We let the user select the DB and Table manually now.
+    // If the dataset already had a DB, we can pre-fill it and fetch tables
+    if (apiForm.value.api_db_name) {
+      await fetchTables(apiForm.value.api_db_name);
+      if (apiForm.value.api_source_name) {
+        await onTableChange();
       }
-    } catch (e) {
-      console.error(e);
     }
   }
 };
@@ -240,6 +292,8 @@ const isEditScope = ref(false);
 const editingScopeCredentialId = ref(null);
 const allUsers = ref([]);
 const availableColumns = ref([]);
+const previewData = ref([]);
+const showDataPreview = ref(false);
 
 // Add User form modal for General Access
 const showAddUserFormModal = ref(false);
@@ -282,6 +336,30 @@ const fetchAllUsers = async () => {
   } catch (e) { console.error(e); }
 };
 
+
+const fetchTableData = async (service) => {
+  previewData.value = [];
+  if (!service) return;
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await apiClient.post('/previewTableData', {
+      user: encodeUserData(userData),
+      db_name: service.api_db_name || service.db_name || 'WAREHOUSE',
+      table_name: service.api_source_name || service.source_name
+    });
+    if (res.data.status === 'success') {
+      previewData.value = res.data.data;
+    }
+  } catch (e) { console.error(e); }
+};
+
+const toggleDataPreview = async () => {
+  showDataPreview.value = !showDataPreview.value;
+  if (showDataPreview.value && previewData.value.length === 0) {
+    await fetchTableData(scopeSelectedService.value);
+  }
+};
+
 const fetchColumnsForService = async (service) => {
   availableColumns.value = [];
   if (!service) return;
@@ -289,8 +367,8 @@ const fetchColumnsForService = async (service) => {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     const res = await apiClient.post('/getTableColumns', {
       user: encodeUserData(userData),
-      db_name: service.db_name || 'WAREHOUSE',
-      table_name: service.source_name
+      db_name: service.api_db_name || service.db_name || 'WAREHOUSE',
+      table_name: service.api_source_name || service.source_name
     });
     if (res.data.status === 'success') {
       availableColumns.value = res.data.data;
@@ -306,6 +384,8 @@ const openAddScopeForm = async () => {
   scopeConditions.value = [{ logic: 'AND', field: '', operator: '=', value: '' }];
   
   await fetchAllUsers();
+  showDataPreview.value = false;
+  previewData.value = [];
   await fetchColumnsForService(scopeSelectedService.value);
   
   showScopeFormModal.value = true;
@@ -335,6 +415,8 @@ const openEditScopeForm = async (scope) => {
   }
   
   await fetchAllUsers();
+  showDataPreview.value = false;
+  previewData.value = [];
   await fetchColumnsForService(scopeSelectedService.value);
   
   showScopeFormModal.value = true;
@@ -346,6 +428,41 @@ const addScopeCondition = () => {
 
 const removeScopeCondition = (index) => {
   scopeConditions.value.splice(index, 1);
+};
+
+const saveAddApi = async () => {
+  if (!apiForm.value.report_id || !apiForm.value.api_endpoint) {
+    alert('กรุณากรอกข้อมูลให้ครบถ้วน (Report ID, API Endpoint)');
+    return;
+  }
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const payload = {
+      user: encodeUserData(userData),
+      original_service_id: apiForm.value.report_id,
+      api_name: apiForm.value.service_name,
+      api_endpoint: apiForm.value.api_endpoint,
+      api_description: apiForm.value.service_description,
+      api_type: apiForm.value.api_type,
+      api_enabled: apiForm.value.api_enabled,
+      api_db_name: apiForm.value.api_db_name,
+      api_source_name: apiForm.value.api_source_name,
+      api_request_fields: apiForm.value.request_fields,
+      api_response_fields: apiForm.value.response_fields
+    };
+    const res = await apiClient.post('/cloneServiceForApi', payload);
+    if (res.data.status === 'success') {
+      alert('สร้าง API Endpoint สำเร็จ!');
+      showAddApiModal.value = false;
+      fetchServices();
+  fetchDatabases();
+    } else {
+      alert('Error: ' + res.data.message);
+    }
+  } catch (e) {
+    console.error(e);
+    alert('เกิดข้อผิดพลาดในการบันทึก');
+  }
 };
 
 const saveScopeForm = async () => {
@@ -391,6 +508,7 @@ const saveScopeForm = async () => {
 const openAddUserForm = async () => {
   addUserFormUserId.value = '';
   addUserFormExpiry.value = '';
+  showManageAccessModal.value = false;
   await fetchAllUsers();
   showAddUserFormModal.value = true;
 };
@@ -420,6 +538,7 @@ const saveAddUserForm = async () => {
       }
       showAddUserFormModal.value = false;
       await fetchCredentialsForService(selectedService.value.service_id);
+      showManageAccessModal.value = true;
     } else {
       alert('Error adding user: ' + res.data.status);
     }
@@ -494,7 +613,7 @@ const formatScopeJson = (scopeJson) => {
             </button>
           </div>
 
-          <table class="api-table">
+          <div class="table-responsive" style="overflow-x: auto; width: 100%;"><table class="api-table">
             <thead>
               <tr>
                 <th>API SERVICE NAME</th>
@@ -512,12 +631,12 @@ const formatScopeJson = (scopeJson) => {
                 <td>{{ svc.service_description || svc.service_name }}</td>
                 <td>
                   <label class="toggle-switch" title="Toggle Service Status" @click.prevent="toggleMainServiceStatus(svc)">
-                    <input type="checkbox" :checked="svc.status === 'Active' || svc.status === 'active'">
+                    <input type="checkbox" :checked="svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true">
                     <span class="slider"></span>
                   </label>
                 </td>
                 <td>
-                  <span :class="['status-badge', (svc.status || 'inactive').toLowerCase()]">{{ svc.status || 'INACTIVE' }}</span>
+                  <span :class="['status-badge', (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true) ? 'active' : 'inactive']">{{ (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true) ? 'ACTIVE' : 'INACTIVE' }}</span>
                 </td>
                 <td class="text-center">
                   <button @click="openManageAccess(svc)" class="btn-outline">
@@ -529,7 +648,7 @@ const formatScopeJson = (scopeJson) => {
                 </td>
               </tr>
             </tbody>
-          </table>
+          </table></div>
         </div>
 
         <!-- ============ API SCOPES TAB ============ -->
@@ -542,7 +661,7 @@ const formatScopeJson = (scopeJson) => {
               ADD API
             </button>
           </div>
-          <table class="api-table">
+          <div class="table-responsive" style="overflow-x: auto; width: 100%;"><table class="api-table">
             <thead>
               <tr>
                 <th>API SERVICE NAME</th>
@@ -560,12 +679,12 @@ const formatScopeJson = (scopeJson) => {
                 <td>{{ svc.service_description || svc.service_name }}</td>
                 <td>
                   <label class="toggle-switch" title="Toggle Service Status" @click.prevent="toggleMainServiceStatus(svc)">
-                    <input type="checkbox" :checked="svc.status === 'Active' || svc.status === 'active'">
+                    <input type="checkbox" :checked="svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true">
                     <span class="slider"></span>
                   </label>
                 </td>
                 <td>
-                  <span :class="['status-badge', (svc.status || 'inactive').toLowerCase()]">{{ svc.status || 'INACTIVE' }}</span>
+                  <span :class="['status-badge', (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true) ? 'active' : 'inactive']">{{ (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true) ? 'ACTIVE' : 'INACTIVE' }}</span>
                 </td>
                 <td class="text-center">
                   <button @click="openScopesForService(svc)" class="btn-outline">
@@ -578,7 +697,7 @@ const formatScopeJson = (scopeJson) => {
                 </td>
               </tr>
             </tbody>
-          </table>
+          </table></div>
         </div>
       </div>
 
@@ -626,14 +745,18 @@ const formatScopeJson = (scopeJson) => {
             </div>
             <div class="form-row">
               <label>Database <span class="required">*</span></label>
-              <select v-model="apiForm.api_db_name">
-                <option value="WAREHOUSE">WAREHOUSE</option>
+              <select v-model="apiForm.api_db_name" @change="onDbChange">
+                <option value="">-- เลือก Database --</option>
+                <option v-for="db in availableDatabases" :key="db" :value="db">{{ db }}</option>
               </select>
             </div>
             <div class="form-row">
               <label>Table / View <span class="required">*</span></label>
-              <select v-model="apiForm.api_source_name">
-                <option value="FACT.fact_cargo_transaction">FACT.fact_cargo_transaction</option>
+              <select v-model="apiForm.api_source_name" @change="onTableChange" :disabled="!apiForm.api_db_name || isLoadingMeta">
+                <option value="">{{ isLoadingMeta ? 'กำลังโหลด...' : '-- เลือก Table/View --' }}</option>
+                <option v-for="t in availableTables" :key="t.name" :value="t.name">
+                  {{ t.name }} ({{ t.type }})
+                </option>
               </select>
             </div>
             
@@ -641,23 +764,23 @@ const formatScopeJson = (scopeJson) => {
               <div class="checkbox-col">
                 <h4>Please select for Request*</h4>
                 <div style="max-height: 150px; overflow-y: auto; border: 1px solid #cbd5e1; padding: 8px; border-radius: 4px;">
-                  <label v-for="col in newApiColumns" :key="col.column_name" class="checkbox-label">
-                    <input type="checkbox" :value="col.column_name" v-model="apiForm.request_fields"> {{ col.column_name }}
+                  <label v-for="col in newApiColumns" :key="col.name || col.column_name || col.COLUMN_NAME" class="checkbox-label">
+                    <input type="checkbox" :value="col.name || col.column_name || col.COLUMN_NAME" v-model="apiForm.request_fields"> {{ col.name || col.column_name || col.COLUMN_NAME }}
                   </label>
                 </div>
               </div>
               <div class="checkbox-col">
                 <h4>Please select for Response*</h4>
                 <div style="max-height: 150px; overflow-y: auto; border: 1px solid #cbd5e1; padding: 8px; border-radius: 4px;">
-                  <label v-for="col in newApiColumns" :key="col.column_name" class="checkbox-label">
-                    <input type="checkbox" :value="col.column_name" v-model="apiForm.response_fields"> {{ col.column_name }}
+                  <label v-for="col in newApiColumns" :key="col.name || col.column_name || col.COLUMN_NAME" class="checkbox-label">
+                    <input type="checkbox" :value="col.name || col.column_name || col.COLUMN_NAME" v-model="apiForm.response_fields"> {{ col.name || col.column_name || col.COLUMN_NAME }}
                   </label>
                 </div>
               </div>
             </div>
           </div>
           <div class="modal-footer justify-end">
-            <button class="btn-primary" @click="showAddApiModal = false">SAVE</button>
+            <button class="btn-primary" @click="saveAddApi">SAVE</button>
           </div>
         </div>
       </div>
@@ -679,7 +802,7 @@ const formatScopeJson = (scopeJson) => {
               </button>
             </div>
             <div class="table-scroll-wrapper">
-              <table class="api-table">
+              <div class="table-responsive" style="overflow-x: auto; width: 100%;"><table class="api-table">
                 <thead>
                   <tr>
                     <th>USERNAME</th>
@@ -723,7 +846,7 @@ const formatScopeJson = (scopeJson) => {
                     <td colspan="6" class="text-center text-muted py-4">ไม่มีข้อมูลผู้ใช้งาน</td>
                   </tr>
                 </tbody>
-              </table>
+              </table></div>
             </div>
           </div>
         </div>
@@ -745,7 +868,7 @@ const formatScopeJson = (scopeJson) => {
                 ADD SCOPES
               </button>
             </div>
-            <table class="api-table">
+            <div class="table-responsive" style="overflow-x: auto; width: 100%;"><table class="api-table">
               <thead>
                 <tr>
                   <th>USERNAME</th>
@@ -762,12 +885,12 @@ const formatScopeJson = (scopeJson) => {
                 <tr v-for="sc in scopeCredentials" :key="sc.credential_id">
                   <td>{{ sc.username }}</td>
                   <td>
-                    <div class="mono-cell">{{ sc.public_key_id }}</div>
+                    <div class="mono-cell" style="word-break: break-all; min-width: 120px;">{{ sc.public_key_id }}</div>
                   </td>
                   <td class="key-cell">
                     <span class="secret-box">••••••••••••{{ sc.key_last_four }}</span>
                   </td>
-                  <td><strong>{{ sc.dataset_id || sc.service_id }}</strong></td>
+                  <td style="word-break: break-all; min-width: 150px;"><strong>{{ sc.dataset_id || sc.service_id }}</strong></td>
                   <td>
                     <span class="scope-badge">{{ formatScopeJson(sc.scope_json) }}</span>
                   </td>
@@ -802,17 +925,17 @@ const formatScopeJson = (scopeJson) => {
                   <td colspan="8" class="text-center text-muted py-4">ไม่มีข้อมูล Scope สำหรับ API นี้</td>
                 </tr>
               </tbody>
-            </table>
+            </table></div>
           </div>
         </div>
       </div>
 
       <!-- ============ Add User Form Modal (GENERAL API) ============ -->
-      <div v-if="showAddUserFormModal" class="modal-overlay" @click.self="showAddUserFormModal = false">
+      <div v-if="showAddUserFormModal" class="modal-overlay" @click.self="showAddUserFormModal = false" style="z-index: 1100;">
         <div class="modal-content modal-lg">
           <div class="modal-header">
             <h3>ADD USER</h3>
-            <button @click="showAddUserFormModal = false" class="modal-close">&times;</button>
+            <button @click="showAddUserFormModal = false; showManageAccessModal = true;" class="modal-close">&times;</button>
           </div>
           <div class="modal-body form-grid">
             <div class="form-row">
@@ -836,7 +959,7 @@ const formatScopeJson = (scopeJson) => {
             </div>
           </div>
           <div class="modal-footer justify-end">
-            <button class="btn-cancel" @click="showAddUserFormModal = false" style="margin-right:8px;">CANCEL</button>
+            <button class="btn-cancel" @click="showAddUserFormModal = false; showManageAccessModal = true;" style="margin-right:8px;">CANCEL</button>
             <button class="btn-primary" @click="saveAddUserForm">SAVE</button>
           </div>
         </div>
@@ -898,7 +1021,32 @@ const formatScopeJson = (scopeJson) => {
 
             <!-- Scope Conditions (WHERE) -->
             <div class="scope-section">
-              <h4 class="scope-section-title">Scope Conditions (WHERE)</h4>
+              
+              <h4 class="scope-section-title" style="display:flex; justify-content:space-between; align-items:center;">
+                Scope Conditions (WHERE)
+                <button @click="toggleDataPreview" class="btn-outline-primary" style="font-size: 0.75rem; padding: 4px 8px;">👀 Data Preview</button>
+              </h4>
+              
+              <div v-if="showDataPreview" class="data-preview-table-container" style="max-height: 200px; overflow-y: auto; margin-bottom: 16px; border: 1px solid #e2e8f0; border-radius: 4px;">
+                <table class="data-table" v-if="previewData.length > 0" style="font-size: 0.75rem; width: 100%;">
+                  <thead>
+                    <tr>
+                      <th v-for="col in availableColumns" :key="col.column_name || col.name || col.COLUMN_NAME" style="padding: 4px 8px; background: #f1f5f9; text-align: left; border-bottom: 2px solid #e2e8f0; position: sticky; top: 0;">
+                        {{ col.column_name || col.name || col.COLUMN_NAME }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, idx) in previewData" :key="idx">
+                      <td v-for="col in availableColumns" :key="col.column_name || col.name || col.COLUMN_NAME" style="padding: 4px 8px; border-bottom: 1px solid #e2e8f0;">
+                        {{ row[col.column_name || col.name || col.COLUMN_NAME] }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div v-else style="padding: 16px; text-align: center; color: #64748b; font-size: 0.8rem;">Loading preview or no data available.</div>
+              </div>
+
               <div v-for="(cond, index) in scopeConditions" :key="index" class="scope-row">
                 <select v-if="index > 0" v-model="cond.logic" class="scope-logic">
                   <option value="AND">AND</option>
@@ -907,7 +1055,7 @@ const formatScopeJson = (scopeJson) => {
                 <span v-else class="scope-where-label">WHERE</span>
                 <select v-model="cond.field" class="scope-field">
                   <option value="">-- เลือก Field --</option>
-                  <option v-for="col in availableColumns" :key="col.column_name" :value="col.column_name">{{ col.column_name }}</option>
+                  <option v-for="col in availableColumns" :key="col.name || col.column_name || col.COLUMN_NAME" :value="col.name || col.column_name || col.COLUMN_NAME">{{ col.name || col.column_name || col.COLUMN_NAME }}</option>
                 </select>
                 <select v-model="cond.operator" class="scope-operator">
                   <option value="=">=</option>
@@ -977,7 +1125,7 @@ const formatScopeJson = (scopeJson) => {
 .modal-content.modal-lg { max-width: 860px; }
 .modal-content.modal-xl { max-width: 1060px; }
 .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 28px; background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: white; border-radius: 20px 20px 0 0; }
-.modal-header h3 { font-size: 1.125rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; margin: 0; }
+.modal-header h3 { font-size: 1.125rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; margin: 0; word-break: break-all; white-space: normal; max-width: 90%; }
 .modal-close { background: rgba(255,255,255,0.15); border: none; font-size: 1.25rem; color: white; cursor: pointer; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all 0.2s; line-height: 1; }
 .modal-close:hover { background: rgba(255,255,255,0.3); transform: rotate(90deg); }
 .modal-body { padding: 28px; background: #f8fafc; }

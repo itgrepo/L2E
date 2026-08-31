@@ -8,6 +8,40 @@ import { postWithUser } from '../utils/api';
 const users = ref([]);
 const roles = ref([]);
 
+const organizations = ref([]);
+const fetchOrganizations = async () => {
+    try {
+        const userStored = JSON.parse(localStorage.getItem('user') || '{}');
+        const response = await postWithUser('/getOrganizations', userStored);
+        if (response.data && response.data.status === 'success') {
+            organizations.value = response.data.data;
+        }
+    } catch (error) {
+        console.error('Error fetching organizations:', error);
+    }
+};
+
+const handleOrgChange = async (user, newOrgId) => {
+    try {
+        const userStored = JSON.parse(localStorage.getItem('user') || '{}');
+        const response = await postWithUser('/mgmt/updateUserById', userStored, {
+            target_user_id: user.user_id,
+            previlage_id: user.previlage_id,
+            org_id: newOrgId
+        });
+        
+        if (response.data.status === 'success') {
+            showAlert(`อัปเดตหน่วยงานสำเร็จ`, 'success');
+            fetchUsers(); 
+        } else {
+            showAlert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status), 'error');
+        }
+    } catch (error) {
+        console.error('Error updating org:', error);
+    }
+};
+
+
 const groups = ref([]);
 const showAddModal = ref(false);
 const formData = ref({
@@ -15,6 +49,7 @@ const formData = ref({
     email: '',
     password: '',
     previlage_id: 3,
+    org_id: '',
     status_id: 1,
     groups: []
 });
@@ -64,6 +99,12 @@ const handleSaveUser = async () => {
         return;
     }
     
+    
+    if (formData.value.previlage_id == 3 && !formData.value.org_id) {
+        showAlert('กรุณาเลือกหน่วยงานสำหรับ Role นี้', 'error');
+        return;
+    }
+
     isSubmitting.value = true;
     try {
         const userStored = JSON.parse(localStorage.getItem('user') || '{}');
@@ -184,6 +225,7 @@ onMounted(() => {
     fetchUsers();
     fetchRoles();
     fetchGroups();
+    fetchOrganizations();
 });
 </script>
 
@@ -268,6 +310,22 @@ onMounted(() => {
                     </select>
                   </div>
                 </div>
+                <div class="mc-row">
+                  <span class="mc-label">หน่วยงาน</span>
+                  <div class="role-selector-box mobile-select" v-if="u.previlage_id == 3">
+                    <select 
+                        :value="u.org_id" 
+                        @change="handleOrgChange(u, $event.target.value)"
+                        class="role-select"
+                    >
+                        <option value="" disabled>เลือกหน่วยงาน</option>
+                        <option v-for="org in organizations" :key="org.org_id" :value="org.org_id">
+                            {{ org.org_name }}
+                        </option>
+                    </select>
+                  </div>
+                  <span class="mc-value text-muted" v-else>-</span>
+                </div>
               </div>
             </div>
           </div>
@@ -279,6 +337,7 @@ onMounted(() => {
                 <th>อีเมล</th>
                 <th>วันที่เข้าร่วม</th>
                 <th>บทบาทปัจจุบัน</th>
+                <th>หน่วยงาน (สำหรับเจ้าของข้อมูล)</th>
                 <th>ดำเนินการ</th>
               </tr>
             </thead>
@@ -369,6 +428,16 @@ onMounted(() => {
                     <option :value="3">Suspended</option>
                   </select>
                 </div>
+              </div>
+
+              <div class="form-group" v-if="formData.previlage_id == 3">
+                <label>Organization <span class="required">*</span></label>
+                <select v-model="formData.org_id" class="dark-input">
+                  <option value="" disabled>Select Organization</option>
+                  <option v-for="org in organizations" :key="org.org_id" :value="org.org_id">
+                    {{ org.org_name }}
+                  </option>
+                </select>
               </div>
 
               <div class="form-group">
@@ -690,6 +759,9 @@ h1 {
   border-radius: 20px;
   width: 500px;
   max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
   color: #f8fafc;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.05);
   overflow: hidden;
@@ -726,6 +798,7 @@ h1 {
 
 .modal-body {
   padding: 30px;
+  overflow-y: auto;
 }
 
 .form-group {
@@ -801,6 +874,7 @@ h1 {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .btn-cancel {

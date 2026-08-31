@@ -3,25 +3,6 @@ from ServiceConfig import *
 import json
 import base64
 
-def platform_decode(data):
-    if not data:
-        return ""
-    try:
-        # Standard decode pattern used in this project
-        decoded = base64.b64decode(data[:-5][::-1]).decode('utf-8')
-        return decoded
-    except Exception as e:
-        print(f"Decode error: {e}")
-        return ""
-
-def safe_json_loads(data):
-    if not data:
-        return {}
-    try:
-        return json.loads(data)
-    except:
-        return {}
-
 @app.route('/getDatasetAccessGroups', methods=['POST'])
 def getDatasetAccessGroups():
     try:

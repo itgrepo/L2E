@@ -88,16 +88,19 @@ def toJson(data,columns):
 def decode(data):
     return base64.b64decode(data[:-5][::-1])
 
+from itsdangerous import URLSafeTimedSerializer
+import json
+
+SECRET_KEY = "intelligist-datax-secure-secret-key-2026"
+auth_serializer = URLSafeTimedSerializer(SECRET_KEY)
+
 def platform_decode(data):
-    if not data:
-        return ""
     try:
-        # Standard decode pattern used in this project
-        decoded = base64.b64decode(data[:-5][::-1]).decode('utf-8')
-        return decoded
+        # Decode the secure token
+        user_dict = auth_serializer.loads(data, max_age=86400) # 1 day expiration
+        return json.dumps(user_dict)
     except Exception as e:
-        print(f"Decode error: {e}")
-        return ""
+        return ''
 
 def safe_json_loads(data):
     if not data:

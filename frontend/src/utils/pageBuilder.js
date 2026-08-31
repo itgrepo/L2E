@@ -1,5 +1,5 @@
 import { ref, watch } from 'vue';
-import apiClient from './api';
+import apiClient, { encodeUserData } from './api';
 
 const STORAGE_KEY = 'intelligist_homepage_layout';
 

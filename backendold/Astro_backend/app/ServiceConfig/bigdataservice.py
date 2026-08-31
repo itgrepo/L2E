@@ -33,33 +33,8 @@ def log_api_audit(action, target_user_id=None, service_id=None, credential_id=No
         conn.commit()
         cursor.close()
         conn.close()
-        log_api_audit('update_api_config', service_id=service_id)
     except Exception as e:
         current_app.logger.error(f"Audit Log Error: {e}")
-
-def platform_decode(data):
-    if not data:
-        return data
-    
-    # 1. If it looks like JSON already, return it
-    if isinstance(data, str) and data.strip().startswith('{'):
-        return data
-
-    try:
-        # 2. Try standard Base64 first
-        # Add padding if missing
-        padded_data = data
-        missing_padding = len(padded_data) % 4
-        if missing_padding:
-            padded_data += '=' * (4 - missing_padding)
-        return base64.b64decode(padded_data).decode('utf-8')
-    except:
-        try:
-            # 3. Fallback to legacy obfuscated format
-            return decode(data).decode('utf-8')
-        except:
-            # 4. Return as is
-            return data
 
 @app.route('/addService', methods=['POST','PUT'])
 @require_admin
@@ -134,6 +109,11 @@ def addService():
                 geo_published_date = request.form.get('geo_published_date')
                 api_enabled_raw = request.form.get('api_enabled')
                 api_enabled = 1 if api_enabled_raw in ['true', '1', True] else (0 if api_enabled_raw in ['false', '0', False] else None)
+                if date_start == '': date_start = None
+                if date_updated == '': date_updated = None
+                if geo_published_date == '': geo_published_date = None
+                if geo_reference_time == '': geo_reference_time = None
+
 
                 conn = mysql.connect()
                 cursor = conn.cursor()
@@ -143,6 +123,19 @@ def addService():
                     cursor.close()
                     conn.close()
                     return jsonify({"status": err_msg}), 400
+
+                # Check organization binding for Role 3
+                user_data = getattr(request, 'current_user', {})
+                previlage_id = str(user_data.get('previlage_id', ''))
+                org_id = user_data.get('org_id')
+                if previlage_id == '3' and org_id:
+                    cursor.execute("SELECT org_name FROM organization WHERE org_id = %s", (org_id,))
+                    org_row = cursor.fetchone()
+                    user_org_name = org_row[0] if org_row else ''
+                    if user_org_name != organization:
+                        cursor.close()
+                        conn.close()
+                        return jsonify({"status": "คุณมีสิทธิ์จัดการชุดข้อมูลเฉพาะของหน่วยงานที่คุณสังกัดเท่านั้น"}), 403
 
                 if not dataset_id:
                     cursor.close()
@@ -314,6 +307,11 @@ def addService():
                 geo_published_date = request.form.get('geo_published_date')
                 api_enabled_raw = request.form.get('api_enabled')
                 api_enabled = 1 if api_enabled_raw in ['true', '1', True] else (0 if api_enabled_raw in ['false', '0', False] else None)
+                if date_start == '': date_start = None
+                if date_updated == '': date_updated = None
+                if geo_published_date == '': geo_published_date = None
+                if geo_reference_time == '': geo_reference_time = None
+
 
                 conn = mysql.connect()
                 cursor = conn.cursor()
@@ -467,6 +465,43 @@ def addService():
         return jsonify({"status": "Error: " + str(e),"Line number": line_number})
         # return jsonify({"status": "Error"})
 
+
+@app.route('/getApiServices', methods=['GET', 'POST'])
+@require_admin
+def getApiServices():
+    try:
+        user_data = getattr(request, 'current_user', {})
+        org_id = user_data.get('org_id')
+        previlage_id = str(user_data.get('previlage_id', ''))
+        
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        if previlage_id == '3' and org_id:
+            cursor.execute("SELECT org_name FROM organization WHERE org_id = %s", (org_id,))
+            org_row = cursor.fetchone()
+            org_name = org_row[0] if org_row else ''
+            
+            sql = "SELECT * FROM service WHERE organization = %s ORDER BY service_id DESC"
+            cursor.execute(sql, (org_name,))
+        else:
+            # Fetch all clones regardless of status
+            sql = "SELECT * FROM service ORDER BY service_id DESC"
+            cursor.execute(sql)
+        data = cursor.fetchall()
+        columns = [column[0] for column in cursor.description]
+        service_result = toJson(data, columns)
+        conn.close()
+        
+        for i in range(len(service_result)):
+            if service_result[i].get('service_image'):
+                service_result[i]['service_image'] = base64.b64encode(service_result[i]['service_image']).decode('utf-8')
+                
+        return jsonify({"status": "success", "data": service_result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
 @app.route('/getService', methods=['POST'])
 @require_admin
 def getService():
@@ -477,7 +512,7 @@ def getService():
         if True: # Admin check handled by decorator
             conn = mysql.connect()
             cursor = conn.cursor()
-            sql = "SELECT * FROM service"
+            sql = "SELECT * FROM service WHERE (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')"
             cursor.execute(sql)
             data = cursor.fetchall()
             columns = [column[0] for column in cursor.description]
@@ -641,6 +676,33 @@ def toggleServiceStatus():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+
+@app.route('/getDatasetApiEndpoints', methods=['POST'])
+def getDatasetApiEndpoints():
+    try:
+        dataInput = request.json or {}
+        dataset_id = dataInput.get('dataset_id')
+        if not dataset_id:
+            return jsonify({'status': 'error', 'message': 'Missing dataset_id'})
+            
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        # Match API_CLONE_[dataset_id]_[api_endpoint]
+        pattern = f"API\_CLONE\_{dataset_id}\_%"
+        sql = "SELECT service_name, api_endpoint, description, api_type, status FROM service WHERE dataset_id LIKE %s AND status = 'Active'"
+        cursor.execute(sql, (pattern,))
+        data = cursor.fetchall()
+        columns = [col[0] for col in cursor.description]
+        result = [dict(zip(columns, row)) for row in data]
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'status': 'success', 'data': result})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @app.route('/retrieveService', methods=['GET'])
 @app.route('/retrieveService', methods=['GET', 'POST'])
 def retrieveService():
@@ -662,7 +724,7 @@ def retrieveService():
         cursor = conn.cursor()
         
         if user_id == 'ADMIN':
-            sql = "SELECT *, 1 AS has_access, NULL AS permission_status FROM service WHERE status = 'Active'"
+            sql = "SELECT *, 1 AS has_access, NULL AS permission_status FROM service WHERE status = 'Active' AND (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')"
             cursor.execute(sql)
         else:
             sql = """
@@ -682,7 +744,7 @@ def retrieveService():
                         WHERE r.service_id = s.service_id AND r.user_id = %s 
                         ORDER BY r.created_at DESC LIMIT 1) AS permission_status
                 FROM service s
-                WHERE s.status = 'Active'
+                WHERE s.status = 'Active' AND (s.dataset_id IS NULL OR s.dataset_id NOT LIKE 'API\_CLONE\_%%')
             """
             cursor.execute(sql, (str(user_data.get('previlage_id', '2')), user_id, user_id, user_id, user_id, user_id))
             
@@ -698,8 +760,187 @@ def retrieveService():
         line_number = exception_traceback.tb_lineno
         print("Error in retrieveService: ", str(e), " at line ", line_number)
         return jsonify({"status": "Error: " + str(e), "Line number": line_number})
+
+import pandas as pd
+from flask import Response
+import io
+
+
+@app.route('/dataapi/api/v1/<dataset_id>/file', methods=['GET'])
+def get_dataset_file_api(dataset_id):
+    import os
+    import pandas as pd
+    import hashlib
+    import uuid
+    import json
+    
+    request_id = str(uuid.uuid4())
+    
+    try:
+        apikey_header = request.headers.get('x-api-key')
+        apikey_query = request.args.get('apikey')
+        apikey = apikey_header if apikey_header else apikey_query
+        
+        conn = mysql.connect()
+        cursor = conn.cursor()
+
+        sql_check_service = """
+            SELECT service_id, api_enabled, api_type, file_path, service_name, access_type
+            FROM service 
+            WHERE dataset_id = %s AND status = 'Active' LIMIT 1
+        """
+        cursor.execute(sql_check_service, (dataset_id,))
+        svc_row = cursor.fetchone()
+        
+        if not svc_row:
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': 'Service not found or inactive', 'request_id': request_id}), 404
+
+        real_service_id, api_enabled, api_type, file_path, service_name, access_type = svc_row
+
+        user_id = 0
+        user_role = '2'
+        # Enforce API Key
+        if api_type != 'public' or access_type in ['internal', 'restricted', 'pii']:
+            if not apikey:
+                cursor.close()
+                conn.close()
+                return jsonify({'status': 'error', 'message': 'Missing apikey parameter', 'request_id': request_id}), 401
+                
+            if "." in apikey:
+                public_key_id = apikey.split('.')[0]
+                secret_hash = hashlib.sha256(apikey.encode('utf-8')).hexdigest()
+
+                sql_cred = "SELECT c.status, c.expires_at FROM api_credentials c WHERE c.public_key_id = %s AND c.secret_hash = %s AND c.service_id = %s"
+                cursor.execute(sql_cred, (public_key_id, secret_hash, real_service_id))
+                cred_row = cursor.fetchone()
+
+                if not cred_row:
+                    cursor.close()
+                    conn.close()
+                    return jsonify({'status': 'error', 'message': 'Invalid API key for this dataset', 'request_id': request_id}), 403
+                    
+                if cred_row[0] != 'active':
+                    cursor.close()
+                    conn.close()
+                    return jsonify({'status': 'error', 'message': 'API Key is inactive', 'request_id': request_id}), 403
+            else:
+                sql_user = "SELECT user_id, previlage_id FROM user WHERE apikey = %s "
+                cursor.execute(sql_user, (apikey,))
+                user_row = cursor.fetchone()
+                if not user_row:
+                    cursor.close()
+                    conn.close()
+                    return jsonify({'status': 'error', 'message': 'Invalid Global API Key', 'request_id': request_id}), 401
+                user_id, user_role = user_row
+        if not file_path:
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': 'No file attached to this dataset', 'request_id': request_id}), 404
+            
+        cursor.close()
+        conn.close()
+
+        # Read the file
+        upload_folder = os.path.join(os.getcwd(), 'uploads')
+        full_path = os.path.join(upload_folder, file_path)
+        
+        if not os.path.exists(full_path):
+            return jsonify({'status': 'error', 'message': 'File missing on server', 'request_id': request_id}), 404
+            
+        ext = file_path.split('.')[-1].lower()
+        if ext in ['csv']:
+            df = pd.read_csv(full_path)
+        elif ext in ['xls', 'xlsx']:
+            df = pd.read_excel(full_path)
+        else:
+            return jsonify({'status': 'error', 'message': 'Unsupported file format', 'request_id': request_id}), 400
+            
+        # Return as JSON
+        df = df.fillna("")
+        json_data = df.to_dict(orient='records')
+        
+        return jsonify({
+            'status': 'success',
+            'dataset_id': dataset_id,
+            'dataset_name': service_name,
+            'total_rows': len(json_data),
+            'rows': json_data
+        })
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e), "request_id": request_id}), 500
+
+
+
+@app.route('/exportData/<dataset_id>', methods=['GET'])
+def exportData(dataset_id):
+    try:
+        format_type = request.args.get('format', 'csv').lower()
+        
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        sql = "SELECT dataset_id, api_db_name, api_endpoint FROM service WHERE dataset_id = %s OR api_endpoint = %s LIMIT 1"
+        cursor.execute(sql, (dataset_id, dataset_id))
+        service_data = cursor.fetchone()
+        
+        if not service_data:
+            cursor.execute("SELECT dataset_id, api_db_name, api_endpoint FROM service WHERE service_id = %s LIMIT 1", (dataset_id,))
+            service_data = cursor.fetchone()
+            
+        if not service_data:
+            return jsonify({"status": "error", "message": "Dataset not found"}), 404
+            
+        columns = [column[0] for column in cursor.description]
+        service = dict(zip(columns, service_data))
+        
+        db_name = service.get('api_db_name')
+        source_name = service.get('api_endpoint')
+        
+        if not db_name or not source_name or db_name not in ALLOWED_DATABASES:
+            return jsonify({"status": "error", "message": "This dataset does not have database records attached"}), 400
+            
+        oracle_conn = get_oracle_connection(db_name)
+        oracle_cursor = oracle_conn.cursor()
+        
+        final_sql = f'SELECT * FROM "{db_name}"."{source_name}" FETCH FIRST 5000 ROWS ONLY'
+        oracle_cursor.execute(final_sql)
+        rows_data = oracle_cursor.fetchall()
+        
+        ora_columns = [col[0] for col in oracle_cursor.description]
+        oracle_cursor.close()
+        oracle_conn.close()
+        
+        df = pd.DataFrame(rows_data, columns=ora_columns)
+        
+        if format_type == 'excel' or format_type == 'xls':
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False, sheet_name='Data')
+            output.seek(0)
+            return Response(
+                output.read(),
+                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-disposition": f"attachment; filename={dataset_id}.xlsx"}
+            )
+        else: # Default CSV
+            csv_data = df.to_csv(index=False)
+            return Response(
+                csv_data,
+                mimetype="text/csv",
+                headers={"Content-disposition": f"attachment; filename={dataset_id}.csv"}
+            )
+            
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route('/dataapi/api/v1/<dataset_id>', methods=['GET'])
 def get_dataset_api(dataset_id):
+    import json
+    from flask import Response
     """
     Main Data API endpoint.
     Retrieves real rows based on service configuration and user credentials.
@@ -762,8 +1003,8 @@ def get_dataset_api(dataset_id):
         # First, fetch service configuration by dataset_id
         sql_svc_config = """SELECT service_id, api_enabled, api_type, api_db_name, api_source_name, api_source_type, 
                                    api_request_fields, api_response_fields, service_name, access_type
-                            FROM service WHERE dataset_id = %s AND status = 'Active'"""
-        cursor.execute(sql_svc_config, (dataset_id,))
+                            FROM service WHERE (dataset_id = %s OR api_endpoint = %s) AND status = 'Active' LIMIT 1"""
+        cursor.execute(sql_svc_config, (dataset_id, dataset_id))
         svc_row = cursor.fetchone()
         
         if not svc_row:
@@ -787,90 +1028,65 @@ def get_dataset_api(dataset_id):
         expires_at = None
         
         if api_type != 'public' or access_type in ['internal', 'restricted', 'pii']:
-            # Check if apikey is provided
             if not apikey:
                 log_api_usage(0, 'Missing apikey parameter for private/restricted API', 401)
                 cursor.close()
                 conn.close()
                 return jsonify({'status': 'error', 'message': 'Missing apikey parameter', 'request_id': request_id}), 401
 
-            # Hash check
-            if "." not in apikey:
-                log_api_usage(0, 'Invalid API key format', 403)
-                cursor.close()
-                conn.close()
-                return jsonify({'status': 'error', 'message': 'Invalid or inactive API key', 'request_id': request_id}), 403
-                
-            public_key_id = apikey.split('.')[0]
-            secret_hash = hashlib.sha256(apikey.encode('utf-8')).hexdigest()
-
-            # Validate API Credential
-            sql_cred = """SELECT c.credential_id, c.user_id, c.status, c.expires_at, u.previlage_id
-                            FROM api_credentials c
-                            JOIN user u ON c.user_id = u.user_id
-                            WHERE c.public_key_id = %s AND c.secret_hash = %s AND c.service_id = %s"""
-            cursor.execute(sql_cred, (public_key_id, secret_hash, real_service_id))
-            cred_row = cursor.fetchone()
-
-            if not cred_row:
-                log_api_usage(0, 'Invalid API key for this dataset', 403)
-                cursor.close()
-                conn.close()
-                return jsonify({'status': 'error', 'message': 'Invalid or inactive API key', 'request_id': request_id}), 403
-
-            credential_id, user_id, cred_status, expires_at, user_role = cred_row
-            
-            # Check Credential Status
-            if cred_status != 'active':
-                log_api_usage(user_id, 'API Key is inactive', 403)
-                cursor.close()
-                conn.close()
-                return jsonify({'status': 'error', 'message': 'API Key is inactive', 'request_id': request_id}), 403
-
-            # Check expiration
-            if expires_at and expires_at < datetime.now():
-                log_api_usage(user_id, 'API Key has expired', 403)
-                cursor.close()
-                conn.close()
-                return jsonify({'status': 'error', 'message': 'API Key has expired', 'request_id': request_id}), 403
-
-            # Check Dataset Access Permissions (Group / User restrictions)
-            if str(user_role) not in ['3', '4']: # Regular user
-                sql_check_restrict = """
-                    SELECT 
-                        (SELECT COUNT(*) FROM service_group_access WHERE service_id = %s) as group_count,
-                        (SELECT COUNT(*) FROM service_user_access WHERE service_id = %s) as user_count
-                """
-                cursor.execute(sql_check_restrict, (real_service_id, real_service_id))
-                r_count = cursor.fetchone()
-                
-                if r_count[0] > 0 or r_count[1] > 0:
-                    sql_verify = """
-                        SELECT 1 FROM service_user_access WHERE service_id = %s AND user_id = %s AND allow_api = 1
-                        UNION
-                        SELECT 1 FROM service_group_access sga
-                        JOIN group_user_detail gud ON sga.group_id = gud.group_id
-                        WHERE sga.service_id = %s AND gud.user_id = %s
-                    """
-                    cursor.execute(sql_verify, (real_service_id, user_id, real_service_id, user_id))
-                    if not cursor.fetchone():
-                        log_api_usage(user_id, 'Access Denied (Permission Restriction)', 403)
-                        cursor.close()
-                        conn.close()
-                        return jsonify({'status': 'error', 'message': 'Access Denied: You do not have permission to access this dataset', 'request_id': request_id}), 403
-        else:
-            # If public and apikey is provided, try to find who invoked it (optional logging)
-            if apikey and "." in apikey:
+            if "." in apikey:
                 public_key_id = apikey.split('.')[0]
                 secret_hash = hashlib.sha256(apikey.encode('utf-8')).hexdigest()
-                sql_user = """SELECT api_credentials.user_id, user.previlage_id 
-                             FROM api_credentials 
-                             JOIN user ON api_credentials.user_id = user.user_id 
-                             WHERE public_key_id = %s AND secret_hash = %s LIMIT 1"""
-                cursor.execute(sql_user, (public_key_id, secret_hash))
+
+                sql_cred = "SELECT c.credential_id, c.user_id, c.status, c.expires_at, u.previlage_id FROM api_credentials c JOIN user u ON c.user_id = u.user_id WHERE c.public_key_id = %s AND c.secret_hash = %s AND c.service_id = %s"
+                cursor.execute(sql_cred, (public_key_id, secret_hash, real_service_id))
+                cred_row = cursor.fetchone()
+
+                if not cred_row:
+                    log_api_usage(0, 'Invalid API key for this dataset', 403)
+                    cursor.close()
+                    conn.close()
+                    return jsonify({'status': 'error', 'message': 'Invalid or inactive API key', 'request_id': request_id}), 403
+
+                credential_id, user_id, cred_status, expires_at, user_role = cred_row
+                
+                if cred_status != 'active':
+                    log_api_usage(user_id, 'API Key is inactive', 403)
+                    cursor.close()
+                    conn.close()
+                    return jsonify({'status': 'error', 'message': 'API Key is inactive', 'request_id': request_id}), 403
+
+                if expires_at and expires_at < datetime.now():
+                    log_api_usage(user_id, 'API Key expired', 403)
+                    cursor.close()
+                    conn.close()
+                    return jsonify({'status': 'error', 'message': 'API Key has expired', 'request_id': request_id}), 403
+            else:
+                sql_user = "SELECT user_id, previlage_id FROM user WHERE apikey = %s "
+                cursor.execute(sql_user, (apikey,))
                 user_row = cursor.fetchone()
-                if user_row:
-                    user_id, user_role = user_row
+                if not user_row:
+                    log_api_usage(0, 'Invalid Global API Key', 403)
+                    cursor.close()
+                    conn.close()
+                    return jsonify({'status': 'error', 'message': 'Invalid Global API Key', 'request_id': request_id}), 403
+                user_id, user_role = user_row
+        else:
+            if apikey:
+                if "." in apikey:
+                    public_key_id = apikey.split('.')[0]
+                    secret_hash = hashlib.sha256(apikey.encode('utf-8')).hexdigest()
+                    sql_user = "SELECT c.user_id, u.previlage_id FROM api_credentials c JOIN user u ON c.user_id = u.user_id WHERE c.public_key_id = %s AND c.secret_hash = %s LIMIT 1"
+                    cursor.execute(sql_user, (public_key_id, secret_hash))
+                    user_row = cursor.fetchone()
+                    if user_row:
+                        user_id, user_role = user_row
+                else:
+                    sql_user = "SELECT user_id, previlage_id FROM user WHERE apikey = %s "
+                    cursor.execute(sql_user, (apikey,))
+                    user_row = cursor.fetchone()
+                    if user_row:
+                        user_id, user_role = user_row
 
         if not db_name or not source_name:
             cursor.close()
@@ -881,9 +1097,12 @@ def get_dataset_api(dataset_id):
         try:
             req_fields_list = json.loads(req_fields_raw) if req_fields_raw else []
             res_fields_list = json.loads(res_fields_raw) if res_fields_raw else []
-        except:
+        except Exception as e:
+            current_app.logger.error(f"JSON Parse Error: {e} -> RAW: {req_fields_raw}")
             req_fields_list = []
             res_fields_list = []
+            
+        current_app.logger.info(f"REQ LIST VALID: {req_fields_list}")
             
         # Validate dynamic SQL identifiers
         if not re.match(r'^[a-zA-Z0-9_]+$', source_name):
@@ -968,35 +1187,93 @@ def get_dataset_api(dataset_id):
             return jsonify({'status': 'error', 'message': 'Database not in whitelist', 'request_id': request_id}), 403
 
         # Construct final SQL
-        final_sql = f"SELECT {select_clause} FROM `{db_name}`.`{source_name}` WHERE {scope_where_clause} {filter_where_clause} LIMIT 1000"
-        
         all_params = scope_params + filter_params
         
-        # 6. Execute and Return
-        cursor.execute(final_sql, all_params)
-        rows_data = cursor.fetchall()
-        columns = [col[0] for col in cursor.description]
-        
-        results = toJson(rows_data, columns)
+        if db_name in ['STG_DATAEXCHAGE', 'DWH_DATAEXCHAGE']:
+            # Replace %s with :N
+            def replacer(match, counter=[0]):
+                counter[0] += 1
+                return f":{counter[0]}"
+            import re
+            
+            # Use regex to find %s exactly. 
+            # Note: since this runs per request, we compile regex pattern.
+            scope_where_clause_ora = re.sub(r'%s', replacer, scope_where_clause)
+            
+            # Reset counter for filter_where_clause_ora using the count from scope
+            c_val = scope_where_clause.count('%s')
+            def replacer_filter(match, counter=[c_val]):
+                counter[0] += 1
+                return f":{counter[0]}"
+            filter_where_clause_ora = re.sub(r'%s', replacer_filter, filter_where_clause)
+            
+            # Oracle identifiers might be uppercase. Safest is double quotes if it was unquoted, or just uppercase.
+            select_clause_ora = "*"
+            if res_fields_list_valid:
+                select_clause_ora = ", ".join([f'"{f}"' for f in res_fields_list_valid])
+            
+            # Replace backticks in where clauses
+            scope_where_clause_ora = scope_where_clause_ora.replace('`', '"')
+            filter_where_clause_ora = filter_where_clause_ora.replace('`', '"')
+
+            final_sql = f'SELECT {select_clause_ora} FROM "{db_name}"."{source_name}" WHERE {scope_where_clause_ora} {filter_where_clause_ora} FETCH FIRST 1000 ROWS ONLY'
+            
+            # Oracle connection
+            oracle_conn = get_oracle_connection(db_name)
+            oracle_cursor = oracle_conn.cursor()
+            oracle_cursor.execute(final_sql, all_params)
+            rows_data = oracle_cursor.fetchall()
+            columns = [col[0] for col in oracle_cursor.description]
+            
+            results = [dict(zip(columns, row)) for row in rows_data]
+            
+            # Must read LOBs before closing oracle connection
+            for row in results:
+                for k, v in row.items():
+                    if hasattr(v, 'read'):
+                        try:
+                            row[k] = str(v.read())
+                        except:
+                            row[k] = str(v)
+                            
+            oracle_cursor.close()
+            oracle_conn.close()
+            
+        else:
+            final_sql = f"SELECT {select_clause} FROM `{db_name}`.`{source_name}` WHERE {scope_where_clause} {filter_where_clause} LIMIT 1000"
+            
+            # 6. Execute and Return
+            cursor.execute(final_sql, all_params)
+            rows_data = cursor.fetchall()
+            columns = [col[0] for col in cursor.description]
+            
+            results = toJson(rows_data, columns)
         
         # Clean up results (handle dates etc)
         for row in results:
             for k, v in row.items():
                 if hasattr(v, 'isoformat'): # Handle datetime objects
                     row[k] = v.isoformat()
+                elif hasattr(v, 'read'): # Handle LOB objects (Oracle CLOB/BLOB)
+                    try:
+                        row[k] = str(v.read())
+                    except:
+                        row[k] = str(v)
 
         log_api_usage(user_id, 'API Invoked Successfully', 200)
 
         cursor.close()
         conn.close()
 
-        response = jsonify({
+        json_str = json.dumps({
             'status': 'success',
             'dataset_id': dataset_id,
             'dataset_name': service_name,
             'total_rows': len(results),
             'rows': results
-        })
+        }, ensure_ascii=False)
+        
+        response = Response(json_str, content_type='application/json; charset=utf-8')
         
         if deprecated_transport:
             response.headers['X-Deprecation-Warning'] = 'Query string API keys are deprecated. Use x-api-key header.'
@@ -1018,12 +1295,101 @@ def get_dataset_api(dataset_id):
             
         return jsonify({'status': 'error', 'message': 'An internal error occurred processing your request', 'request_id': request_id}), 500
 
+
+# ============================================================
+# Oracle ADW Connection Helper
+# ============================================================
+def get_oracle_connection(schema):
+    import oracledb
+    password = 'GoU8iFg24y90r243whrefWLq!'
+    config_dir = '/app/Wallet_L2EPRDDWH'
+    dsn = 'l2eprddwh_high'
+    return oracledb.connect(user=schema, password=password, config_dir=config_dir, wallet_location=config_dir, wallet_password=password, dsn=dsn)
+
+# ============================================================
 # ============================================================
 # API Configuration & Management Endpoints
+@app.route('/cloneServiceForApi', methods=['POST'])
+@require_admin
+def cloneServiceForApi():
+    try:
+        dataInput = request.json
+        original_service_id = dataInput.get('original_service_id')
+        api_endpoint = dataInput.get('api_endpoint')
+        new_service_id = f"{original_service_id}_{api_endpoint}"
+        
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        # Check if original exists
+        cursor.execute("SELECT * FROM service WHERE service_id = %s", (original_service_id,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'status': 'error', 'message': 'Original service not found'})
+            
+        columns = [col[0] for col in cursor.description]
+        orig_data = dict(zip(columns, row))
+        
+        # Prepare cloned data
+        orig_data.pop('service_id', None)  # Let it auto-increment
+        orig_data['dataset_id'] = f"API_CLONE_{orig_data.get('dataset_id', original_service_id)}_{api_endpoint}" 
+        orig_data['service_name'] = dataInput.get('api_name', orig_data['service_name'])
+        orig_data['description'] = dataInput.get('api_description', orig_data['description'])
+        orig_data['api_enabled'] = 1 if dataInput.get('api_enabled') in ['true', '1', True, 'Active = Enable'] else 0
+        orig_data['api_type'] = dataInput.get('api_type', 'general')
+        orig_data['api_endpoint'] = api_endpoint
+        orig_data['api_db_name'] = dataInput.get('api_db_name')
+        orig_data['api_source_name'] = dataInput.get('api_source_name')
+        
+        import json
+        req_fields = dataInput.get('api_request_fields', [])
+        res_fields = dataInput.get('api_response_fields', [])
+        orig_data['api_request_fields'] = json.dumps(req_fields) if isinstance(req_fields, list) else req_fields
+        orig_data['api_response_fields'] = json.dumps(res_fields) if isinstance(res_fields, list) else res_fields
+        
+        # Build INSERT
+        cols = []
+        vals = []
+        placeholders = []
+        for k, v in orig_data.items():
+            if k == 'service_image': continue # Skip image to avoid large blob duplication issues or handle properly
+            cols.append(f"`{k}`")
+            vals.append(v)
+            placeholders.append("%s")
+            
+        insert_sql = f"INSERT INTO service ({', '.join(cols)}) VALUES ({', '.join(placeholders)})"
+        
+        try:
+            cursor.execute(insert_sql, tuple(vals))
+            conn.commit()
+        except Exception as e:
+            if 'Duplicate entry' in str(e):
+                # If updating existing clone
+                update_cols = []
+                update_vals = []
+                for k, v in orig_data.items():
+                    if k in ['service_id', 'dataset_id', 'service_image']: continue
+                    update_cols.append(f"`{k}` = %s")
+                    update_vals.append(v)
+                update_vals.append(orig_data['dataset_id'])
+                update_sql = f"UPDATE service SET {', '.join(update_cols)} WHERE dataset_id = %s"
+                cursor.execute(update_sql, tuple(update_vals))
+                conn.commit()
+            else:
+                raise e
+                
+        cursor.close()
+        conn.close()
+        return jsonify({'status': 'success', 'dataset_id': orig_data['dataset_id']})
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Clone API Error: {traceback.format_exc()}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 # ============================================================
 
 # Hardcoded whitelist of databases the admin is allowed to expose via API
-ALLOWED_DATABASES = ['psu_backend', 'datalake', 'default', 'datax_db_3003']
+ALLOWED_DATABASES = ['DWH_DATAEXCHAGE', 'STG_DATAEXCHAGE']
 
 @app.route('/getAvailableDatabases', methods=['POST'])
 @require_admin
@@ -1054,26 +1420,98 @@ def getAvailableTables():
         if db_name not in ALLOWED_DATABASES:
             return jsonify({"status": "Error: Database not in whitelist"})
 
-        conn = mysql.connect()
-        cursor = conn.cursor()
-        sql = """SELECT TABLE_NAME, TABLE_TYPE 
-                 FROM INFORMATION_SCHEMA.TABLES 
-                 WHERE TABLE_SCHEMA = %s 
-                 ORDER BY TABLE_NAME"""
-        cursor.execute(sql, (db_name,))
-        data = cursor.fetchall()
-        cursor.close()
-        conn.close()
-
-        result = []
-        for row in data:
-            source_type = 'view' if row[1] == 'VIEW' else 'table'
-            result.append({'name': row[0], 'type': source_type})
+        if db_name in ['STG_DATAEXCHAGE', 'DWH_DATAEXCHAGE']:
+            conn = get_oracle_connection(db_name)
+            cursor = conn.cursor()
+            # In Oracle ADW, we check user_tables and user_views for the logged-in schema
+            sql = """SELECT table_name, 'table' as table_type FROM user_tables 
+                     UNION 
+                     SELECT view_name, 'view' as table_type FROM user_views 
+                     ORDER BY table_name"""
+            cursor.execute(sql)
+            data = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            
+            result = []
+            for row in data:
+                result.append({'name': row[0], 'type': row[1].lower()})
+        else:
+            conn = mysql.connect()
+            cursor = conn.cursor()
+            sql = """SELECT TABLE_NAME, TABLE_TYPE 
+                     FROM INFORMATION_SCHEMA.TABLES 
+                     WHERE TABLE_SCHEMA = %s 
+                     ORDER BY TABLE_NAME"""
+            cursor.execute(sql, (db_name,))
+            data = cursor.fetchall()
+            cursor.close()
+            conn.close()
+    
+            result = []
+            for row in data:
+                source_type = 'view' if row[1] == 'VIEW' else 'table'
+                result.append({'name': row[0], 'type': source_type})
         return jsonify({'status': 'success', 'data': result})
     except Exception as e:
         import traceback
         current_app.logger.error(f"API Management Error: {traceback.format_exc()}")
         return jsonify({"status": "error", "message": "An internal error occurred"}), 500
+
+
+@app.route('/previewTableData', methods=['POST'])
+@require_admin
+def previewTableData():
+    try:
+        dataInput = request.json
+        db_name = dataInput.get('db_name', '')
+        table_name = dataInput.get('table_name', '')
+        
+        if not db_name or not table_name:
+            return jsonify({"status": "error", "message": "Missing db or table name"})
+            
+        def clean_row(row):
+            clean = []
+            for item in row:
+                if hasattr(item, 'read'):
+                    try:
+                        clean.append(str(item.read()))
+                    except:
+                        clean.append(str(item))
+                elif hasattr(item, 'isoformat'):
+                    clean.append(item.isoformat())
+                else:
+                    clean.append(item)
+            return clean
+
+        if db_name == 'datax_db_3003':
+            conn = mysql.connect()
+            cursor = conn.cursor()
+            sql = f"SELECT * FROM {table_name} LIMIT 5"
+            cursor.execute(sql)
+            data = cursor.fetchall()
+            columns = [col[0] for col in cursor.description]
+            result = [dict(zip(columns, clean_row(row))) for row in data]
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": result})
+        elif db_name in ALLOWED_DATABASES:
+            conn = get_oracle_connection(db_name)
+            cursor = conn.cursor()
+            sql = f'SELECT * FROM "{db_name}"."{table_name}" FETCH FIRST 5 ROWS ONLY'
+            cursor.execute(sql)
+            data = cursor.fetchall()
+            columns = [col[0] for col in cursor.description]
+            result = [dict(zip(columns, clean_row(row))) for row in data]
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "success", "data": result})
+        else:
+            return jsonify({"status": "error", "message": "Unsupported database"})
+            
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
 
 @app.route('/getTableColumns', methods=['POST'])
 @require_admin
@@ -1090,18 +1528,32 @@ def getTableColumns():
         if db_name not in ALLOWED_DATABASES:
             return jsonify({"status": "Error: Database not in whitelist"})
 
-        conn = mysql.connect()
-        cursor = conn.cursor()
-        sql = """SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE
-                 FROM INFORMATION_SCHEMA.COLUMNS
-                 WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
-                 ORDER BY ORDINAL_POSITION"""
-        cursor.execute(sql, (db_name, table_name))
-        data = cursor.fetchall()
-        cursor.close()
-        conn.close()
-
-        result = [{'name': row[0], 'type': row[1], 'nullable': row[2]} for row in data]
+        if db_name in ['STG_DATAEXCHAGE', 'DWH_DATAEXCHAGE']:
+            conn = get_oracle_connection(db_name)
+            cursor = conn.cursor()
+            sql = """SELECT column_name, data_type, nullable
+                     FROM user_tab_columns
+                     WHERE table_name = :1
+                     ORDER BY column_id"""
+            cursor.execute(sql, [table_name])
+            data = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            
+            result = [{'name': row[0], 'type': row[1], 'nullable': 'YES' if row[2] == 'Y' else 'NO'} for row in data]
+        else:
+            conn = mysql.connect()
+            cursor = conn.cursor()
+            sql = """SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE
+                     FROM INFORMATION_SCHEMA.COLUMNS
+                     WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+                     ORDER BY ORDINAL_POSITION"""
+            cursor.execute(sql, (db_name, table_name))
+            data = cursor.fetchall()
+            cursor.close()
+            conn.close()
+    
+            result = [{'name': row[0], 'type': row[1], 'nullable': row[2]} for row in data]
         return jsonify({'status': 'success', 'data': result})
     except Exception as e:
         import traceback
@@ -1182,7 +1634,7 @@ def getApiCredentials():
                  FROM api_credentials c
                  LEFT JOIN user u ON c.user_id = u.user_id
                  LEFT JOIN api_scopes s ON s.credential_id = c.credential_id
-                 WHERE c.service_id = %s
+                 WHERE c.service_id = %s AND s.scope_id IS NULL
                  ORDER BY c.created_at DESC"""
         cursor.execute(sql, (service_id,))
         data = cursor.fetchall()
@@ -1244,6 +1696,11 @@ def addApiCredential():
 
         # Insert credential with hash and last four
         if expires_at:
+            import dateutil.parser
+            try:
+                expires_at = dateutil.parser.parse(expires_at).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                pass
             sql_insert = "INSERT INTO api_credentials (service_id, user_id, public_key_id, secret_hash, key_last_four, status, expires_at) VALUES (%s, %s, %s, %s, %s, 'active', %s)"
             cursor.execute(sql_insert, (service_id, target_user_id, public_key_id, secret_hash, key_last_four, expires_at))
         else:
@@ -1285,6 +1742,11 @@ def extendApiCredential():
         
         # Validate credential exists and is active? We allow extending revoked keys as well.
         if expires_at:
+            import dateutil.parser
+            try:
+                expires_at = dateutil.parser.parse(expires_at).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                pass
             cursor.execute("UPDATE api_credentials SET expires_at = %s WHERE credential_id = %s", (expires_at, credential_id))
         else:
             cursor.execute("UPDATE api_credentials SET expires_at = NULL WHERE credential_id = %s", (credential_id,))
@@ -2017,7 +2479,7 @@ def getAllApiScopes():
         sql = """SELECT c.credential_id, c.service_id, c.user_id, c.status, c.public_key_id, c.key_last_four, c.expires_at,
                         u.username, u.firstname, u.lastname,
                         s.scope_json, s.scope_id,
-                        srv.service_name, srv.dataset_id, srv.db_name, srv.source_name
+                        srv.service_name, srv.dataset_id, srv.api_db_name, srv.api_source_name
                  FROM api_credentials c
                  JOIN user u ON c.user_id = u.user_id
                  JOIN api_scopes s ON s.credential_id = c.credential_id
@@ -2238,3 +2700,30 @@ def markReadAll():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+
+
+@app.route('/toggleApiEnabled', methods=['POST'])
+@require_admin
+def toggleApiEnabled():
+    try:
+        dataInput = request.json
+        service_id = dataInput.get('service_id')
+        api_enabled = dataInput.get('api_enabled')
+        
+        if not service_id or api_enabled is None:
+            return jsonify({'status': 'error', 'message': 'Missing service_id or api_enabled'}), 400
+            
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        sql = "UPDATE service SET api_enabled = %s WHERE service_id = %s"
+        cursor.execute(sql, (api_enabled, service_id))
+        conn.commit()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        print("Error in toggleApiEnabled: " + str(e))
+        return jsonify({'status': 'error', 'message': str(e)}), 500

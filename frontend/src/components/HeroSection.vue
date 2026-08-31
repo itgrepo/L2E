@@ -33,7 +33,7 @@ onMounted(async () => {
     <div class="container hero-grid">
       <div class="hero-content">
         <div class="badge-wrapper">
-          <span class="badge">{{ config?.badge || 'MSDHS DATA PORTAL' }}</span>
+          <span class="badge">{{ config?.badge || 'BDE DATA PORTAL' }}</span>
         </div>
         <h1 class="hero-title" v-html="config?.title || 'ศูนย์กลางบัญชีข้อมูล<br/>สวัสดิการสังคมและสิทธิมนุษยชน'"></h1>
         <p class="hero-desc" v-html="config?.desc || 'แพลตฟอร์มบริหารจัดการและแลกเปลี่ยนข้อมูล พม.<br/>อย่างปลอดภัย มีมาตรฐาน พร้อมระบบวิเคราะห์ข้อมูลเชิงลึก'"></p>

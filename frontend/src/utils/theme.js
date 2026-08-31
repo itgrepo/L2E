@@ -1,5 +1,5 @@
 import { ref, watch } from 'vue';
-import apiClient from './api';
+import apiClient, { encodeUserData } from './api';
 
 const STORAGE_KEY = 'site_theme_config';
 
@@ -87,7 +87,12 @@ export const saveThemeConfig = async () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(themeConfig.value));
 
     // 2. Save to server for persistence across sessions/users
-    await apiClient.post('/site-config', themeConfig.value);
+    const userStr = localStorage.getItem('user');
+    let userPayload = '';
+    if (userStr) {
+      userPayload = encodeUserData(JSON.parse(userStr));
+    }
+    await apiClient.post('/site-config', { user: userPayload, data: themeConfig.value });
 
     return true;
   } catch (e) {

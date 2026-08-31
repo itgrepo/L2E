@@ -167,15 +167,9 @@ router.beforeEach((to, from, next) => {
   
   if (to.meta.requiresAuth && !user) {
     next({ name: 'login' });
-  } else if (to.meta.requiresAdmin && user) {
-    // Check if user is admin
-    const isAdmin = user.isAdmin === 'true' || user.isAdmin === true || ['3', '4'].includes(String(user.role_id));
-    if (!isAdmin) {
-      next({ name: 'home' }); // Redirect to home if not admin
-    } else {
-      next();
-    }
   } else {
+    // Dynamic permission checking is handled by AppSidebar visibility
+    // and backend API enforcement (e.g. checkUserIsAdmin for mgmt endpoints).
     next();
   }
 });

@@ -28,7 +28,7 @@ LINK = os.environ.get('FRONTEND_URL', 'http://10.20.11.91')  #PRODUCTION
 MAIL_USE_SSL = os.environ.get('MAIL_USE_SSL', 'true').lower() == 'true'
 username_mail = os.environ.get('MAIL_USERNAME', 'learn2earn@bde.go.th')
 password_mail = os.environ.get('MAIL_PASSWORD', 'L2E@Start2026!')
-MAIL_FROM = os.environ.get('MAIL_FROM', 'DEX Data Exchange <learn2earn@bde.go.th>')
+MAIL_FROM = os.environ.get('MAIL_FROM', 'DEX Data Exchange <learn2earn@bde.go.th>').strip('"')
 MAIL_PORT = int(os.environ.get('MAIL_PORT', '465'))
 ###############################
 #socks.setdefaultproxy(TYPE, ADDR, PORT)
@@ -230,6 +230,16 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
             if len(result1) == 0:
                 return jsonify({"status": 'password is incorrect'})
             user_id = result1[0]['user_id']
+            
+            # Generate secure token
+            from ServiceConfig import auth_serializer
+            token_payload = {
+                "user_id": result[0]["user_id"],
+                "username": result[0]["username"],
+                "email": result[0].get("email", "")
+            }
+            result[0]['token'] = auth_serializer.dumps(token_payload)
+            
             # print(user_id)
             conn.commit()
             cursor.close()
@@ -1198,3 +1208,49 @@ def confrimPassword():
         return jsonify({"status": 'password is wrong'})
     else:
         return jsonify({"status": 'password is correct'})
+
+@app.route('/submitContact', methods=['POST'])
+def submitContact():
+    try:
+        dataInput = request.json
+        name = dataInput.get('name', 'Unknown')
+        email = dataInput.get('email', 'No Email')
+        subject = dataInput.get('subject', 'No Subject')
+        message = dataInput.get('message', 'No Message')
+        
+        try:
+            fromaddr = "Department Operation Center Team <" + username_mail + ">"
+            toaddr = "learn2earn@bde.go.th"
+            msg = MIMEMultipart()
+            msg['From'] = fromaddr
+            msg['To'] = toaddr
+            msg['Subject'] = f"Contact Us: {subject}"
+            
+            body = f"""
+            <h3>New Message from Contact Us Form</h3>
+            <ul>
+                <li><b>Name:</b> {name}</li>
+                <li><b>Email:</b> {email}</li>
+                <li><b>Subject:</b> {subject}</li>
+            </ul>
+            <p><b>Message:</b><br/>{message.replace(chr(10), '<br/>')}</p>
+            """
+            msg.attach(MIMEText(body, 'html', "utf-8"))
+            
+            if MAIL_USE_SSL:
+                server = smtplib.SMTP_SSL(SERVER, int(os.environ.get('MAIL_PORT', 465)), timeout=5)
+            else:
+                server = smtplib.SMTP(SERVER, int(os.environ.get('MAIL_PORT', 587)), timeout=5)
+                # server.starttls() # Sometimes required
+                
+            server.login(username_mail, password_mail)
+            text = msg.as_string()
+            server.sendmail(fromaddr, toaddr, text)
+            server.quit()
+        except Exception as email_err:
+            current_app.logger.error(f"Could not send contact email: {email_err}")
+            # we'll still return success to the user so they don't get stuck if SMTP is down
+            
+        return jsonify({'status': 'success', 'message': 'Message received'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500

@@ -11,23 +11,6 @@ from ServiceConfig.notification_util import notify_user
 import base64
 import time
 
-def platform_decode(data):
-    if not data:
-        return data
-    if isinstance(data, str) and data.strip().startswith('{'):
-        return data
-    try:
-        padded_data = data
-        missing_padding = len(padded_data) % 4
-        if missing_padding:
-            padded_data += '=' * (4 - missing_padding)
-        return base64.b64decode(padded_data).decode('utf-8')
-    except:
-        try:
-            return decode(data).decode('utf-8')
-        except:
-            return data
-
 # from email.MIMEMultipart import MIMEMultipart
 # from email.MIMEText import MIMEText
 
@@ -41,7 +24,7 @@ MAIL_PORT = int(os.environ.get('MAIL_PORT', 465))
 username_mail = os.environ.get('MAIL_USERNAME', 'learn2earn@bde.go.th')
 password_mail = os.environ.get('MAIL_PASSWORD', 'L2E@Start2026!')
 MAIL_USE_SSL = os.environ.get('MAIL_USE_SSL', 'true').lower() == 'true'
-MAIL_FROM = os.environ.get('MAIL_FROM', "DEX Data Exchange <learn2earn@bde.go.th>")
+MAIL_FROM = os.environ.get('MAIL_FROM', "DEX Data Exchange <learn2earn@bde.go.th>").strip('"')
 
 LINK = os.environ.get('FRONTEND_URL', 'http://134.185.172.127:3003')
 LINK_V = '10.20.11.91/api' # Internal API link
@@ -69,7 +52,7 @@ def sendMailConfirmRegister(id, token, email, link, firstname, lastname):
     link = str(link) + "/verify/" + str(token)
     footer = "<br><br><br>Department Operation Center" + "<br>Call Center: +66 " + "<br>Email: adminbd@customs.go.th"
     body = "<p style='font-size: 14px;width: 550px;'>Hi&nbsp;&nbsp;" + firstname + "&nbsp;" + lastname + "<br>Thank you for signing up with Department Operation Center.<br> Please click the \"Verify Email\" button below to verify your email address.</p> <a href='" + str(
-        link) + "' style='margin: 0 auto;display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #19b5fe;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Verify Email</a>" + footer
+        link) + "' style='margin: 0 auto;display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #10b981;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Verify Email</a>" + footer
 
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
@@ -829,7 +812,7 @@ def sendMailEditEmail(dataInput, dataInputLink, firstname, lastname):
     msg['Subject'] = "Edit your email for Department Operation Center"
     footer = "<br><br><br>Department Operation Center Team" + "<br>Call Center: +66" + "<br>Email: adminbd@customs.go.th"
     body = "<p style='font-size: 14px'>Hi&nbsp;&nbsp;" + firstname + "&nbsp;" + lastname + "<br>Your member profile was changed on the Department Operation Center account.<br>If this was your action, then you can safely ignore this email.<br>If this was not yours, a malicious user may have your password.Please review your profile at <br>and change your password.If you need any help, please contact Contact Center at /contactcenter Tel: +66.</p><a href='" + str(
-        link) + "' style='margin: 0 auto;display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #19b5fe;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Verify Email</a>" + footer
+        link) + "' style='margin: 0 auto;display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #10b981;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Verify Email</a>" + footer
 
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:

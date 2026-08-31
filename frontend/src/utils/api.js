@@ -15,18 +15,10 @@ const apiClient = axios.create({
  * but based on typical patterns in this codebase, Base64 is the primary candidate.
  */
 export const encodeUserData = (userData) => {
-  try {
-    const jsonStr = JSON.stringify(userData);
-    const b64 = btoa(unescape(encodeURIComponent(jsonStr)));
-    // Python expects: base64.b64decode(data[:-5][::-1])
-    // So we must: 1) get base64 2) reverse it 3) append 5 random chars
-    const reversed = b64.split('').reverse().join('');
-    const randomChars = Math.random().toString(36).substring(2, 7).padEnd(5, 'x'); // Ensure exactly 5
-    return reversed + randomChars;
-  } catch (e) {
-    console.error('Encoding error:', e);
-    return '';
+  if (userData && userData.token) {
+    return userData.token;
   }
+  return '';
 };
 
 /**

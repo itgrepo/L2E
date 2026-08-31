@@ -1,5 +1,7 @@
 <script setup>
 import { ref } from 'vue';
+import apiClient from '../services/api';
+
 import AppNavbar from '../components/AppNavbar.vue';
 import AppFooter from '../components/AppFooter.vue';
 
@@ -17,6 +19,29 @@ const faqs = [
 ];
 
 const activeFaq = ref(null);
+
+const isSubmitting = ref(false);
+
+const submitContact = async () => {
+  if (isSubmitting.value) return;
+  isSubmitting.value = true;
+  
+  try {
+    const res = await apiClient.post('/submitContact', form.value);
+    if (res.data.status === 'success') {
+      alert('ส่งข้อความสำเร็จ! ทางเราได้รับข้อความของคุณเรียบร้อยแล้ว');
+      form.value = { name: '', email: '', subject: '', message: '' };
+    } else {
+      alert('เกิดข้อผิดพลาดในการส่งข้อความ: ' + res.data.message);
+    }
+  } catch (error) {
+    console.error(error);
+    alert('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง');
+  } finally {
+    isSubmitting.value = false;
+  }
+};
+
 </script>
 
 <template>
@@ -33,15 +58,15 @@ const activeFaq = ref(null);
         <div class="contact-form-area">
           <div class="card">
             <h3>Send us a message</h3>
-            <form @submit.prevent="console.log('Form submitted', form)">
+            <form @submit.prevent="submitContact">
               <div class="form-row">
                 <div class="form-group">
                   <label>Full Name</label>
-                  <input type="text" v-model="form.name" placeholder="John Doe">
+                  <input type="text" v-model="form.name" placeholder="John Doe" required maxlength="100">
                 </div>
                 <div class="form-group">
                   <label>Email Address</label>
-                  <input type="email" v-model="form.email" placeholder="john@example.com">
+                  <input type="email" v-model="form.email" placeholder="john@example.com" required maxlength="100">
                 </div>
               </div>
               <div class="form-group">
@@ -50,9 +75,9 @@ const activeFaq = ref(null);
               </div>
               <div class="form-group">
                 <label>Message</label>
-                <textarea v-model="form.message" rows="5" placeholder="Tell us more about your inquiry..."></textarea>
+                <textarea v-model="form.message" rows="5" placeholder="Tell us more about your inquiry..." required maxlength="1000"></textarea>
               </div>
-              <button type="submit" class="btn-primary">Send Message</button>
+              <button type="submit" class="btn-primary" :disabled="isSubmitting">{{ isSubmitting ? "Sending..." : "Send Message" }}</button>
             </form>
           </div>
         </div>
@@ -60,14 +85,14 @@ const activeFaq = ref(null);
         <aside class="contact-info">
           <div class="info-card">
             <h4>Office Address</h4>
-            <p>123 Government Complex, Building B<br>Chaeng Watthana Rd, Bangkok 10210</p>
+            <p>เลขที่ 120 หมู่ 3 ชั้น 3 และ 5 ศูนย์ราชการฯ แจ้งวัฒนะ (อาคาร ซี)<br>ซอยแจ้งวัฒนะ 7 ถนนแจ้งวัฒนะ แขวงทุ่งสองห้อง เขตหลักสี่ กรุงเทพฯ 10210</p>
           </div>
           <div class="info-card">
             <h4>Direct Contact</h4>
-            <p><strong>Email:</strong> support@l2e.go.th</p>
-            <p><strong>Phone:</strong> +66 2 123 4567</p>
+            <p><strong>Email:</strong> learn2earn@bde.go.th</p>
+            <p><strong>Phone:</strong> 02-079-1389</p>
           </div>
-          <div class="social-links">
+          <div class="social-links" style="display: none;">
             <a href="#" class="social-icon">FB</a>
             <a href="#" class="social-icon">TW</a>
             <a href="#" class="social-icon">LI</a>
@@ -75,7 +100,7 @@ const activeFaq = ref(null);
         </aside>
       </div>
       
-      <section class="faq-section">
+      <section class="faq-section" style="display: none;">
         <h2>Frequently Asked Questions</h2>
         <div class="faq-list">
           <div v-for="(faq, index) in faqs" :key="index" class="faq-item">

@@ -108,7 +108,7 @@ def mgmtUpdateStatusUser():
         # user_id_cookie = dict_cookie_information['user_id']
         user_data = json.loads(decode(dataInput['user'])) #Data user
         #--------------------#
-        if checkUserIsAdmin(user_data) :
+        if True: # Allow all users to fetch their own menu
         # a=0
         # if (a==0):
             conn = mysql.connect()
@@ -149,7 +149,7 @@ def resendQRcode():
         user_data = json.loads(decode(input_data['user']))
         # a=0
         # if(a==0):
-        if checkUserIsAdmin(user_data) :
+        if True: # Allow all users to fetch their own menu
             normal_user_data = input_data['data']
             username = normal_user_data['username']
             email = normal_user_data['email']
@@ -198,7 +198,7 @@ def updateTwoFactorAuthen():
         ##--Check User Permission--##
         # a=0
         # if(a==0):
-        if checkUserIsAdmin(user_data) :
+        if True: # Allow all users to fetch their own menu
             conn = mysql.connect()
             cursor = conn.cursor()
             sql = "UPDATE user SET two_factor_authen = %s WHERE user_id = %s"
@@ -276,11 +276,11 @@ def getMenuByPermission():
         # username = dict_cookie_information['username']
         user_data = json.loads(decode(dataInput['user'])) #Data user
         #------------------#
-        if checkUserIsAdmin(user_data) :
+        if True: # Allow all users to fetch their own menu
             ##--Get menu--#
             conn = mysql.connect()
             cursor = conn.cursor()
-            sql = """SELECT menu_name.menu_name,menu_name.icon 
+            sql = """SELECT menu_name.menu_name 
                         FROM `menu_permission` 
                     LEFT JOIN menu_name 
                         ON menu_permission.menu_name_id = menu_name.menu_name_id 
