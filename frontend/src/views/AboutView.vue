@@ -7,16 +7,16 @@ import AppFooter from '../components/AppFooter.vue';
   <div class="about-page">
     <section class="about-hero">
       <div class="container">
-        <h1>About DataX Portal</h1>
-        <p class="subtitle">The central hub for BDE data exchange and API management.</p>
+        <h1>เกี่ยวกับ DataX Portal</h1>
+        <p class="subtitle">ศูนย์กลางสำหรับการแลกเปลี่ยนข้อมูลและการจัดการ API</p>
       </div>
     </section>
     
     <section class="mission-section">
       <div class="container grid">
         <div class="mission-content">
-          <h2>Our Mission</h2>
-          <p>DataX Portal (BDE Data Exchange & API Management Platform) is designed to streamline the way government agencies share, discover, and utilize data. Our mission is to create a seamless, secure, and standardized ecosystem that empowers developers and policy-makers with high-quality data.</p>
+          <h2>พันธกิจของเรา</h2>
+          <p>DataX Portal (แพลตฟอร์มการแลกเปลี่ยนข้อมูลและการจัดการ API) ถูกออกแบบมาเพื่อเพิ่มประสิทธิภาพในการแบ่งปัน ค้นพบ และใช้ประโยชน์จากข้อมูลของหน่วยงานภาครัฐ พันธกิจของเราคือการสร้างระบบนิเวศที่ไร้รอยต่อ ปลอดภัย และมีมาตรฐาน เพื่อเสริมสร้างขีดความสามารถให้นักพัฒนาและผู้กำหนดนโยบายด้วยข้อมูลที่มีคุณภาพสูง</p>
 
         </div>
         <div class="mission-image">
@@ -31,27 +31,27 @@ import AppFooter from '../components/AppFooter.vue';
     
     <section class="features-grid-section">
       <div class="container">
-        <h2 class="text-center">How it works</h2>
+        <h2 class="text-center">กระบวนการทำงาน</h2>
         <div class="features-grid">
           <div class="feature-item">
             <div class="icon-box">🔍</div>
-            <h3>Discover</h3>
-            <p>Easily find the data you need through our powerful search and smart categorization system.</p>
+            <h3>ค้นพบ</h3>
+            <p>ค้นหาข้อมูลที่คุณต้องการได้อย่างง่ายดายผ่านระบบค้นหาและจัดหมวดหมู่อัจฉริยะของเรา</p>
           </div>
           <div class="feature-item">
             <div class="icon-box">🔌</div>
-            <h3>Connect</h3>
-            <p>Get instant access via standardized APIs with complete documentation and code samples.</p>
+            <h3>เชื่อมต่อ</h3>
+            <p>เข้าถึงข้อมูลได้ทันทีผ่าน API ที่ได้มาตรฐาน พร้อมเอกสารประกอบและตัวอย่างโค้ดที่สมบูรณ์</p>
           </div>
           <div class="feature-item">
             <div class="icon-box">🛡️</div>
-            <h3>Secure</h3>
-            <p>Industry-standard authentication and auditing ensure that data is only accessed by authorized parties.</p>
+            <h3>ปลอดภัย</h3>
+            <p>ระบบการยืนยันตัวตนและการตรวจสอบตามมาตรฐานอุตสาหกรรม เพื่อให้มั่นใจว่าข้อมูลเข้าถึงได้เฉพาะผู้ที่ได้รับอนุญาตเท่านั้น</p>
           </div>
           <div class="feature-item">
             <div class="icon-box">📊</div>
-            <h3>Analyze</h3>
-            <p>Monitor your data usage and gain insights through comprehensive analytics dashboards.</p>
+            <h3>วิเคราะห์</h3>
+            <p>ติดตามการใช้งานข้อมูลของคุณและรับข้อมูลเชิงลึกผ่านหน้าจอแดชบอร์ดการวิเคราะห์ที่ครอบคลุม</p>
           </div>
         </div>
       </div>

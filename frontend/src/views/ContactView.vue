@@ -13,9 +13,9 @@ const form = ref({
 });
 
 const faqs = [
-  { q: 'How do I request access to restricted data?', a: 'You can apply for access by clicking the "Request Access" button on the dataset detail page. You will need to provide a justification for your research or project.' },
-  { q: 'What are the API rate limits?', a: 'Standard API keys have a limit of 1,000 requests per hour. For higher limits, please contact our support team.' },
-  { q: 'How can I contribute my own datasets?', a: 'Agencies can register as data providers through the "Provider Portal". Once registered, you can upload and manage your datasets.' }
+  { q: 'ฉันจะขอเข้าถึงข้อมูลที่ถูกจำกัดได้อย่างไร?', a: 'คุณสามารถสมัครขอเข้าถึงข้อมูลได้โดยคลิกปุ่ม "ขอสิทธิ์เข้าถึง" ในหน้ารายละเอียดชุดข้อมูล โดยคุณต้องระบุเหตุผลในการวิจัยหรือโครงการของคุณ' },
+  { q: 'ข้อจำกัดในการเรียกใช้ API คืออะไร?', a: 'คีย์ API มาตรฐานมีข้อจำกัดในการเรียกใช้งาน 1,000 ครั้งต่อชั่วโมง หากต้องการขยายขีดจำกัด โปรดติดต่อทีมสนับสนุนของเรา' },
+  { q: 'ฉันจะนำชุดข้อมูลของตัวเองมาเผยแพร่ได้อย่างไร?', a: 'หน่วยงานสามารถลงทะเบียนเป็นผู้ให้บริการข้อมูลผ่าน "พอร์ทัลผู้ให้บริการ" เมื่อลงทะเบียนแล้ว คุณสามารถอัปโหลดและจัดการชุดข้อมูลของคุณได้' }
 ];
 
 const activeFaq = ref(null);
@@ -48,8 +48,8 @@ const submitContact = async () => {
   <div class="contact-page">
     <section class="contact-hero">
       <div class="container">
-        <h1>Contact Us</h1>
-        <p>Have questions or need assistance? Our team is here to help.</p>
+        <h1>ติดต่อเรา</h1>
+        <p>มีคำถามหรือต้องการความช่วยเหลือ? ทีมงานของเราพร้อมให้บริการ</p>
       </div>
     </section>
     
@@ -57,38 +57,38 @@ const submitContact = async () => {
       <div class="contact-grid">
         <div class="contact-form-area">
           <div class="card">
-            <h3>Send us a message</h3>
+            <h3>ส่งข้อความถึงเรา</h3>
             <form @submit.prevent="submitContact">
               <div class="form-row">
                 <div class="form-group">
-                  <label>Full Name</label>
-                  <input type="text" v-model="form.name" placeholder="John Doe" required maxlength="100">
+                  <label>ชื่อ-นามสกุล</label>
+                  <input type="text" v-model="form.name" placeholder="สมชาย ใจดี" required maxlength="100">
                 </div>
                 <div class="form-group">
-                  <label>Email Address</label>
-                  <input type="email" v-model="form.email" placeholder="john@example.com" required maxlength="100">
+                  <label>อีเมล</label>
+                  <input type="email" v-model="form.email" placeholder="somchai@example.com" required maxlength="100">
                 </div>
               </div>
               <div class="form-group">
-                <label>Subject</label>
-                <input type="text" v-model="form.subject" placeholder="How can we help?">
+                <label>หัวข้อ</label>
+                <input type="text" v-model="form.subject" placeholder="ให้เราช่วยเหลือเรื่องใด?">
               </div>
               <div class="form-group">
-                <label>Message</label>
-                <textarea v-model="form.message" rows="5" placeholder="Tell us more about your inquiry..." required maxlength="1000"></textarea>
+                <label>ข้อความ</label>
+                <textarea v-model="form.message" rows="5" placeholder="บอกรายละเอียดเพิ่มเติมเกี่ยวกับการสอบถามของคุณ..." required maxlength="1000"></textarea>
               </div>
-              <button type="submit" class="btn-primary" :disabled="isSubmitting">{{ isSubmitting ? "Sending..." : "Send Message" }}</button>
+              <button type="submit" class="btn-primary" :disabled="isSubmitting">{{ isSubmitting ? "กำลังส่ง..." : "Send ข้อความ" }}</button>
             </form>
           </div>
         </div>
         
         <aside class="contact-info">
           <div class="info-card">
-            <h4>Office Address</h4>
-            <p>เลขที่ 120 หมู่ 3 ชั้น 3 และ 5 ศูนย์ราชการฯ แจ้งวัฒนะ (อาคาร ซี)<br>ซอยแจ้งวัฒนะ 7 ถนนแจ้งวัฒนะ แขวงทุ่งสองห้อง เขตหลักสี่ กรุงเทพฯ 10210</p>
+            <h4>ที่อยู่สำนักงาน</h4>
+            <p>สำนักงานคณะกรรมการดิจิทัลเพื่อเศรษฐกิจและสังคมแห่งชาติ (สดช.)<br>เลขที่ 120 หมู่ 3 ชั้น 3 และ 5 ศูนย์ราชการฯ แจ้งวัฒนะ (อาคาร ซี)<br>ซอยแจ้งวัฒนะ 7 ถนนแจ้งวัฒนะ แขวงทุ่งสองห้อง เขตหลักสี่ กรุงเทพฯ 10210</p>
           </div>
           <div class="info-card">
-            <h4>Direct Contact</h4>
+            <h4>ข้อมูลติดต่อโดยตรง</h4>
             <p><strong>Email:</strong> learn2earn@bde.go.th</p>
             <p><strong>Phone:</strong> 02-079-1389</p>
           </div>
@@ -101,7 +101,7 @@ const submitContact = async () => {
       </div>
       
       <section class="faq-section" style="display: none;">
-        <h2>Frequently Asked Questions</h2>
+        <h2>คำถามที่พบบ่อย</h2>
         <div class="faq-list">
           <div v-for="(faq, index) in faqs" :key="index" class="faq-item">
             <button class="faq-quest" @click="activeFaq = activeFaq === index ? null : index">

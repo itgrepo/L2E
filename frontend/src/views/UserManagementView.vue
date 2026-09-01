@@ -34,7 +34,7 @@ const handleOrgChange = async (user, newOrgId) => {
             showAlert(`อัปเดตหน่วยงานสำเร็จ`, 'success');
             fetchUsers(); 
         } else {
-            showAlert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status), 'error');
+            alert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status));
         }
     } catch (error) {
         console.error('Error updating org:', error);
@@ -117,11 +117,11 @@ const handleSaveUser = async () => {
             closeAddModal();
             fetchUsers();
         } else {
-            showAlert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status), 'error');
+            alert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status));
         }
     } catch (error) {
         console.error('Error creating user:', error);
-        showAlert('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error');
+        alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
     } finally {
         isSubmitting.value = false;
     }
@@ -170,11 +170,11 @@ const handleRoleChange = async (user, newRoleId) => {
             showAlert(`อัปเดตบทบาทของ ${user.username} สำเร็จ`, 'success');
             fetchUsers(); // Refresh list to get new role names
         } else {
-            showAlert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status), 'error');
+            alert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status));
         }
     } catch (error) {
         console.error('Error updating role:', error);
-        showAlert('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error');
+        alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
     }
 };
 
@@ -193,11 +193,11 @@ const handleDeleteUser = async (user) => {
             showAlert(`ลบผู้ใช้ ${user.username} สำเร็จ`, 'success');
             fetchUsers(); // Refresh list
         } else {
-            showAlert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status), 'error');
+            alert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status));
         }
     } catch (error) {
         console.error('Error deleting user:', error);
-        showAlert('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error');
+        alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
     }
 };
 

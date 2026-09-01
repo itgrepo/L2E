@@ -225,7 +225,7 @@ const goToVerify = () => {
 
             <div class="form-group">
               <label for="reg-org">หน่วยงาน / องค์กร</label>
-              <input id="reg-org" v-model="organization" type="text" placeholder="ชื่อหน่วยงาน (ไม่บังคับ)" :disabled="isLoading">
+              <input id="reg-org" v-model="organization" type="text" placeholder="ชื่อหน่วยงาน / สังกัด *" required :disabled="isLoading">
             </div>
 
             <div class="terms-group">

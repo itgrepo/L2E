@@ -52,7 +52,7 @@ export const defaultLayout = [
   {
     id: 'statsBanner',
     type: 'StatsBanner',
-    visible: true,
+    visible: false,
     props: {
       stats: [
         { num: '500+', label: 'ชุดข้อมูลทั้งหมด' },

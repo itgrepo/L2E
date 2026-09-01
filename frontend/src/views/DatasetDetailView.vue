@@ -125,6 +125,7 @@ const fetchDatasetDetail = async () => {
   }
 };
 
+const handleRequestFileChange = (e) => { requestFile.value = e.target.files[0]; };
 const submitPermissionRequest = async () => {
   if (requestForm.value.fields.length === 0) {
     reqError.value = 'โปรดเลือกอย่างน้อย 1 ฟิลด์ข้อมูล';
@@ -236,7 +237,7 @@ watch(() => route.params.id, (newId) => {
           </div>
           
           <div class="header-actions">
-            <button class="btn-outline" :class="{ 'is-active': isFavorite(selectedDataset) }" @click="toggleFavorite(selectedDataset)">
+            <button class="btn-outline" :class="{ 'is-active': isFavorite(selectedDataset) }" @click="toggleFavorite(selectedDataset)" title="เพิ่ม/ลบ ชุดข้อมูลนี้ในรายการโปรดของคุณ">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" :fill="isFavorite(selectedDataset) ? 'currentColor' : 'none'" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.921-1.103 1.821-1.891 1.118l-3.976-2.888a1 1 0 00-1.175 0l-3.976 2.888c-.788.703-2.191-.197-1.891-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
               </svg>
@@ -249,8 +250,8 @@ watch(() => route.params.id, (newId) => {
           <nav class="tabs">
             <button :class="['tab-btn', { active: activeTab === 'info' }]" @click="activeTab = 'info'">คำอธิบายข้อมูล</button>
             <button :class="['tab-btn', { active: activeTab === 'dictionary' }]" @click="activeTab = 'dictionary'">พจนานุกรมข้อมูล</button>
-            <button :class="['tab-btn', { active: activeTab === 'visual' }]" @click="activeTab = 'visual'">แดชบอร์ด</button>
-            <button :class="['tab-btn', { active: activeTab === 'api' }]" @click="activeTab = 'api'">ข้อมูล API</button>
+            <button :class="['tab-btn', { active: activeTab === 'visual' }]" @click="activeTab = 'visual'" title="ดูแดชบอร์ดสรุปผลข้อมูล">แดชบอร์ด</button title="ดูแดชบอร์ดสรุปผลข้อมูล">
+            <button :class="['tab-btn', { active: activeTab === 'api' }]" @click="activeTab = 'api'" title="ดูเอกสารและการเชื่อมต่อ API">ข้อมูล API</button title="ดูเอกสารและการเชื่อมต่อ API">
           </nav>
           
           <div class="tab-content">
@@ -316,12 +317,12 @@ watch(() => route.params.id, (newId) => {
                     <p>ดาวน์โหลดไฟล์ข้อมูลต้นฉบับในรูปแบบต่างๆ</p>
                     
                     <div class="download-buttons">
-                      <button class="btn-download csv" @click="openPreview('CSV')">CSV</button>
-                      <button class="btn-download xls" @click="openPreview('Excel')">Excel</button>
+                      <button class="btn-download csv" @click="openPreview('CSV')" title="ดาวน์โหลดไฟล์ในรูปแบบ CSV">CSV</button title="ดาวน์โหลดไฟล์ในรูปแบบ CSV">
+                      <button class="btn-download xls" @click="openPreview('Excel')" title="ดาวน์โหลดไฟล์ในรูปแบบ Excel">Excel</button title="ดาวน์โหลดไฟล์ในรูปแบบ Excel">
                     </div>
-                    <button v-if="selectedDataset.data_dictionary_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('DICTIONARY')">ดาวน์โหลดพจนานุกรมข้อมูล (Data Dictionary)</button>
-                    <button v-if="selectedDataset.file_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('ไฟล์แนบต้นฉบับ')">ดาวน์โหลดไฟล์แนบ (API File)</button>
-                    <button v-if="selectedDataset.data_sampling_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('ชุดข้อมูลสุ่ม (Zip File)')">ดาวน์โหลดชุดข้อมูลสุ่ม (Zip File)</button>
+                    <button v-if="selectedDataset.data_dictionary_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('DICTIONARY')" title="ดาวน์โหลดพจนานุกรมอธิบายโครงสร้างข้อมูล">ดาวน์โหลดพจนานุกรมข้อมูล (Data Dictionary)</button title="ดาวน์โหลดพจนานุกรมอธิบายโครงสร้างข้อมูล">
+                    <button v-if="selectedDataset.file_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('ไฟล์แนบต้นฉบับ')" title="ดาวน์โหลดไฟล์เอกสารแนบต้นฉบับ">ดาวน์โหลดไฟล์แนบ (API File)</button title="ดาวน์โหลดไฟล์เอกสารแนบต้นฉบับ">
+                    <button v-if="selectedDataset.data_sampling_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('ชุดข้อมูลสุ่ม (Zip File)')" title="ดาวน์โหลดข้อมูลตัวอย่างสำหรับทดสอบ">ดาวน์โหลดชุดข้อมูลสุ่ม (Zip File)</button title="ดาวน์โหลดข้อมูลตัวอย่างสำหรับทดสอบ">
                   </div>
                   
                   <!-- If does NOT have access, show Request Access form -->
@@ -350,7 +351,7 @@ watch(() => route.params.id, (newId) => {
                       <div v-if="reqError" style="color:#e11d48;font-size:0.75rem;margin-bottom:8px;text-align:left;">{{ reqError }}</div>
                       <div v-if="reqSuccess" style="color:#16a34a;font-size:0.75rem;margin-bottom:8px;text-align:left;">{{ reqSuccess }}</div>
 
-                      <button class="btn-primary w-full" style="padding:10px;font-size:0.9rem;width:100%; border:none; border-radius:8px; background:var(--mso-accent, var(--primary)); color:white; font-weight:600; cursor:pointer;" :disabled="isSubmittingReq" @click="submitPermissionRequest">
+                      <button class="btn-primary w-full" style="padding:10px;font-size:0.9rem;width:100%; border:none; border-radius:8px; background:var(--mso-accent, var(--primary)); color:white; font-weight:600; cursor:pointer;" :disabled="isSubmittingReq" @click="submitPermissionRequest" title="ส่งคำขอเพื่อให้ผู้ดูแลระบบอนุมัติสิทธิ์เข้าถึง">
                         {{ isSubmittingReq ? 'กำลังส่งคำขอ...' : 'ส่งคำขอเข้าถึงข้อมูล' }}
                       </button>
                     </div>

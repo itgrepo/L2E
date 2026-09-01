@@ -135,7 +135,9 @@ onMounted(() => {
           <thead>
             <tr>
               <th>รหัสคำขอ</th>
-              <th>ผู้ใช้งาน</th>
+              <th>ชื่อ-นามสกุลจริง</th>
+              <th>อีเมลสังกัด</th>
+              <th>ชื่อหน่วยงาน</th>
               <th>ชุดข้อมูลที่ขอ</th>
               <th>เหตุผลที่ขอ</th>
               <th>วันที่ขอ</th>
@@ -145,7 +147,9 @@ onMounted(() => {
           <tbody>
             <tr v-for="req in pendingRequests" :key="req.request_id">
               <td>#{{ req.request_id }}</td>
-              <td>{{ req.username }}</td>
+              <td>{{ req.firstname }} {{ req.lastname }}</td>
+              <td>{{ req.email }}</td>
+              <td>{{ req.organization || '-' }}</td>
               <td>{{ req.service_name || req.service_id }}</td>
               <td>{{ req.reason || '-' }}</td>
               <td>{{ req.created_at }}</td>
