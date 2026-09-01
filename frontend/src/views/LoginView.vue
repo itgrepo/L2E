@@ -104,16 +104,11 @@ const handleLogin = async () => {
       }
     } else if (result.status === 'pending_approval') {
       errorMessage.value = 'บัญชีของคุณกำลังรอการอนุมัติจากผู้ดูแลระบบ กรุณารอการอนุมัติ';
-    } else if (result.status.includes('Please check in your email confirmation')) {
+    } else if (result.status === 'Your account is locked' || (result.status && result.status.includes('unlock account'))) {
+      errorMessage.value = '🚨 บัญชีของคุณถูกระงับการใช้งานชั่วคราวเนื่องจากกรอกรหัสผ่านผิดเกินจำนวนครั้งที่กำหนด กรุณาติดต่อผู้ดูแลระบบหรือทำการปลดล็อคผ่านอีเมล';
+    } else if (result.status && result.status.includes('Please check in your email confirmation')) {
       errorMessage.value = 'กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ ตรวจสอบกล่องจดหมายของคุณ';
     } else if (result.status === 'not found' || result.status === 'username is incorrect') {
-      if (result.attempts !== undefined) {
-        errorMessage.value = `ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง (คุณสามารถลองใหม่ได้อีก ${5 - result.attempts} ครั้ง)`;
-      } else {
-        errorMessage.value = 'ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง';
-      }
-    } else if (result.status === 'Your account is locked' || result.status.includes('unlock account')) {
-      errorMessage.value = 'บัญชีของคุณถูกล็อกชั่วคราวเนื่องจากเข้าสู่ระบบผิดพลาดเกินกำหนด กรุณาตรวจสอบอีเมลหรือติดต่อผู้ดูแลระบบเพื่อปลดล็อก';
     } else if (result.status === 'Your account is suspended') {
       errorMessage.value = 'บัญชีของคุณถูกระงับการใช้งานชั่วคราว กรุณาติดต่อผู้ดูแลระบบ';
     } else {
