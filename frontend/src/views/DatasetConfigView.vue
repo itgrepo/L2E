@@ -661,7 +661,7 @@ const updateDatasetPrefix = () => {
 
         <div class="header-titles">
           <h1>Dataset Configuration</h1>
-          <p>จัดการและตั้งค่าชุดข้อมูลในระบบ DataX Portal</p>
+          <p>จัดการและตั้งค่าชุดข้อมูลในระบบ Data Portal</p>
         </div>
       </header>
 

@@ -7,7 +7,7 @@ import AppFooter from '../components/AppFooter.vue';
   <div class="about-page">
     <section class="about-hero">
       <div class="container">
-        <h1>เกี่ยวกับ DataX Portal</h1>
+        <h1>เกี่ยวกับ Data Portal</h1>
         <p class="subtitle">ศูนย์กลางสำหรับการแลกเปลี่ยนข้อมูลและการจัดการ API</p>
       </div>
     </section>
@@ -16,14 +16,14 @@ import AppFooter from '../components/AppFooter.vue';
       <div class="container grid">
         <div class="mission-content">
           <h2>พันธกิจของเรา</h2>
-          <p>DataX Portal (แพลตฟอร์มการแลกเปลี่ยนข้อมูลและการจัดการ API) ถูกออกแบบมาเพื่อเพิ่มประสิทธิภาพในการแบ่งปัน ค้นพบ และใช้ประโยชน์จากข้อมูลของหน่วยงานภาครัฐ พันธกิจของเราคือการสร้างระบบนิเวศที่ไร้รอยต่อ ปลอดภัย และมีมาตรฐาน เพื่อเสริมสร้างขีดความสามารถให้นักพัฒนาและผู้กำหนดนโยบายด้วยข้อมูลที่มีคุณภาพสูง</p>
+          <p>Data Portal (แพลตฟอร์มการแลกเปลี่ยนข้อมูลและการจัดการ API) ถูกออกแบบมาเพื่อเพิ่มประสิทธิภาพในการแบ่งปัน ค้นพบ และใช้ประโยชน์จากข้อมูลของหน่วยงานภาครัฐ พันธกิจของเราคือการสร้างระบบนิเวศที่ไร้รอยต่อ ปลอดภัย และมีมาตรฐาน เพื่อเสริมสร้างขีดความสามารถให้นักพัฒนาและผู้กำหนดนโยบายด้วยข้อมูลที่มีคุณภาพสูง</p>
 
         </div>
         <div class="mission-image">
           <div class="abstract-shape">
             <div class="circle c1"></div>
             <div class="circle c2"></div>
-            <div class="logo-placeholder">DataX</div>
+            <div class="logo-placeholder">Data Portal</div>
           </div>
         </div>
       </div>

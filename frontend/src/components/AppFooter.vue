@@ -50,7 +50,7 @@ const getTargetRoute = (path) => {
       </div>
       <div class="footer-links">
         <h4 style="color: white; margin-bottom: 1rem;">ติดต่อเรา</h4>
-        <router-link to="/contact">support@datax.go.th</router-link>
+        <router-link to="/contact">support@dataportal.go.th</router-link>
         <router-link to="/about">เกี่ยวกับโครงการ</router-link>
         <router-link to="#">เงื่อนไขการให้บริการ</router-link>
         <router-link to="/contact">ติดต่อเรา</router-link>

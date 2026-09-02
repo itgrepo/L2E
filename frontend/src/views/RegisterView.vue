@@ -129,7 +129,7 @@ const goToVerify = () => {
   <div class="register-container">
     <div class="register-branding">
       <div class="branding-content">
-        <h1>DataX Portal</h1>
+        <h1>Data Portal</h1>
         <p class="tagline">ระบบแลกเปลี่ยนข้อมูลอัจฉริยะ</p>
         <div class="feature-list">
           <div class="feature-item">
@@ -166,14 +166,14 @@ const goToVerify = () => {
         <!-- Step 1: Account Info -->
         <div v-if="currentStep === 1" class="step-content">
           <h2>สร้างบัญชีผู้ใช้</h2>
-          <p class="subtitle">กรอกข้อมูลเพื่อเริ่มต้นใช้งาน DataX Portal</p>
+          <p class="subtitle">กรอกข้อมูลเพื่อเริ่มต้นใช้งาน Data Portal</p>
           
           <div v-if="errorMessage" class="error-alert">{{ errorMessage }}</div>
 
           <form @submit.prevent="handleRegister">
             <div class="form-group">
               <label for="reg-username">ชื่อผู้ใช้ (Username)</label>
-              <input id="reg-username" v-model="username" type="text" placeholder="ตัวอย่าง: somchai_datax" required minlength="3" :disabled="isLoading">
+              <input id="reg-username" v-model="username" type="text" placeholder="ตัวอย่าง: somchai_dataportal" required minlength="3" :disabled="isLoading">
               <small v-if="username && username.length < 3" class="field-hint error">ต้องมีอย่างน้อย 3 ตัวอักษร</small>
             </div>
 

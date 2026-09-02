@@ -12,7 +12,7 @@
             </span>
             System Monitor & Logs
           </h1>
-          <p class="text-slate-500 mt-1 font-medium ml-12">ตรวจสอบสถานะการทำงานและ Log ของระบบ DataX</p>
+          <p class="text-slate-500 mt-1 font-medium ml-12">ตรวจสอบสถานะการทำงานและ Log ของระบบ Data Portal</p>
         </div>
         <div class="flex gap-2 ml-12 md:ml-0">
           <div class="flex items-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-700 rounded-full text-sm font-bold border border-emerald-200">
@@ -96,7 +96,7 @@
           </div>
 
           <div class="bg-gradient-to-br from-[var(--primary)] to-[var(--primary-hover)] p-6 rounded-2xl shadow-lg text-white">
-            <h3 class="text-lg font-bold mb-2">DataX Quick Action</h3>
+            <h3 class="text-lg font-bold mb-2">Data Portal Quick Action</h3>
             <p class="text-xs text-pink-100 mb-6 opacity-80">จัดการบริการพื้นฐานของระบบได้อย่างรวดเร็ว</p>
             <div class="grid grid-cols-2 gap-3">
               <button class="bg-white/10 hover:bg-white/20 p-3 rounded-xl text-center transition-all">
@@ -127,8 +127,8 @@ const stats = ref([
 ]);
 
 const services = ref([
-  { name: 'DataX API Service', port: 'PORT 3000', status: 'online' },
-  { name: 'DataX Portal Web', port: 'PORT 3001', status: 'online' },
+  { name: 'Data Portal API Service', port: 'PORT 3000', status: 'online' },
+  { name: 'Data Portal Web', port: 'PORT 3001', status: 'online' },
   { name: 'MariaDB Instance', port: 'PORT 3307', status: 'online' },
   { name: 'Redis Cache', port: 'INTERNAL', status: 'online' },
   { name: 'SMTP Relay', port: 'PORT 465', status: 'online' },
