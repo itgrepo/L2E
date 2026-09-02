@@ -376,9 +376,13 @@ onMounted(() => {
                     <span class="org-text">{{ d.organization || '-' }}</span>
                   </div>
                 </td>
-                <td>
-                  <span class="status-badge" :class="d.status?.toLowerCase()">
-                    {{ d.status }}
+                                <td>
+                  <label class="switch">
+                    <input type="checkbox" :checked="d.status === 'Active'" @change="handleToggleStatus(d)">
+                    <span class="slider round"></span>
+                  </label>
+                  <span style="font-size: 0.75rem; margin-left: 8px; font-weight: 600;" :style="{ color: d.status === 'Active' ? '#10b981' : '#94a3b8' }">
+                    {{ d.status === 'Active' ? 'Active' : 'Inactive' }}
                   </span>
                 </td>
                 <td>
@@ -396,11 +400,7 @@ onMounted(() => {
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                       </svg>
                     </button>
-                    <button class="action-btn toggle" @click="handleToggleStatus(d)" :title="d.status === 'Active' ? 'ปิดใช้งาน' : 'เปิดใช้งาน'">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                      </svg>
-                    </button>
+                    
                     <button class="action-btn delete" @click="handleDelete(d)" title="ลบ">
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1179,4 +1179,49 @@ h1 {
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.5s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  vertical-align: middle;
+}
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #cbd5e1;
+  transition: .4s;
+}
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: .4s;
+}
+input:checked + .slider {
+  background-color: #10b981;
+}
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+.slider.round {
+  border-radius: 24px;
+}
+.slider.round:before {
+  border-radius: 50%;
+}
 </style>
