@@ -59,7 +59,7 @@ const getTargetRoute = (path) => {
     
     <div class="container footer-bottom" style="margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #1e293b; display: flex; justify-content: space-between; align-items: center; color: #64748b; font-size: 0.8rem; flex-wrap: wrap; gap: 1rem;">
       <p>&copy; 2026 {{ themeConfig.siteName }}. All rights reserved.</p>
-      <p style="font-family: monospace; font-size: 0.75rem; color: #475569;">v1.3.0-uat (20260901)</p>
+      <p style="font-family: monospace; font-size: 0.75rem; color: #475569;">v1.3.1-uat (20260902)</p>
     </div>
   </footer>
 </template>

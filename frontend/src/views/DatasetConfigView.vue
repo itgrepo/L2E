@@ -49,6 +49,11 @@ const formData = ref({
   external_api_url: ''
 });
 
+const showGovConflict = computed(() => {
+  return (formData.value.access_type === 'pii' || formData.value.access_type === 'restricted' || formData.value.access_type === 'internal') && formData.value.gov_category === 'ข้อมูลสาธารณะ';
+});
+
+
 const isSubmitting = ref(false);
 const successMessage = ref('');
 const errorMessage = ref('');

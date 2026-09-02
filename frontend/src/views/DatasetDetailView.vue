@@ -15,7 +15,7 @@ const user = ref(JSON.parse(localStorage.getItem('user') || '{}'));
 const selectedDataset = ref(null);
 const apiBaseUrl = computed(() => `${window.location.origin}/dataapi/api/v1/`);
 const userApiKey = computed(() => user.value.apikey || '[YOUR_API_KEY]');
-const requestForm = ref({ fields: [], reason: '' });
+const requestForm = ref({ fields: [], reason: '', mouFile: null, mouFileName: '' });
 const reqError = ref('');
 const reqSuccess = ref('');
 const isSubmittingReq = ref(false);
@@ -126,6 +126,22 @@ const fetchDatasetDetail = async () => {
 };
 
 const handleRequestFileChange = (e) => { requestFile.value = e.target.files[0]; };
+
+const handleMouFileChange = (event) => {
+  const file = event.target.files[0];
+  if (file) {
+    requestForm.value.mouFileName = file.name;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      requestForm.value.mouFile = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  } else {
+    requestForm.value.mouFile = null;
+    requestForm.value.mouFileName = '';
+  }
+};
+
 const submitPermissionRequest = async () => {
   if (requestForm.value.fields.length === 0) {
     reqError.value = 'โปรดเลือกอย่างน้อย 1 ฟิลด์ข้อมูล';
@@ -146,7 +162,9 @@ const submitPermissionRequest = async () => {
       user: encodeUserData(JSON.parse(userData)),
       service_id: selectedDataset.value.id,
       fields: requestForm.value.fields,
-      reason: requestForm.value.reason
+      reason: requestForm.value.reason,
+      mou_file: requestForm.value.mouFile,
+      mou_filename: requestForm.value.mouFileName
     });
     
     if (response.data.status === 'success') {
@@ -154,6 +172,8 @@ const submitPermissionRequest = async () => {
       selectedDataset.value.permission_status = 'Pending';
       requestForm.value.fields = [];
       requestForm.value.reason = '';
+      requestForm.value.mouFile = null;
+      requestForm.value.mouFileName = '';
       fetchDatasetDetail();
     } else {
       reqError.value = response.data.message || 'เกิดข้อผิดพลาด';
@@ -346,6 +366,13 @@ watch(() => route.params.id, (newId) => {
                       <div class="form-group mb-4" style="margin-bottom: 12px;">
                         <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px; font-weight:600;">วัตถุประสงค์ในการขอเข้าถึง *</label>
                         <textarea v-model="requestForm.reason" rows="2" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px;font-size:0.85rem;resize:none; box-sizing:border-box;" placeholder="ระบุเหตุผลและวัตถุประสงค์การใช้งาน..."></textarea>
+                      </div>
+
+                                            <!-- MOU File Upload -->
+                      <div class="form-group mb-4" style="margin-bottom: 12px;">
+                        <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px; font-weight:600;">เอกสารประกอบคำขอ (MOU / Request Letter)</label>
+                        <p style="font-size:0.75rem; color:#64748b; margin-bottom:4px;">กรุณาอัปโหลดบันทึกข้อความนำส่ง, หนังสือข้อตกลง MOU หรือเอกสารสิทธิ์การใช้ข้อมูล (PDF, JPG, PNG)</p>
+                        <input type="file" @change="handleMouFileChange" accept=".pdf,image/*" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:0.8rem;background:#f8fafc;cursor:pointer;">
                       </div>
 
                       <div v-if="reqError" style="color:#e11d48;font-size:0.75rem;margin-bottom:8px;text-align:left;">{{ reqError }}</div>
