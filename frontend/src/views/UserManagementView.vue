@@ -117,11 +117,17 @@ const handleSaveUser = async () => {
             closeAddModal();
             fetchUsers();
         } else {
-            alert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status));
+            let errorMsg = response.data.message || response.data.status;
+            if (errorMsg.toLowerCase().includes('username already exists') || errorMsg.includes('Username ซ้ำ')) {
+                errorMsg = 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว (Username already exists)';
+            } else if (errorMsg.toLowerCase().includes('email already exists') || errorMsg.includes('อีเมลซ้ำ')) {
+                errorMsg = 'อีเมลนี้ถูกใช้งานแล้ว (Email already exists)';
+            }
+            showAlert('เกิดข้อผิดพลาด: ' + errorMsg, 'error');
         }
     } catch (error) {
         console.error('Error creating user:', error);
-        alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
+        showAlert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error');
     } finally {
         isSubmitting.value = false;
     }

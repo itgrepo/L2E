@@ -1,0 +1,12 @@
+l2eprddb_high = (description= (retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=1522)(host=adb.ap-pathumthani-1.thaiaiscloud.com))(connect_data=(service_name=gdedf8e22012621_l2eprddb_high.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)))
+
+l2eprddb_medium = (description= (retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=1522)(host=adb.ap-pathumthani-1.thaiaiscloud.com))(connect_data=(service_name=gdedf8e22012621_l2eprddb_medium.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)))
+
+l2eprddb_low = (description= (retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=1522)(host=adb.ap-pathumthani-1.thaiaiscloud.com))(connect_data=(service_name=gdedf8e22012621_l2eprddb_low.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)))
+
+l2eprddb_tp = (description= (retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=1522)(host=adb.ap-pathumthani-1.thaiaiscloud.com))(connect_data=(service_name=gdedf8e22012621_l2eprddb_tp.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)))
+
+l2eprddb_tpurgent = (description= (retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=1522)(host=adb.ap-pathumthani-1.thaiaiscloud.com))(connect_data=(service_name=gdedf8e22012621_l2eprddb_tpurgent.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)))
+
+
+

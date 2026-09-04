@@ -182,7 +182,7 @@ onMounted(() => {
         </div>
         
         <div class="stats-grid">
-          <div v-for="stat in stats" :key="stat.label" class="stat-card">
+          <div v-for="stat in stats" :key="stat.label" class="stat-card" :title="`แสดงจำนวน ${stat.label} ทั้งหมด`">
             <div class="stat-header">
               <div class="stat-icon-wrapper" :style="{ color: stat.color, backgroundColor: stat.color + '15' }">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

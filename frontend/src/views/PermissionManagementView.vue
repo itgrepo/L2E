@@ -43,6 +43,31 @@ const currentPermissions = computed(() => {
   return menuPermissions.value.filter(p => p.previlage_id === selectedRole.value.previlage_id);
 });
 
+
+const menuTranslations = {
+  'Dashboard': { name: 'หน้าหลัก (Dashboard)', tooltip: 'ดูภาพรวมและสถิติการใช้งานของระบบ' },
+  'Catalog': { name: 'บัญชีข้อมูล (Data Catalog)', tooltip: 'ค้นหาและดูรายละเอียดของชุดข้อมูลทั้งหมดในระบบ' },
+  'Data Catalog': { name: 'บัญชีข้อมูล (Data Catalog)', tooltip: 'ค้นหาและดูรายละเอียดของชุดข้อมูลทั้งหมดในระบบ' },
+  'API Management': { name: 'จัดการ API (API Management)', tooltip: 'สร้างและจัดการการเชื่อมต่อ API สำหรับระบบภายนอก' },
+  'Dataset Approval': { name: 'อนุมัติคำขอชุดข้อมูล', tooltip: 'พิจารณาและอนุมัติคำขอเข้าถึงชุดข้อมูลที่ถูกจำกัดสิทธิ์' },
+  'Permission Management': { name: 'จัดการสิทธิ์ (Permission Management)', tooltip: 'กำหนดสิทธิ์การเข้าถึงเมนูต่างๆ ของแต่ละบทบาทผู้ใช้' },
+  'User Management': { name: 'จัดการผู้ใช้งาน', tooltip: 'เพิ่ม ลบ แก้ไข และกำหนดหน่วยงานของผู้ใช้งานในระบบ' },
+  'Settings': { name: 'ตั้งค่าระบบ', tooltip: 'ตั้งค่าหมวดหมู่และหน่วยงานในระบบ' },
+  'Group User Management': { name: 'จัดการกลุ่มผู้ใช้งาน', tooltip: 'จัดการผู้ใช้งานภายในกลุ่มของหน่วยงาน' },
+  'Dataset Management': { name: 'บัญชีชุดข้อมูลหน่วยงาน', tooltip: 'จัดการ แก้ไข และเพิ่มชุดข้อมูลของหน่วยงานตนเอง' },
+  'Group Dataset Management': { name: 'จัดการกลุ่มชุดข้อมูล', tooltip: 'จัดการชุดข้อมูลที่แชร์ภายในกลุ่ม' },
+  'Analytics': { name: 'วิเคราะห์ข้อมูล (Analytics)', tooltip: 'ดูสรุปข้อมูลเชิงวิเคราะห์' },
+  'API Monitor': { name: 'ตรวจสอบ API (API Monitor)', tooltip: 'ตรวจสอบสถานะและการทำงานของ API' }
+};
+
+const getMenuName = (name) => {
+  return menuTranslations[name] ? menuTranslations[name].name : name;
+};
+
+const getMenuTooltip = (name) => {
+  return menuTranslations[name] ? menuTranslations[name].tooltip : 'เปิด/ปิด สิทธิ์การใช้งานเมนูนี้';
+};
+
 const togglePermission = async (perm) => {
   const newValue = perm.value === 'Yes' ? 'No' : 'Yes';
   const originalValue = perm.value;
