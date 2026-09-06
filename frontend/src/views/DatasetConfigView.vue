@@ -49,8 +49,28 @@ const formData = ref({
   external_api_url: ''
 });
 
-const showGovConflict = computed(() => {
-  return (formData.value.access_type === 'pii' || formData.value.access_type === 'restricted' || formData.value.access_type === 'internal') && formData.value.gov_category === 'ข้อมูลสาธารณะ';
+const govConflictMessage = computed(() => {
+  const access = formData.value.access_type;
+  const gov = formData.value.gov_category;
+  
+  if (!access || !gov || gov === 'เลือกหมวดหมู่ข้อมูลตามธรรมาภิบาลข้อมูลภาครัฐ') return null;
+
+  const accessThMap = {
+    'public': 'สาธารณะ (Public)',
+    'internal': 'ภายในหน่วยงาน (Internal)',
+    'restricted': 'จำกัดสิทธิ์ (Restricted)',
+    'pii': 'ข้อมูลส่วนบุคคล (PII)'
+  };
+
+  if (access === 'public' && ['ข้อมูลส่วนบุคคล', 'ข้อมูลลับ', 'ข้อมูลความมั่นคง'].includes(gov)) {
+    return `ข้อควรระวัง: การเข้าถึงเป็น "สาธารณะ" แต่หมวดหมู่ธรรมาภิบาลเป็น "${gov}" ซึ่งย้อนแย้งกัน`;
+  }
+  
+  if (['internal', 'restricted', 'pii'].includes(access) && gov === 'ข้อมูลสาธารณะ') {
+    return `ข้อควรระวัง: การเข้าถึงเป็น "${accessThMap[access]}" แต่หมวดหมู่ธรรมาภิบาลเป็น "ข้อมูลสาธารณะ" ซึ่งย้อนแย้งกัน`;
+  }
+  
+  return null;
 });
 
 
@@ -818,6 +838,12 @@ const updateDatasetPrefix = () => {
                       <option>ข้อมูลลับ</option>
                       <option>ข้อมูลความมั่นคง</option>
                     </select>
+                    <small v-if="govConflictMessage" class="text-red-500 mt-2 block font-medium" style="color: #ef4444; font-size: 0.85rem;">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block mr-1 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      {{ govConflictMessage }}
+                    </small>
                   </div>
                   <div class="form-group">
                     <label>สัญญาอนุญาตให้ใช้ข้อมูล *</label>
@@ -1110,9 +1136,7 @@ const updateDatasetPrefix = () => {
               </div>
 
               
-                <div v-if="showGovConflict" style="margin-bottom: 20px; padding: 12px 16px; background: #fff3cd; border-left: 4px solid #ffc107; color: #856404; border-radius: 4px; font-size: 0.9rem;">
-                  <strong>ข้อควรระวัง (Data Governance Conflict):</strong> การตั้งค่าสิทธิ์เข้าถึงเป็นข้อมูลปิด (Private/Restricted) ขัดแย้งกับการระบุธรรมาภิบาลข้อมูลให้เป็น "ข้อมูลสาธารณะ" โปรดตรวจสอบให้แน่ใจก่อนทำการบันทึก
-                </div>
+
                 <div class="form-actions">
 
                 <button type="button" @click="resetForm" class="btn-cancel">ล้างค่า</button>
