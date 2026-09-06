@@ -194,13 +194,33 @@ const goToVerify = () => {
                   <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #64748b;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
                 </button>
               </div>
-              <div style="font-size: 0.8rem; color: #64748b; margin-top: 4px; margin-bottom: 8px;">* ต้องมีความยาวอย่างน้อย 8 ตัวอักษร, ประกอบด้วยตัวพิมพ์เล็ก, ตัวพิมพ์ใหญ่, ตัวเลข, และอักขระพิเศษ</div>
-              <div class="password-strength" v-if="password">
-                <div class="strength-bar">
-                  <div class="strength-fill" :style="{ width: (passwordStrength.score * 25) + '%', backgroundColor: passwordStrength.color }"></div>
-                </div>
-                <small :style="{ color: passwordStrength.color }">{{ passwordStrength.label }}</small>
+              
+              <div class="password-checklist" v-if="password">
+                <div class="checklist-title">เงื่อนไขตั้งรหัสผ่านใหม่</div>
+                <ul class="checklist-items">
+                  <li :class="{ valid: password.length >= 8 }">
+                    <span class="icon">{{ password.length >= 8 ? '✔' : '✘' }}</span>
+                    ความยาวอย่างน้อย 8 ตัวอักษร
+                  </li>
+                  <li :class="{ valid: /[A-Z]/.test(password) }">
+                    <span class="icon">{{ /[A-Z]/.test(password) ? '✔' : '✘' }}</span>
+                    ตัวอักษรพิมพ์ใหญ่ (A-Z) อย่างน้อย 1 ตัว
+                  </li>
+                  <li :class="{ valid: /[a-z]/.test(password) }">
+                    <span class="icon">{{ /[a-z]/.test(password) ? '✔' : '✘' }}</span>
+                    ตัวอักษรพิมพ์เล็ก (a-z) อย่างน้อย 1 ตัว
+                  </li>
+                  <li :class="{ valid: /[0-9]/.test(password) }">
+                    <span class="icon">{{ /[0-9]/.test(password) ? '✔' : '✘' }}</span>
+                    ตัวเลข (0-9) อย่างน้อย 1 ตัว
+                  </li>
+                  <li :class="{ valid: /[^A-Za-z0-9]/.test(password) }">
+                    <span class="icon">{{ /[^A-Za-z0-9]/.test(password) ? '✔' : '✘' }}</span>
+                    อักขระพิเศษ อย่างน้อย 1 ตัว (เช่น !@#$%^&_.)
+                  </li>
+                </ul>
               </div>
+
             </div>
 
             <div class="form-group">
@@ -866,4 +886,66 @@ input:focus {
   .register-branding { padding: 40px 20px; }
   .form-row { flex-direction: column; gap: 0; }
 }
+
+.password-checklist {
+  margin-top: 12px;
+  margin-bottom: 16px;
+  padding: 16px;
+  background-color: #f1f8f5;
+  border-radius: 12px;
+  border: 1px solid #dcfce7;
+}
+
+.checklist-title {
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 10px;
+  font-size: 0.95rem;
+}
+
+.checklist-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checklist-items li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  color: #ef4444; /* Default red */
+  transition: all 0.2s ease;
+}
+
+.checklist-items li.valid {
+  color: var(--primary); /* Green when valid */
+}
+
+.checklist-items li .icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: bold;
+}
+
+.checklist-items li .icon {
+  /* X mark styling */
+  background-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.checklist-items li.valid .icon {
+  /* Check mark styling */
+  background-color: #86efac;
+  color: #14532d;
+}
+
 </style>
