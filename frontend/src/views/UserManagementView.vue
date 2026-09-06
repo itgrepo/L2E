@@ -118,9 +118,12 @@ const handleSaveUser = async () => {
             fetchUsers();
         } else {
             let errorMsg = response.data.message || response.data.status;
-            if (errorMsg.toLowerCase().includes('username already exists') || errorMsg.includes('Username ซ้ำ')) {
+            const errLower = errorMsg.toLowerCase();
+            if (errLower === 'username or email already exists') {
+                errorMsg = 'ชื่อผู้ใช้ หรือ อีเมล นี้ถูกใช้งานแล้ว';
+            } else if (errLower.includes('username already exists') || errorMsg.includes('Username ซ้ำ')) {
                 errorMsg = 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว (Username already exists)';
-            } else if (errorMsg.toLowerCase().includes('email already exists') || errorMsg.includes('อีเมลซ้ำ')) {
+            } else if (errLower.includes('email already exists') || errorMsg.includes('อีเมลซ้ำ')) {
                 errorMsg = 'อีเมลนี้ถูกใช้งานแล้ว (Email already exists)';
             }
             showAlert('เกิดข้อผิดพลาด: ' + errorMsg, 'error');
