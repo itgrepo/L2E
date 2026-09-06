@@ -182,7 +182,7 @@ onMounted(() => {
         </div>
         
         <div class="stats-grid">
-          <div v-for="stat in stats" :key="stat.label" class="stat-card" :title="`แสดงจำนวน ${stat.label} ทั้งหมด`">
+          <div v-for="stat in stats" :key="stat.label" :data-tooltip="`จำนวน ${stat.label} ทั้งหมดในระบบ`" class="stat-card custom-tooltip">
             <div class="stat-header">
               <div class="stat-icon-wrapper" :style="{ color: stat.color, backgroundColor: stat.color + '15' }">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -217,7 +217,7 @@ onMounted(() => {
                   <template v-if="chartData.length > 0">
                     <div v-for="day in chartData" :key="day.date" class="bar-group">
                       <div class="bar-label">{{ day.date.split('-').slice(1).join('/') }}</div>
-                      <div class="bar-track" :title="day.date + ': ' + day.count">
+                      <div :data-tooltip="day.date + ': ' + day.count" class="bar-track custom-tooltip">
                         <div class="bar-progress" :style="{ width: Math.min(100, (day.count / 100) * 100) + '%', backgroundColor: day.count > 70 ? 'var(--mso-accent)' : '#3b82f6' }"></div>
                       </div>
                       <div class="bar-value">{{ day.count }}</div>
@@ -669,4 +669,33 @@ onMounted(() => {
   .welcome-text h1 { font-size: 1.5rem; }
   .card { padding: 16px; }
 }
+
+.custom-tooltip {
+  position: relative;
+}
+.custom-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-5px);
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  pointer-events: none;
+  z-index: 999;
+}
+.custom-tooltip:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
 </style>

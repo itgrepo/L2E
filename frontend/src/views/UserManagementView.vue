@@ -208,8 +208,12 @@ const handleDeleteUser = async (user) => {
 };
 
 const showAlert = (text, type) => {
-    alertMessage.value = { text, type };
-    setTimeout(() => { alertMessage.value = { text: '', type: '' }; }, 3000);
+    Swal.fire({
+        text: text,
+        icon: type === 'error' ? 'error' : 'success',
+        confirmButtonText: 'ตกลง',
+        confirmButtonColor: 'var(--primary)'
+    });
 };
 
 const filteredUsers = computed(() => {

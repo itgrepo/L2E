@@ -228,7 +228,12 @@ onMounted(() => {
                   </svg>
                 </div>
                 <div class="feature-info">
-                  <h4>{{ perm.menu_name }}</h4>
+                  <h4 :data-tooltip="getMenuTooltip(perm.menu_name)" class="custom-tooltip" style="display: flex; align-items: center; gap: 6px; cursor: help;">
+                    {{ getMenuName(perm.menu_name) }} 
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#94a3b8">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </h4>
                   <p>อนุญาตให้บทบาทนี้เข้าถึงเมนูและทำงานที่เกี่ยวข้องได้</p>
                 </div>
                 <div class="feature-control">
@@ -632,4 +637,33 @@ input:checked + .slider:before {
     from { opacity: 0; transform: translateY(-10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+.custom-tooltip {
+  position: relative;
+}
+.custom-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  transform: translateY(-5px);
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  pointer-events: none;
+  z-index: 999;
+}
+.custom-tooltip:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
 </style>
