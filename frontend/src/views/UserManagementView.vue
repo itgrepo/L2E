@@ -212,7 +212,8 @@ const showAlert = (text, type) => {
         text: text,
         icon: type === 'error' ? 'error' : 'success',
         confirmButtonText: 'ตกลง',
-        confirmButtonColor: 'var(--primary)'
+        confirmButtonColor: 'var(--primary)',
+        customClass: { container: 'swal-top-modal' }
     });
 };
 
@@ -1028,5 +1029,13 @@ h1 {
   .content {
     padding: 16px !important;
   }
+}
+</style>
+
+
+<style>
+/* Global style strictly for this swal instance to override z-index */
+.swal-top-modal {
+  z-index: 999999 !important;
 }
 </style>
