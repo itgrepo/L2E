@@ -208,13 +208,8 @@ const handleDeleteUser = async (user) => {
 };
 
 const showAlert = (text, type) => {
-    Swal.fire({
-        text: text,
-        icon: type === 'error' ? 'error' : 'success',
-        confirmButtonText: 'ตกลง',
-        confirmButtonColor: 'var(--primary)',
-        customClass: { container: 'swal-top-modal' }
-    });
+    alertMessage.value = { text, type };
+    setTimeout(() => { alertMessage.value = { text: '', type: '' }; }, 3000);
 };
 
 const filteredUsers = computed(() => {
@@ -539,6 +534,7 @@ h1 {
 }
 
 /* Alert Banner */
+
 .alert-banner {
     padding: 14px 24px;
     border-radius: 12px;
@@ -548,7 +544,7 @@ h1 {
     top: 24px;
     left: 50%;
     transform: translateX(-50%);
-    z-index: 9999;
+    z-index: 999999 !important; /* Fixed z-index to be above modal */
     box-shadow: 0 10px 25px rgba(0,0,0,0.1);
     min-width: 300px;
     text-align: center;
