@@ -1108,7 +1108,7 @@ const updateDatasetPrefix = () => {
                   </div>
                   <div class="form-group">
                     <label>URL รายละเอียดชุดข้อมูล *</label>
-                    <input type="url" v-model="formData.url" placeholder="URL ที่สามารถเข้าถึงรายละเอียดของชุดข้อมูลได้" required>
+                    <input type="text" v-model="formData.url" placeholder="URL ที่สามารถเข้าถึงรายละเอียดของชุดข้อมูลได้" required>
                   </div>
                 </div>
 
@@ -1127,11 +1127,11 @@ const updateDatasetPrefix = () => {
                 <h3 class="block-title">4. แดชบอร์ดและ API หน้าบ้าน (Visualization & API)</h3>
                 <div class="form-group">
                   <label>ลิงก์ Dashboard (Tableau, PowerBI, ฯลฯ)</label>
-                  <input type="url" v-model="formData.external_dashboard_url" placeholder="https://public.tableau.com/...">
+                  <input type="text" v-model="formData.external_dashboard_url" placeholder="https://public.tableau.com/...">
                 </div>
                 <div class="form-group">
                   <label>ลิงก์ API ภายนอก</label>
-                  <input type="url" v-model="formData.external_api_url" placeholder="https://api.org.go.th/...">
+                  <input type="text" v-model="formData.external_api_url" placeholder="https://api.org.go.th/...">
                 </div>
               </div>
 
@@ -1285,7 +1285,7 @@ const updateDatasetPrefix = () => {
 
             <div class="form-group mb-12">
               <label class="text-sm text-slate-700 font-bold mb-2">{{ linkType === 'api' ? 'ลิงก์ API' : 'ลิงก์ DashBoard' }}</label>
-              <input type="url" v-model="linkUrl" class="w-full bg-transparent border border-slate-200 rounded-xl focus:ring-0 focus:border-slate-400 text-slate-800 py-3 px-4 transition-colors" style="outline: none;" placeholder="https://example.com/api/v1/data">
+              <input type="text" v-model="linkUrl" class="w-full bg-transparent border border-slate-200 rounded-xl focus:ring-0 focus:border-slate-400 text-slate-800 py-3 px-4 transition-colors" style="outline: none;" placeholder="https://example.com/api/v1/data">
             </div>
 
             <div class="flex justify-start">
