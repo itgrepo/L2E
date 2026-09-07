@@ -267,7 +267,8 @@ onMounted(() => {
       <!-- Alert Message -->
       <transition name="fade">
         <div v-if="alertMessage.text" :class="['alert-banner', alertMessage.type]">
-            {{ alertMessage.text }}
+            <div style="flex: 1;">{{ alertMessage.text }}</div>
+            <button @click="alertMessage.text = ''" class="alert-close-btn" aria-label="Close alert">&times;</button>
         </div>
       </transition>
 

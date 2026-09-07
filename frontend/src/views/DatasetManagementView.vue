@@ -336,7 +336,7 @@ onMounted(() => {
       <!-- Alert -->
       <transition name="fade">
         <div v-if="alertMessage.text" :class="['alert-banner', alertMessage.type]">
-          {{ alertMessage.text }}
+          <div style="flex: 1;">{{ alertMessage.text }}</div><button @click="alertMessage.text = ''" class="alert-close-btn" aria-label="Close alert">&times;</button>
         </div>
       </transition>
 
@@ -736,6 +736,25 @@ h1 {
   margin-bottom: 24px;
   font-weight: 600;
   font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.alert-close-btn {
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.6;
+    padding: 0;
+    margin: -4px -8px -4px 0;
+    transition: opacity 0.2s;
+}
+.alert-close-btn:hover {
+    opacity: 1;
 }
 
 .alert-banner.success { background: var(--mso-pink-dark); color: #166534; border: 1px solid var(--mso-pink-dark); }
