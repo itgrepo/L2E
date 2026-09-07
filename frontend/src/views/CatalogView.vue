@@ -241,6 +241,16 @@ const filteredDatasets = computed(() => {
     );
   }
 
+  // 5. Sorting
+  if (sortOption.value === 'newest') {
+    result = result.sort((a, b) => b.id - a.id);
+  } else if (sortOption.value === 'popular') {
+    result = result.sort((a, b) => parseInt(b.views || 0) - parseInt(a.views || 0));
+  } else if (sortOption.value === 'relevant') {
+    // If search query exists, it's implicitly sorted by exact match if we want, but for now just fallback to newest
+    result = result.sort((a, b) => b.id - a.id);
+  }
+
   return result;
 });
 
@@ -262,9 +272,10 @@ const goToPage = (page) => {
 };
 
 const selectedFormats = ref([]);
+const sortOption = ref('newest');
 
-// Reset page when filtering
-watch([searchQuery, categories, accessLevels, selectedFormats], () => {
+// Reset page when filtering or sorting
+watch([searchQuery, categories, accessLevels, selectedFormats, sortOption], () => {
   currentPage.value = 1;
 }, { deep: true });
 
@@ -536,10 +547,10 @@ onMounted(async () => {
             
             <div class="sort-control">
               <span>เรียงตาม:</span>
-              <select>
-                <option>เกี่ยวข้องมากที่สุด</option>
-                <option>ใหม่ล่าสุด</option>
-                <option>ยอดนิยม</option>
+              <select v-model="sortOption">
+                <option value="relevant">เกี่ยวข้องมากที่สุด</option>
+                <option value="newest">ใหม่ล่าสุด</option>
+                <option value="popular">ยอดนิยม</option>
               </select>
             </div>
           </div>
