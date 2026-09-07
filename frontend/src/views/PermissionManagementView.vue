@@ -128,6 +128,24 @@ const handleCreateRole = async () => {
   }
 };
 
+const handleDeleteRole = async (role) => {
+  if (!confirm(`คุณต้องการลบบทบาท "${role.previlage_name}" (ID: #${role.previlage_id}) ใช่หรือไม่?`)) return;
+  try {
+    const userStored = JSON.parse(localStorage.getItem('user') || '{}');
+    const response = await postWithUser('/mgmt/deleteRoles', userStored, {
+      previlage_id: role.previlage_id
+    });
+    
+    if (response.data.status === 'success') {
+      await fetchInitialData();
+    } else {
+      alert(response.data.status || 'ลบไม่สำเร็จ');
+    }
+  } catch (error) {
+    console.error('Error deleting role:', error);
+  }
+};
+
 const selectRole = (role) => {
   selectedRole.value = role;
 };
@@ -161,7 +179,7 @@ onMounted(() => {
             <h3>บทบาทผู้ใช้งาน (Roles)</h3>
           </div>
           <div class="role-list">
-            <button 
+            <div 
               v-for="role in roleList" 
               :key="role.previlage_id"
               class="role-item"
@@ -178,7 +196,17 @@ onMounted(() => {
                 <span class="role-id">ID: #{{ role.previlage_id }}</span>
               </div>
               <div class="active-indicator" v-if="selectedRole?.previlage_id === role.previlage_id"></div>
-            </button>
+              <button 
+                class="role-delete-btn" 
+                v-if="role.previlage_id > 5" 
+                @click.stop="handleDeleteRole(role)"
+                title="ลบบทบาทนี้"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           <div class="create-role-box glass-panel">
@@ -384,6 +412,28 @@ h1 {
   border-color: #0f172a;
   color: white;
   box-shadow: 0 10px 20px -5px rgba(15, 23, 42, 0.3);
+}
+
+.role-delete-btn {
+  margin-left: auto;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+
+.role-delete-btn:hover {
+  background: #ef4444;
+  color: white;
+  transform: scale(1.05);
 }
 
 .create-role-box {
