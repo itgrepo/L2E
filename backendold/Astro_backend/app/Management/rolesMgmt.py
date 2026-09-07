@@ -120,7 +120,7 @@ def upadteStatusPrevilage():
         # url_decode_cookie_information = urllib.parse.unquote(cookie_information) # URL Decode
         # dict_cookie_information = json.loads(decode(url_decode_cookie_information)) # Decode cookie['information'] (byte to dict)
         # user_id = dict_cookie_information['user_id']
-        user_data = json.loads(decode(dataInput['user']))
+        user_data = safe_json_loads(platform_decode(dataInput.get('user', '')))
         #------------------#
         # a = 0
         # if (a==0):
@@ -313,7 +313,7 @@ def deleteRoles():
         # url_decode_cookie_information = urllib.parse.unquote(cookie_information) # URL Decode
         # dict_cookie_information = json.loads(decode(url_decode_cookie_information)) # Decode cookie['information'] (byte to dict)
         # user_id = dict_cookie_information['user_id']
-        user_data = json.loads(decode(dataInput['user']))
+        user_data = safe_json_loads(platform_decode(dataInput.get('user', '')))
         #------------------#
         # a = 0
         # if (a==0):
