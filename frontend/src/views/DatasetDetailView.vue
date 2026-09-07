@@ -455,41 +455,12 @@ watch(() => route.params.id, (newId) => {
                   ></iframe>
                 </div>
               </div>
-              <div v-else class="dashboard-mockup-container bg-slate-50 p-6" style="height: 600px; overflow-y: auto; border-radius: 0 0 1rem 1rem; background:#f8fafc; padding:24px;">
-                <!-- Mockup Header Stats -->
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
-                  <div style="padding: 16px; background: white; border-radius: 12px; border: 1px solid #f1f5f9; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                    <p style="font-size: 0.75rem; color: #64748b; font-weight: 700; text-transform: uppercase; margin: 0 0 4px 0;">ปริมาณการใช้งานทั้งหมด</p>
-                    <p style="font-size: 1.5rem; font-weight: 800; color: #1e293b; margin: 0;">5.47M <span style="font-size: 0.75rem; color: #10b981; font-weight: normal;">+2.4%</span></p>
-                  </div>
-                  <div style="padding: 16px; background: white; border-radius: 12px; border: 1px solid #f1f5f9; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                    <p style="font-size: 0.75rem; color: #64748b; font-weight: 700; text-transform: uppercase; margin: 0 0 4px 0;">สัดส่วนการเชื่อมต่อ</p>
-                    <p style="font-size: 1.5rem; font-weight: 800; color: #1e293b; margin: 0;">3,620 <span style="font-size: 0.75rem; color: #64748b; font-weight: normal;">ครั้ง/วัน</span></p>
-                  </div>
-                  <div style="padding: 16px; background: white; border-radius: 12px; border: 1px solid #f1f5f9; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                    <p style="font-size: 0.75rem; color: #64748b; font-weight: 700; text-transform: uppercase; margin: 0 0 4px 0;">ประสิทธิภาพ API</p>
-                    <p style="font-size: 1.5rem; font-weight: 800; color: var(--primary); margin: 0;">99.85% <span style="font-size: 0.75rem; color: var(--primary); font-weight: normal;">เสถียรภาพสูง</span></p>
-                  </div>
-                </div>
-
-                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
-                  <!-- Main Bar Chart Mockup -->
-                  <div style="padding:16px; background:white; border-radius:12px; border:1px solid #f1f5f9; grid-column:span 2; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                    <p style="font-size: 0.875rem; font-weight: 700; color: #334155; margin: 0 0 16px 0;">ปริมาณข้อมูลรายวันแยกตามประเภท</p>
-                    <div style="display: flex; align-items: flex-end; gap: 0.5rem; height: 180px; padding-bottom: 20px; border-bottom: 1px solid #f1f5f9;">
-                      <div style="flex: 1; height: 90%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 45%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 40%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 35%; background: var(--primary); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 65%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 50%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 30%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 25%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 55%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 20%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                    </div>
-                  </div>
-                </div>
+              <div v-else class="dashboard-empty-container" style="padding: 40px; text-align: center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px;">
+                <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto mb-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="height: 64px; width: 64px; margin: 0 auto 16px auto; color: #cbd5e1;">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <p style="font-weight: bold; font-size: 1.125rem; margin-bottom: 4px; color:#475569;">ไม่มีแดชบอร์ดสำหรับชุดข้อมูลนี้</p>
+                <p style="font-size: 0.875rem; color: #94a3b8; margin: 0;">ชุดข้อมูลนี้ยังไม่ได้ตั้งค่าการเชื่อมต่อแดชบอร์ด</p>
               </div>
             </div>
             
