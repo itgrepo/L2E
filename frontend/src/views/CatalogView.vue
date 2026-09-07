@@ -341,12 +341,7 @@ const fetchDatasets = async () => {
     const userDataStr = localStorage.getItem('user');
     let userPayload = '';
     if (userDataStr) {
-        // Base64 encode the user JSON string to match backend platform_decode logic
-        // btoa expects a string, we encodeURIComponent to handle unicode then btoa, 
-        // wait, the backend uses base64.b64decode().decode('utf-8'). 
-        // The common frontend encoding in this app:
-        // btoa(unescape(encodeURIComponent(userDataStr)))
-        userPayload = btoa(unescape(encodeURIComponent(userDataStr)));
+        userPayload = encodeUserData(JSON.parse(userDataStr));
     }
     const response = await apiClient.post('/retrieveService', { user: userPayload });
     if (response.data.status === 'success') {
