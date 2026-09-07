@@ -133,7 +133,7 @@ const handleDeleteRole = async (role) => {
   try {
     const userStored = JSON.parse(localStorage.getItem('user') || '{}');
     const response = await postWithUser('/mgmt/deleteRoles', userStored, {
-      previlage_id: role.previlage_id
+      data: { previlage_id: role.previlage_id }
     });
     
     if (response.data.status === 'success') {
