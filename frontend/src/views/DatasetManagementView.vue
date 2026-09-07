@@ -142,7 +142,6 @@ const goToEdit = (dataset) => {
 
 const showAlert = (text, type) => {
     alertMessage.value = { text, type };
-    setTimeout(() => { alertMessage.value = { text: '', type: '' }; }, 3000);
 };
 
 // Access Management Methods
@@ -336,7 +335,7 @@ onMounted(() => {
       <!-- Alert -->
       <transition name="fade">
         <div v-if="alertMessage.text" :class="['alert-banner', alertMessage.type]">
-          <div style="flex: 1;">{{ alertMessage.text }}</div><button @click="alertMessage.text = ''" class="alert-close-btn" aria-label="Close alert">&times;</button>
+          <div style="flex: 1;">{{ alertMessage.text }}</div><button @click="alertMessage = { text: '', type: '' }" class="alert-close-btn" aria-label="Close alert">&times;</button>
         </div>
       </transition>
 
