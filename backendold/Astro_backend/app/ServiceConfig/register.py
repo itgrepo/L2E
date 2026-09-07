@@ -1099,7 +1099,7 @@ def registerSimple():
         firstname = dataInput.get('firstname', '')
         lastname = dataInput.get('lastname', '')
         organization = dataInput.get('organization', '')
-        link = dataInput.get('link', 'http://134.185.172.127:3003')
+        link = dataInput.get('link')
 
         import re
         if re.search(r'[<>"\'/;`%&]', username):
