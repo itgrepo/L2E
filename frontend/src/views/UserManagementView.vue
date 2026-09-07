@@ -539,6 +539,10 @@ h1 {
 /* Alert Banner */
 
 .alert-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
     padding: 14px 24px;
     border-radius: 12px;
     font-weight: 600;
@@ -563,6 +567,20 @@ h1 {
     background: #fef2f2;
     color: #991b1b;
     border: 1px solid #fee2e2;
+}
+
+.alert-close-btn {
+    background: transparent;
+    border: none;
+    font-size: 1.75rem;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.7;
+    padding: 0;
+    margin-top: -4px;
+}
+.alert-close-btn:hover {
+    opacity: 1;
 }
 
 /* Table Card */

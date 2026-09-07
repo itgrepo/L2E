@@ -730,6 +730,10 @@ h1 {
 
 /* Alerts */
 .alert-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
   padding: 12px 20px;
   border-radius: 12px;
   margin-bottom: 24px;
@@ -744,10 +748,10 @@ h1 {
     background: transparent;
     border: none;
     color: inherit;
-    font-size: 1.5rem;
+    font-size: 1.75rem;
     line-height: 1;
     cursor: pointer;
-    opacity: 0.6;
+    opacity: 0.7;
     padding: 0;
     margin: -4px -8px -4px 0;
     transition: opacity 0.2s;
