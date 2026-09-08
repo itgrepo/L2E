@@ -733,13 +733,7 @@ const formatScopeJson = (scopeJson) => {
               <label>API Description</label>
               <input type="text" v-model="apiForm.service_description" placeholder="รายละเอียด API">
             </div>
-            <div class="form-row">
-              <label>API Type <span class="required">*</span></label>
-              <select v-model="apiForm.api_type">
-                <option value="general">general</option>
-                <option value="scope">scope</option>
-              </select>
-            </div>
+
             <div class="form-row">
               <label>Status <span class="required">*</span></label>
               <select v-model="apiForm.api_enabled">
