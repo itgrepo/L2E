@@ -5,8 +5,12 @@ import apiClient, { postWithUser, encodeUserData } from '../utils/api';
 
 const activeTab = ref('general');
 const services = ref([]);
-const apiServices = computed(() => {
-  return services.value.filter(s => s.api_endpoint && s.api_endpoint.trim() !== '');
+const generalApiServices = computed(() => {
+  return services.value.filter(s => s.api_endpoint && s.api_endpoint.trim() !== '' && (!s.api_type || s.api_type === 'general'));
+});
+
+const scopeApiServices = computed(() => {
+  return services.value.filter(s => s.api_endpoint && s.api_endpoint.trim() !== '' && s.api_type === 'scope');
 });
 const isLoading = ref(false);
 const message = ref({ text: '', type: '' });
@@ -628,7 +632,7 @@ const formatScopeJson = (scopeJson) => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="svc in apiServices" :key="svc.service_id">
+              <tr v-for="svc in generalApiServices" :key="svc.service_id">
                 <td><strong>{{ svc.service_name }}</strong></td>
                 <td>{{ svc.api_endpoint }}</td>
                 <td>{{ svc.service_description || svc.service_name }}</td>
@@ -676,7 +680,7 @@ const formatScopeJson = (scopeJson) => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="svc in apiServices" :key="svc.service_id">
+              <tr v-for="svc in scopeApiServices" :key="svc.service_id">
                 <td><strong>{{ svc.service_name }}</strong></td>
                 <td>{{ svc.api_endpoint }}</td>
                 <td>{{ svc.service_description || svc.service_name }}</td>
