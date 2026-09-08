@@ -83,6 +83,7 @@ const fetchDatasetDetail = async () => {
           external_dashboard_url: found.external_dashboard_url,
           external_api_url: found.external_api_url,
           api_endpoint: found.api_endpoint,
+          api_type: found.api_type,
           has_access: found.has_access === 1 || found.has_access === '1' || found.has_access === true,
           permission_status: found.permission_status,
           api_response_fields: found.api_response_fields ? (typeof found.api_response_fields === 'string' ? JSON.parse(found.api_response_fields) : found.api_response_fields) : ['id', 'name', 'amount', 'date'],
@@ -477,7 +478,7 @@ watch(() => route.params.id, (newId) => {
               <div v-else class="api-cards" style="display: flex; flex-direction: column; gap: 1rem;">
                 
                 <!-- Card 1: File for API -->
-                <div class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
+                <div v-if="selectedDataset.file_path" class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
                   <h3 style="margin: 0 0 16px 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                     File for API
@@ -493,7 +494,7 @@ curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + (selectedDatase
                 </div>
 
                 <!-- Card 2: Public API -->
-                <div class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
+                <div v-if="!selectedDataset.api_type || selectedDataset.api_type === 'general'" class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
                   <h3 style="margin: 0 0 16px 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
                     Public API (General)
@@ -511,7 +512,7 @@ curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + (selectedDatase
                 
                 
 <!-- Card 3: Scope API -->
-                <div class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
+                <div v-if="selectedDataset.api_type === 'scope'" class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
                   <h3 style="margin: 0 0 16px 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
                     Scope API (Granular Access)
