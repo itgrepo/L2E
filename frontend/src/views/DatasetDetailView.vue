@@ -82,6 +82,7 @@ const fetchDatasetDetail = async () => {
           objective_type: found.objective_type || '-',
           external_dashboard_url: found.external_dashboard_url,
           external_api_url: found.external_api_url,
+          api_endpoint: found.api_endpoint,
           has_access: found.has_access === 1 || found.has_access === '1' || found.has_access === true,
           permission_status: found.permission_status,
           api_response_fields: found.api_response_fields ? (typeof found.api_response_fields === 'string' ? JSON.parse(found.api_response_fields) : found.api_response_fields) : ['id', 'name', 'amount', 'date'],
@@ -483,11 +484,11 @@ watch(() => route.params.id, (newId) => {
                   </h3>
                   <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px;">GET</div>
                   <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem;">
-                    {{ selectedDataset.external_api_url || apiBaseUrl + selectedDataset.dataset_id + '/file?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>
+                    {{ selectedDataset.external_api_url || apiBaseUrl + (selectedDataset.api_endpoint || selectedDataset.dataset_id) + '/file?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>
                   </code>
                   <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
                     <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
-curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + selectedDataset.dataset_id + '/file?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>"</pre>
+curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + (selectedDataset.api_endpoint || selectedDataset.dataset_id) + '/file?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>"</pre>
                   </div>
                 </div>
 
@@ -499,42 +500,17 @@ curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + selectedDataset
                   </h3>
                   <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px;">GET</div>
                   <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem;">
-                    {{ selectedDataset.external_api_url || apiBaseUrl + selectedDataset.dataset_id + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>
+                    {{ selectedDataset.external_api_url || apiBaseUrl + (selectedDataset.api_endpoint || selectedDataset.dataset_id) + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>
                   </code>
                   <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
                     <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
-curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + selectedDataset.dataset_id + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>"</pre>
+curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + (selectedDataset.api_endpoint || selectedDataset.dataset_id) + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>"</pre>
                   </div>
                 </div>
 
                 
-                <!-- Custom Endpoints List -->
-                <div v-if="customApiEndpoints.length > 0" class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white; margin-top: 1rem;">
-                  <h3 style="margin: 0 0 16px 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                    Custom API Endpoints
-                  </h3>
-                  <div v-for="ep in customApiEndpoints" :key="ep.api_endpoint" style="margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #1e293b;">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 8px;">
-                      <div>
-                        <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 8px;">GET</div>
-                        <strong style="color:#e2e8f0; margin-left:8px; font-size:1rem;">{{ ep.service_name }}</strong>
-                        <span style="background: #334155; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; margin-left: 8px; text-transform: uppercase;">{{ ep.api_type || 'general' }}</span>
-                      </div>
-                    </div>
-                    <p v-if="ep.description" style="color: #94a3b8; font-size: 0.85rem; margin: 0 0 12px 0;">{{ ep.description }}</p>
-                    <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 12px; font-size:0.9rem;">
-                      {{ apiBaseUrl + ep.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span><span v-if="ep.api_type === 'scope'">&[column_name]=[value]</span>
-                    </code>
-                    <div class="code-block" style="background: #1e293b; padding: 12px 16px; border-radius: 8px; position: relative;">
-                      <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
-curl -X GET "{{ apiBaseUrl + ep.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span><span v-if="ep.api_type === 'scope'">&[column_name]=[value]</span>"</pre>
-                    </div>
-                  </div>
-                </div>
-
-
-                <!-- Card 3: Scope API -->
+                
+<!-- Card 3: Scope API -->
                 <div class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
                   <h3 style="margin: 0 0 16px 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
@@ -542,11 +518,11 @@ curl -X GET "{{ apiBaseUrl + ep.api_endpoint + '?apikey=' }}<span class='blur-ke
                   </h3>
                   <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px;">GET</div>
                   <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem;">
-                    {{ selectedDataset.external_api_url || apiBaseUrl + selectedDataset.dataset_id + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>&[column_name]=[value]
+                    {{ selectedDataset.external_api_url || apiBaseUrl + (selectedDataset.api_endpoint || selectedDataset.dataset_id) + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>&[column_name]=[value]
                   </code>
                   <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
                     <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
-curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + selectedDataset.dataset_id + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>&[column_name]=[value]"
+curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + (selectedDataset.api_endpoint || selectedDataset.dataset_id) + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>&[column_name]=[value]"
 </pre>
                   </div>
                 </div>

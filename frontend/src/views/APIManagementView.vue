@@ -442,7 +442,7 @@ const saveAddApi = async () => {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     const payload = {
       user: encodeUserData(userData),
-      original_service_id: apiForm.value.report_id,
+      service_id: apiForm.value.report_id,
       api_name: apiForm.value.service_name,
       api_endpoint: apiForm.value.api_endpoint,
       api_description: apiForm.value.service_description,
@@ -453,7 +453,7 @@ const saveAddApi = async () => {
       api_request_fields: apiForm.value.request_fields,
       api_response_fields: apiForm.value.response_fields
     };
-    const res = await apiClient.post('/cloneServiceForApi', payload);
+    const res = await apiClient.post('/saveApiConfig', payload);
     if (res.data.status === 'success') {
       alert('สร้าง API Endpoint สำเร็จ!');
       showAddApiModal.value = false;
