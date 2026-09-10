@@ -1,5 +1,5 @@
 from ServiceConfig import *
-from app.ServiceConfig.email_service import notify_verification_email
+from ServiceConfig.email_service import notify_verification_email
 
 @app.route('/mgmt/addUser', methods=['POST'])
 def addUser():
