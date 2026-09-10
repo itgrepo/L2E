@@ -1075,38 +1075,32 @@ def sendMailUnlockAccount(token, email, link, username, user_id):
     data = cursor.fetchall()
     columns = [column[0] for column in cursor.description]
     result = toJson(data, columns)
-    firstname = result[0]['firstname']
-    lastname = result[0]['lastname']
+    firstname = result[0]['firstname'] if result[0]['firstname'] else username
+    lastname = result[0]['lastname'] if result[0]['lastname'] else ''
     conn.commit()
     cursor.close()
     conn.close()
     fromaddr = "Department Operation Center Team <adminbd@customs.go.th>"
     toaddr = email
-    random = randomStringDigits()
     msg = MIMEMultipart()
     msg['From'] = fromaddr
     msg['To'] = toaddr
     msg['Subject'] = "Unlock Account for Department Operation Center Team"
-    link = str(link) + "/unlock/" + str(token)
+    unlock_link = str(link) + "/unlock/" + str(token)
     footer = "<br><br><br>Department Operation Center Team" + \
       "<br>Call Center: +66" + "<br>Email: adminbd@customs.go.th"
-    # body = "<br/>Username: " + username + "<br/>Password: " + random + "<br/><p onClick='" + updatePassword(random, user_id) + "' style='text-indent:40px;padding-left:40px;padding-right:40px;font-size: 14px;width: 410px; margin-right: auto; margin-left: auto;'>You login fail more than five time on Department Operation Center Team<br> Before we get started, we just need to confirm that this is you.<br>Click below to unlock your account</p> <a href='" + str(link) + "' style='margin: 0 auto;display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #19b5fe;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Unlock Account</a>" + footer
-    body = "<p onClick='" + updatePassword(random, user_id) + "' style='font-size: 14px;'>Hi&nbsp;&nbsp;" + firstname + "&nbsp;" + lastname + "<br>Your account has been locked after five consecutive failed password attempts.<br>Please click \"" + "Unlock Account" + "\" button below and use the temporary password to access the Department Operation Center<br>Then we recommend you change the password right away to future security purpose.</p><br/><b>Password: </b>" + str(
-        random) + " <a href='" + str(link) + "' style='display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #19b5fe;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Unlock Account</a>" + footer
+    body = "<p style='font-size: 14px;'>Hi&nbsp;&nbsp;" + firstname + "&nbsp;" + lastname + "<br>Your account has been locked after five consecutive failed password attempts.<br>Please click the &quot;Unlock Account&quot; button below to unlock your account.<br>After unlocking, you can login with your existing password.</p><br/><a href='" + str(unlock_link) + "' style='display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #19b5fe;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Unlock Account</a>" + footer
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
         server = smtplib.SMTP_SSL(SERVER, 465)
         text = msg.as_string()
-        ##Login Mail server##
         server.login(username_mail, password_mail)
-        #-------------------#
         server.sendmail(fromaddr, toaddr, text)
         server.quit()
         return "success"
     except Exception as e:
         current_app.logger.info(e)
         return "error"
-        # return jsonify({"status": "Error: " + str(e)})
 
 
 @app.route('/unlockAccount', methods=['POST'])
