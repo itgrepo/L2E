@@ -1137,7 +1137,12 @@ const updateDatasetPrefix = () => {
 
               
 
+                
+                <div v-if="showGovConflict" style="margin-bottom: 20px; padding: 12px 16px; background: #fff3cd; border-left: 4px solid #ffc107; color: #856404; border-radius: 4px; font-size: 0.9rem;">
+                  <strong>ข้อควรระวัง (Data Governance Conflict):</strong> การตั้งค่าสิทธิ์เข้าถึงเป็นข้อมูลปิด (Private/Restricted) ขัดแย้งกับการระบุธรรมาภิบาลข้อมูลให้เป็น "ข้อมูลสาธารณะ" โปรดตรวจสอบให้แน่ใจก่อนทำการบันทึก
+                </div>
                 <div class="form-actions">
+
 
                 <button type="button" @click="resetForm" class="btn-cancel">ล้างค่า</button>
                 <button type="submit" class="btn-save" :disabled="isSubmitting">

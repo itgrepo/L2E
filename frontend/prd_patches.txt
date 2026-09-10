@@ -1,0 +1,15 @@
+/home/l2e-prd-dataexchange/L2E/frontend/patch_about.py
+/home/l2e-prd-dataexchange/L2E/frontend/patch_all_passwords.py
+/home/l2e-prd-dataexchange/L2E/frontend/patch_all_passwords2.py
+/home/l2e-prd-dataexchange/L2E/frontend/patch_approval.py
+/home/l2e-prd-dataexchange/L2E/frontend/patch_chinese_thai.py
+/home/l2e-prd-dataexchange/L2E/frontend/patch_contact.py
+/home/l2e-prd-dataexchange/L2E/frontend/patch_getpending.py
+/home/l2e-prd-dataexchange/L2E/frontend/patch_gov_conflict.py
+/home/l2e-prd-dataexchange/L2E/frontend/patch_login.py
+/home/l2e-prd-dataexchange/L2E/frontend/patch_register.py
+/home/l2e-prd-dataexchange/L2E/frontend/patch_request_dataset.py
+/home/l2e-prd-dataexchange/L2E/frontend/patch_toggle.py
+/home/l2e-prd-dataexchange/L2E/frontend/patch_tooltips.py
+/home/l2e-prd-dataexchange/L2E/frontend/patch_upload_req.py
+/home/l2e-prd-dataexchange/L2E/frontend/patch_usermgmt.py

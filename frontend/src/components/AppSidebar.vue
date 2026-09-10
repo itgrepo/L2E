@@ -51,8 +51,8 @@ onMounted(async () => {
 
 onMounted(() => {
   const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
-  if (savedUser.firstname) {
-    userName.value = `${savedUser.firstname} ${savedUser.lastname || ''}`;
+  if (savedUser.username) {
+    userName.value = `${savedUser.firstname || savedUser.username} ${savedUser.lastname || ''}`;
     userRole.value = savedUser.role || (savedUser.isAdmin === 'true' || savedUser.isAdmin === true ? 'Administrator' : 'User');
     userRoleId.value = String(savedUser.previlage_id);
     isAdmin.value = userRoleId.value === '4' || savedUser.isAdmin === 'true' || savedUser.isAdmin === true;
