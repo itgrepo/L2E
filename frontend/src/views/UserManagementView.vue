@@ -188,6 +188,25 @@ const handleRoleChange = async (user, newRoleId) => {
     }
 };
 
+
+const handleUnlockUser = async (user) => {
+    if (confirm(`ยืนยันการปลดล็อคบัญชี ${user.username} หรือไม่?`)) {
+        try {
+            const userStored = JSON.parse(localStorage.getItem('user') || '{}');
+            const response = await postWithUser('/mgmt/unlockUserByAdmin', userStored, { target_user_id: user.user_id });
+            if (response.data && response.data.status === 'success') {
+                alert('ปลดล็อคบัญชีสำเร็จ');
+                fetchUsers();
+            } else {
+                alert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status));
+            }
+        } catch (error) {
+            console.error('Error unlocking user:', error);
+            alert('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
+        }
+    }
+};
+
 const handleDeleteUser = async (user) => {
     if (!confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบผู้ใช้ "${user.username}"? การกระทำนี้ไม่สามารถกู้คืนได้`)) {
         return;
@@ -290,6 +309,10 @@ onMounted(() => {
                   </div>
                 </div>
                 <div class="actions-group">
+                  <button v-if="u.status_id == 6" class="unlock-btn" @click="handleUnlockUser(u)" title="ปลดล็อคบัญชี" style="background-color: #f59e0b; color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.75rem; font-weight: 600; margin-right: 8px;">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                      Unlock
+                  </button>
                   <button class="delete-btn" @click="handleDeleteUser(u)" title="ลบผู้ใช้">
                     <svg xmlns="http://www.w3.org/2000/svg" class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -358,7 +381,13 @@ onMounted(() => {
                   <div class="user-info">
                     <div class="user-avatar">{{ u.username.charAt(0).toUpperCase() }}</div>
                     <div>
-                        <div class="username-text">{{ u.username }}</div>
+                        <div class="username-text">
+                            {{ u.username }}
+                            <span v-if="u.status_id == 6" style="margin-left: 6px; background-color: #fee2e2; color: #ef4444; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #fca5a5; display: inline-flex; align-items: center; gap: 2px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0"></path></svg>
+                                Locked
+                            </span>
+                        </div>
                         <div class="user-id-text">ID: #{{ u.user_id }}</div>
                     </div>
                   </div>
@@ -369,6 +398,22 @@ onMounted(() => {
                   <span class="role-badge" :class="'role-' + u.previlage_id">
                     {{ u.previlage_name || 'No Role' }}
                   </span>
+                </td>
+                <td>
+                    <div class="role-selector-box">
+                      <select 
+                          :value="u.org_id" 
+                          @change="handleOrgChange(u, $event.target.value)"
+                          class="role-select"
+                          v-if="u.previlage_id == 3"
+                      >
+                          <option value="" disabled>เลือกหน่วยงาน</option>
+                          <option v-for="org in organizations" :key="org.org_id" :value="org.org_id">
+                              {{ org.org_name }}
+                          </option>
+                      </select>
+                      <span class="text-muted" v-else>-</span>
+                    </div>
                 </td>
                 <td>
                   <div class="actions-group">
@@ -383,6 +428,12 @@ onMounted(() => {
                           </option>
                       </select>
                     </div>
+
+                    <button v-if="u.status_id == 6" class="unlock-btn" @click="handleUnlockUser(u)" title="ปลดล็อคบัญชี" style="background-color: #f59e0b; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.85rem; font-weight: 600;">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                      Unlock
+                    </button>
+
                     <button class="delete-btn" @click="handleDeleteUser(u)" title="ลบผู้ใช้">
                       <svg xmlns="http://www.w3.org/2000/svg" class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

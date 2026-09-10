@@ -12,7 +12,7 @@ def addUser():
 
         conn = mysql.connect()
         cursor = conn.cursor()
-        sql = """SELECT user.user_id, user.national_id, user.national_id_book, user.email, cp.previlage_name, cp.previlage_id, user.username, user.create_at, user.org_id, org.org_name FROM `user`
+        sql = """SELECT user.status_id, user.user_id, user.national_id, user.national_id_book, user.email, cp.previlage_name, cp.previlage_id, user.username, user.create_at, user.org_id, org.org_name FROM `user`
                         LEFT JOIN codename_previlage as cp ON cp.previlage_id = user.previlage_id
                         LEFT JOIN organization org ON user.org_id = org.org_id
                             WHERE user.status_id != '7'"""
@@ -358,3 +358,35 @@ def deleteRoles():
         print("Error: ",str(e))
         return jsonify({"status": "Error"})
         # return jsonify({"result": "Error: " + str(e)})
+
+@app.route('/mgmt/unlockUserByAdmin', methods=['POST'])
+def unlockUserByAdmin():
+    try:
+        dataInput = request.json
+        user_data = safe_json_loads(platform_decode(dataInput.get('user', '')))
+        
+        if not user_data or not checkUserIsAdmin(user_data):
+            return jsonify({"status": "Permission Denied"})
+
+        target_user_id = dataInput.get('target_user_id')
+        if not target_user_id:
+             return jsonify({"status": "Missing target_user_id"})
+
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        sql = "UPDATE user SET status_id = 1, count_login = 0 WHERE user_id = %s"
+        cursor.execute(sql, (target_user_id,))
+        
+
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        logAction(user_data.get('user_id'), '/mgmt/unlockUserByAdmin', f'Admin unlocked user_id {target_user_id}', 'info')
+
+        return jsonify({"status": "success"})
+    except Exception as e:
+        import traceback
+        return jsonify({"status": "error", "message": str(e), "trace": traceback.format_exc()})
