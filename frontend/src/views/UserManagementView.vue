@@ -50,7 +50,7 @@ const formData = ref({
     password: '',
     previlage_id: 3,
     org_id: '',
-    status_id: 1,
+    status_id: 4,
     groups: []
 });
 const isSubmitting = ref(false);
@@ -73,7 +73,7 @@ const openAddModal = () => {
         email: '',
         password: '',
         previlage_id: 3,
-        status_id: 1,
+        status_id: 4,
         groups: []
     };
     showAddModal.value = true;
@@ -110,6 +110,7 @@ const handleSaveUser = async () => {
         const userStored = JSON.parse(localStorage.getItem('user') || '{}');
         const submitData = { ...formData.value };
         submitData.password = encodePassword(submitData.password);
+        submitData.link = window.location.origin;
         const response = await postWithUser('/mgmt/createUser', userStored, submitData);
         
         if (response.data.status === 'success') {

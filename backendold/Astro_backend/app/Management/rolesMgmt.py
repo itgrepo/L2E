@@ -1,4 +1,5 @@
 from ServiceConfig import *
+from app.ServiceConfig.email_service import notify_verification_email
 
 @app.route('/mgmt/addUser', methods=['POST'])
 def addUser():
@@ -245,6 +246,25 @@ def createUser():
             1, ''
         ))
         user_id = cursor.lastrowid
+        
+        # If pending verification (4), generate token and send email
+        if int(status_id) == 4:
+            import uuid
+            token = (str(uuid.uuid4()) + str(uuid.uuid1())).replace('-', '')
+            sql_token = "INSERT INTO token_register VALUES (NULL, %s, %s, %s, %s, CURRENT_TIMESTAMP)"
+            cursor.execute(sql_token, (token, username, email, 'active'))
+            
+            try:
+                # Use same LINK logic as registerSimple
+                # We can assume request.host_url or a fallback
+                fallback_link = "http://learn2earndatax.bde.go.th"
+                link = dataInput.get('link', fallback_link)
+                verify_url = f"{link}/verify/{token}"
+                notify_verification_email(username, '', verify_url, email)
+                print(f"DEBUG: Admin AddUser Verification Email sent. URL: {verify_url}")
+            except Exception as mail_err:
+                print("Could not send verification email in Admin AddUser: " + str(mail_err))
+
         
         # Insert user_activity
         sql_activity = """
