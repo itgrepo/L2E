@@ -182,6 +182,19 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
                 logAction(result_username[0]['user_id'], '/login', msg, 'warning')
                 triggerLoginFailureAlert(username, is_invalid_username=False, user_id=result_username[0]['user_id'])
                 if count_login >= 5:
+                    try:
+                        if email and check_email_format(email):
+                            import uuid
+                            token = (str(uuid.uuid4()) + str(uuid.uuid1())).replace('-', '')
+                            conn2 = mysql.connect()
+                            cursor2 = conn2.cursor()
+                            cursor2.execute("INSERT INTO token_unlock_account VALUES (NULL, %s, %s, %s, %s, CURRENT_TIMESTAMP)", (token, username, email, 'active'))
+                            conn2.commit()
+                            cursor2.close()
+                            conn2.close()
+                            sendMailUnlockAccount(token, email, link, username, result_username[0]['user_id'])
+                    except Exception as e:
+                        print("Error sending unlock email:", e)
                     return jsonify({"status": 'Your account is locked'})
                 else:
                     return jsonify({"status": 'not found', "attempts": count_login})
@@ -727,10 +740,8 @@ def randomStringDigits(stringLength=8):
 
 
 def updatePassword(password, user_id):
-    key = 'e9NHdT3GU6wBdWlw3RTqvrShGzyerRl4BaMhFeUI3v4j6U0opW5a19HQHDAHHCrhYXq8oG6D'.encode(
-        "utf-8")
-    msg = password.encode("utf-8")
-    passwordEncrypt = hmac.new(key, msg, hashlib.sha256).hexdigest()
+    import base64
+    passwordEncrypt = '$e$' + base64.b64encode(password.encode('utf-8')).decode('utf-8')[::-1]
     # conn = mysql.connect()
     # cursor = conn.cursor()
     # sql = "UPDATE user SET password = %s, create_at = CURRENT_TIMESTAMP WHERE user_id = %s"
