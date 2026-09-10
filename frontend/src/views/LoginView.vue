@@ -109,6 +109,7 @@ const handleLogin = async () => {
     } else if (result.status && result.status.includes('Please check in your email confirmation')) {
       errorMessage.value = 'กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ ตรวจสอบกล่องจดหมายของคุณ';
     } else if (result.status === 'not found' || result.status === 'username is incorrect') {
+      errorMessage.value = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง (Invalid username or password)';
     } else if (result.status === 'Your account is suspended') {
       errorMessage.value = 'บัญชีของคุณถูกระงับการใช้งานชั่วคราว กรุณาติดต่อผู้ดูแลระบบ';
     } else {
