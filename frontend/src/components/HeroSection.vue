@@ -18,7 +18,7 @@ onMounted(async () => {
         realStats.value = [
           { num: hero.datasets_count.toString(), label: 'ชุดข้อมูล' },
           { num: hero.organizations_count.toString(), label: 'หน่วยงานเครือข่าย' },
-          { num: (hero.api_calls_count > 1000 ? (hero.api_calls_count / 1000).toFixed(1) + 'k+' : hero.api_calls_count.toString()), label: 'API Calls/เดือน' }
+          { num: (hero.api_calls_count >= 1000000 ? (hero.api_calls_count / 1000000).toFixed(1) + 'M+' : hero.api_calls_count >= 1000 ? (hero.api_calls_count / 1000).toFixed(1) + 'k+' : hero.api_calls_count.toString()), label: 'API Calls/เดือน' }
         ];
       }
     }
