@@ -2727,3 +2727,91 @@ def toggleApiEnabled():
     except Exception as e:
         print("Error in toggleApiEnabled: " + str(e))
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/deleteApiService', methods=['POST'])
+@require_admin
+def deleteApiService():
+    try:
+        dataInput = request.json
+        service_id = dataInput.get('service_id')
+        
+        if not service_id:
+            return jsonify({'status': 'error', 'message': 'Missing service_id'})
+            
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        # Check if service is an API (has api_type)
+        cursor.execute("SELECT api_type FROM service WHERE service_id = %s", (service_id,))
+        row = cursor.fetchone()
+        if not row or not row[0]:
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': 'Cannot delete original dataset or service not found'})
+            
+        # Delete related metadata_permission just in case
+        cursor.execute("DELETE FROM metadata_permission WHERE service_id = %s", (service_id,))
+        # Delete related api_scopes
+        cursor.execute("DELETE FROM api_scopes WHERE service_id = %s", (service_id,))
+        
+        # Finally delete service
+        cursor.execute("DELETE FROM service WHERE service_id = %s", (service_id,))
+        conn.commit()
+        
+        cursor.close()
+        conn.close()
+        return jsonify({'status': 'success', 'message': 'API deleted successfully'})
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Delete API Error: {traceback.format_exc()}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/updateApiService', methods=['POST'])
+@require_admin
+def updateApiService():
+    try:
+        dataInput = request.json
+        service_id = dataInput.get('service_id')
+        
+        if not service_id:
+            return jsonify({'status': 'error', 'message': 'Missing service_id'})
+            
+        api_name = dataInput.get('api_name')
+        api_endpoint = dataInput.get('api_endpoint')
+        api_description = dataInput.get('api_description')
+        api_enabled = 1 if dataInput.get('api_enabled') in ['true', '1', True, 'Active = Enable'] else 0
+        api_type = dataInput.get('api_type')
+        api_db_name = dataInput.get('api_db_name')
+        api_source_name = dataInput.get('api_source_name')
+        
+        import json
+        req_fields = dataInput.get('api_request_fields', [])
+        res_fields = dataInput.get('api_response_fields', [])
+        req_str = json.dumps(req_fields) if isinstance(req_fields, list) else req_fields
+        res_str = json.dumps(res_fields) if isinstance(res_fields, list) else res_fields
+        
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        update_sql = """
+            UPDATE service 
+            SET service_name = %s, api_endpoint = %s, description = %s, api_enabled = %s, 
+                api_type = %s, api_db_name = %s, api_source_name = %s, 
+                api_request_fields = %s, api_response_fields = %s
+            WHERE service_id = %s
+        """
+        cursor.execute(update_sql, (
+            api_name, api_endpoint, api_description, api_enabled, 
+            api_type, api_db_name, api_source_name, 
+            req_str, res_str, service_id
+        ))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'status': 'success', 'message': 'API updated successfully'})
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Update API Error: {traceback.format_exc()}")
+        return jsonify({'status': 'error', 'message': str(e)})

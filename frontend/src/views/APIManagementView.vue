@@ -437,9 +437,61 @@ const removeScopeCondition = (index) => {
   scopeConditions.value.splice(index, 1);
 };
 
+
+const editingServiceId = ref(null);
+
+const editApiService = async (svc) => {
+  editingServiceId.value = svc.service_id;
+  apiForm.value = {
+    report_id: svc.original_service_id || svc.dataset_id || '', 
+    service_name: svc.service_name,
+    api_endpoint: svc.api_endpoint,
+    service_description: svc.description || svc.service_description || '',
+    api_type: svc.api_type || 'general',
+    api_enabled: svc.api_enabled == 1 ? 'Active = Enable' : 'Inactive',
+    api_db_name: svc.api_db_name || '',
+    api_source_name: svc.api_source_name || '',
+    request_fields: svc.api_request_fields ? (typeof svc.api_request_fields === 'string' ? JSON.parse(svc.api_request_fields) : svc.api_request_fields) : [],
+    response_fields: svc.api_response_fields ? (typeof svc.api_response_fields === 'string' ? JSON.parse(svc.api_response_fields) : svc.api_response_fields) : []
+  };
+  
+  if (svc.api_db_name) {
+    await fetchTables(svc.api_db_name);
+    if (svc.api_source_name) {
+      await fetchColumns(svc.api_db_name, svc.api_source_name);
+    }
+  }
+  
+  showAddApiModal.value = true;
+};
+
+const deleteApiService = async (svc) => {
+  if (!confirm(`Are you sure you want to delete API: ${svc.service_name}?`)) return;
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await apiClient.post('/deleteApiService', {
+      user: encodeUserData(userData),
+      service_id: svc.service_id
+    });
+    if (res.data.status === 'success') {
+      alert('API deleted successfully!');
+      fetchServices();
+    } else {
+      alert('Error: ' + res.data.message);
+    }
+  } catch(e) {
+    console.error(e);
+    alert('Error deleting API');
+  }
+};
+
 const saveAddApi = async () => {
-  if (!apiForm.value.report_id || !apiForm.value.api_endpoint) {
+  if (!editingServiceId.value && (!apiForm.value.report_id || !apiForm.value.api_endpoint)) {
     alert('กรุณากรอกข้อมูลให้ครบถ้วน (Report ID, API Endpoint)');
+    return;
+  }
+  if (editingServiceId.value && !apiForm.value.api_endpoint) {
+    alert('กรุณากรอก API Endpoint');
     return;
   }
   try {
@@ -457,7 +509,13 @@ const saveAddApi = async () => {
       api_request_fields: apiForm.value.request_fields,
       api_response_fields: apiForm.value.response_fields
     };
-    const res = await apiClient.post('/cloneServiceForApi', payload);
+    let res;
+    if (editingServiceId.value) {
+      payload.service_id = editingServiceId.value;
+      res = await apiClient.post('/updateApiService', payload);
+    } else {
+      res = await apiClient.post('/cloneServiceForApi', payload);
+    }
     if (res.data.status === 'success') {
       alert('สร้าง API Endpoint สำเร็จ!');
       showAddApiModal.value = false;
@@ -646,12 +704,18 @@ const formatScopeJson = (scopeJson) => {
                   <span :class="['status-badge', (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true) ? 'active' : 'inactive']">{{ (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true) ? 'ACTIVE' : 'INACTIVE' }}</span>
                 </td>
                 <td class="text-center">
-                  <button @click="openManageAccess(svc)" class="btn-outline">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                    BY USER
-                  </button>
+                  <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                    <button @click="openManageAccess(svc)" class="btn-outline" style="padding: 4px 8px; font-size: 0.8rem;" title="Manage Access">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                      BY USER
+                    </button>
+                    <button @click="editApiService(svc)" class="btn-icon" style="background-color:#e0f2fe; color:#0284c7; border:none; border-radius:4px; padding:6px; cursor:pointer;" title="Edit API">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    </button>
+                    <button @click="deleteApiService(svc)" class="btn-icon" style="background-color:#fee2e2; color:#ef4444; border:none; border-radius:4px; padding:6px; cursor:pointer;" title="Delete API">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -694,13 +758,21 @@ const formatScopeJson = (scopeJson) => {
                   <span :class="['status-badge', (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true) ? 'active' : 'inactive']">{{ (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true) ? 'ACTIVE' : 'INACTIVE' }}</span>
                 </td>
                 <td class="text-center">
-                  <button @click="openScopesForService(svc)" class="btn-outline">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    SCOPES
-                  </button>
+                  <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                    <button @click="openScopesForService(svc)" class="btn-outline" style="padding: 4px 8px; font-size: 0.8rem;" title="Manage Scopes">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      SCOPES
+                    </button>
+                    <button @click="editApiService(svc)" class="btn-icon" style="background-color:#e0f2fe; color:#0284c7; border:none; border-radius:4px; padding:6px; cursor:pointer;" title="Edit API">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    </button>
+                    <button @click="deleteApiService(svc)" class="btn-icon" style="background-color:#fee2e2; color:#ef4444; border:none; border-radius:4px; padding:6px; cursor:pointer;" title="Delete API">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
