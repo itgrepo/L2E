@@ -60,6 +60,7 @@ def sendMailConfirmRegister(id, token, email, link, firstname, lastname):
             server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=5)
         else:
             server = smtplib.SMTP(SERVER, MAIL_PORT, timeout=5)
+            server.starttls()
         
         if username_mail and password_mail:
             server.login(username_mail, password_mail)
@@ -91,6 +92,7 @@ def sendMailWelcomeForRegister(id,email, firstname, lastname,QRstr):
             server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=5)
         else:
             server = smtplib.SMTP(SERVER, MAIL_PORT, timeout=5)
+            server.starttls()
         
         if username_mail and password_mail:
             server.login(username_mail, password_mail)

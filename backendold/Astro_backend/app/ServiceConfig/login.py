@@ -572,11 +572,12 @@ def forgotPassword():
                 ##--Check Email--##
                 if check_email_format(result[0]['email']):
                     #-Have E-mail-#
-                    sendMailResetPassword(
+                    email_status = sendMailResetPassword(
                         token, result[0]['email'], link, result[0]['user_id'])
                     logAction(result[0]['user_id'],
                               '/forgotPassword', 'forgot password', 'info')
-                    # return 'success'
+                    if email_status == "error":
+                        return jsonify({"status": "error", "message": "Failed to send email. Please contact administrator."})
                     return jsonify({"status": "success"})
                 else:  # -Not have E-mail
                     updatePassword(randomStringDigits(), result[0]['user_id'])
@@ -630,6 +631,7 @@ def sendMailResetPassword(token, email, link, user_id):
             server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=10)
         else:
             server = smtplib.SMTP(SERVER, MAIL_PORT, timeout=10)
+            server.starttls()
         if username_mail and password_mail:
             server.login(username_mail, password_mail)
         text = msg.as_string()
@@ -988,6 +990,7 @@ def sendMailResetPasswordSuccess(email):
             server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=10)
         else:
             server = smtplib.SMTP(SERVER, MAIL_PORT, timeout=10)
+            server.starttls()
         text = msg.as_string()
         ##Login Mail server##
         if username_mail and password_mail:
@@ -1246,6 +1249,7 @@ def submitContact():
                 server = smtplib.SMTP_SSL(SERVER, int(os.environ.get('MAIL_PORT', 465)), timeout=5)
             else:
                 server = smtplib.SMTP(SERVER, int(os.environ.get('MAIL_PORT', 587)), timeout=5)
+                server.starttls()
                 # server.starttls() # Sometimes required
                 
             server.login(username_mail, password_mail)
