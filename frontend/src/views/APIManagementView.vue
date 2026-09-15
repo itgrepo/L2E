@@ -440,6 +440,12 @@ const removeScopeCondition = (index) => {
 
 const editingServiceId = ref(null);
 
+const tryParseJson = (str) => {
+  if (!str) return [];
+  if (typeof str !== 'string') return str;
+  try { return JSON.parse(str); } catch (e) { return []; }
+};
+
 const editApiService = async (svc) => {
   editingServiceId.value = svc.service_id;
   apiForm.value = {
@@ -451,14 +457,14 @@ const editApiService = async (svc) => {
     api_enabled: svc.api_enabled == 1 ? 'Active = Enable' : 'Inactive',
     api_db_name: svc.api_db_name || '',
     api_source_name: svc.api_source_name || '',
-    request_fields: svc.api_request_fields ? (typeof svc.api_request_fields === 'string' ? JSON.parse(svc.api_request_fields) : svc.api_request_fields) : [],
-    response_fields: svc.api_response_fields ? (typeof svc.api_response_fields === 'string' ? JSON.parse(svc.api_response_fields) : svc.api_response_fields) : []
+    request_fields: tryParseJson(svc.api_request_fields),
+    response_fields: tryParseJson(svc.api_response_fields)
   };
   
   if (svc.api_db_name) {
     await fetchTables(svc.api_db_name);
     if (svc.api_source_name) {
-      await fetchColumns(svc.api_db_name, svc.api_source_name);
+      await onTableChange();
     }
   }
   
