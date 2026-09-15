@@ -621,7 +621,7 @@ def sendMailResetPassword(token, email, link, user_id):
         <h2 style="color: #1e293b;">Reset Password</h2>
         <p>Hi {firstname} {lastname},</p>
         <p>คุณได้ส่งคำขอรีเซ็ตรหัสผ่านเข้ามาในระบบ กรุณาคลิกปุ่มด้านล่างเพื่อตั้งรหัสผ่านใหม่:</p>
-        <a href="{link}" style="display: inline-block; padding: 14px 28px; margin: 20px 0; background-color: #db2777; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold;">ตั้งรหัสผ่านใหม่</a>
+        <a href="{link}" style="display: inline-block; padding: 14px 28px; margin: 20px 0; background-color: #008236; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold;">ตั้งรหัสผ่านใหม่</a>
         <p style="color: #64748b; font-size: 0.875rem;">หากคุณไม่ได้ร้องขอ สามารถเพิกเฉยอีเมลนี้ได้ ลิงก์จะหมดอายุโดยอัตโนมัติ</p>
         {footer}
     </div>""".format(firstname=firstname, lastname=lastname, link=reset_link, footer=footer)
@@ -1092,7 +1092,7 @@ def sendMailUnlockAccount(token, email, link, username, user_id):
     unlock_link = str(link) + "/unlock/" + str(token)
     footer = "<br><br><br>Department Operation Center Team" + \
       "<br>Call Center: +66" + "<br>Email: adminbd@customs.go.th"
-    body = "<p style='font-size: 14px;'>Hi&nbsp;&nbsp;" + firstname + "&nbsp;" + lastname + "<br>Your account has been locked after five consecutive failed password attempts.<br>Please click the &quot;Unlock Account&quot; button below to unlock your account.<br>After unlocking, you can login with your existing password.</p><br/><a href='" + str(unlock_link) + "' style='display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #19b5fe;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Unlock Account</a>" + footer
+    body = "<p style='font-size: 14px;'>Hi&nbsp;&nbsp;" + firstname + "&nbsp;" + lastname + "<br>Your account has been locked after five consecutive failed password attempts.<br>Please click the &quot;Unlock Account&quot; button below to unlock your account.<br>After unlocking, you can login with your existing password.</p><br/><a href='" + str(unlock_link) + "' style='display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #008236;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Unlock Account</a>" + footer
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
         server = smtplib.SMTP_SSL(SERVER, 465)
