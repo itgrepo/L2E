@@ -448,8 +448,35 @@ const tryParseJson = (str) => {
 
 const editApiService = async (svc) => {
   editingServiceId.value = svc.service_id;
+  
+  let originalServiceId = '';
+  if (svc.dataset_id && svc.dataset_id.startsWith('API_CLONE_')) {
+    const prefix = 'API_CLONE_';
+    const suffix = '_' + svc.api_endpoint;
+    if (svc.dataset_id.startsWith(prefix) && svc.dataset_id.endsWith(suffix)) {
+      const origDatasetId = svc.dataset_id.substring(prefix.length, svc.dataset_id.length - suffix.length);
+      const found = services.value.find(s => s.dataset_id === origDatasetId || String(s.service_id) === origDatasetId);
+      if (found) {
+        originalServiceId = found.service_id;
+      }
+    } else {
+       // if it doesn't end with suffix (maybe api_endpoint changed before), just try to extract the middle part naively
+       const parts = svc.dataset_id.split('_');
+       if (parts.length >= 3) {
+           const origDatasetId = parts[2];
+           const found = services.value.find(s => s.dataset_id === origDatasetId || String(s.service_id) === origDatasetId);
+           if (found) originalServiceId = found.service_id;
+       }
+    }
+  }
+  // Also try searching for a service that has the EXACT same name, but isn't an API (if dataset_id logic fails)
+  if (!originalServiceId) {
+      const found = services.value.find(s => s.service_name === svc.service_name && !s.api_endpoint);
+      if (found) originalServiceId = found.service_id;
+  }
+  
   apiForm.value = {
-    report_id: svc.original_service_id || svc.dataset_id || '', 
+    report_id: originalServiceId, 
     service_name: svc.service_name,
     api_endpoint: svc.api_endpoint,
     service_description: svc.description || svc.service_description || '',
