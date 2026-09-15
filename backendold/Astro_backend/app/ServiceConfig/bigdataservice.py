@@ -2749,10 +2749,12 @@ def deleteApiService():
             conn.close()
             return jsonify({'status': 'error', 'message': 'Cannot delete original dataset or service not found'})
             
-        # Delete related metadata_permission just in case
-        cursor.execute("DELETE FROM metadata_permission WHERE service_id = %s", (service_id,))
-        # Delete related api_scopes
-        cursor.execute("DELETE FROM api_scopes WHERE service_id = %s", (service_id,))
+        # Delete related metadata_permission (it uses metadata_id)
+        cursor.execute("DELETE FROM metadata_permission WHERE metadata_id = %s", (service_id,))
+        
+        # Delete related api_scopes and credentials
+        cursor.execute("DELETE FROM api_scopes WHERE credential_id IN (SELECT credential_id FROM api_credentials WHERE service_id = %s)", (service_id,))
+        cursor.execute("DELETE FROM api_credentials WHERE service_id = %s", (service_id,))
         
         # Finally delete service
         cursor.execute("DELETE FROM service WHERE service_id = %s", (service_id,))
