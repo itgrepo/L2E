@@ -140,6 +140,7 @@ onMounted(() => {
               <th>ชื่อหน่วยงาน</th>
               <th>ชุดข้อมูลที่ขอ</th>
               <th>เหตุผลที่ขอ</th>
+              <th>เอกสารแนบ</th>
               <th>วันที่ขอ</th>
               <th>จัดการ</th>
             </tr>
@@ -151,7 +152,13 @@ onMounted(() => {
               <td>{{ req.email }}</td>
               <td>{{ req.organization || '-' }}</td>
               <td>{{ req.service_name || req.service_id }}</td>
-              <td>{{ req.reason || '-' }}</td>
+              <td style="max-width: 200px; white-space: normal; font-size: 0.85rem;">{{ req.reason || '-' }}</td>
+              <td>
+                <a v-if="req.mou_file_path" :href="`/api/downloadRequestMou/${req.request_id}`" target="_blank" class="btn-mou-download" title="คลิกเพื่อดูหรือดาวน์โหลดเอกสารแนบ">
+                  📄 ดูไฟล์แนบ
+                </a>
+                <span v-else style="color: #94a3b8; font-size: 0.85rem;">-</span>
+              </td>
               <td>{{ req.created_at }}</td>
               <td>
                 <div v-if="req.status === 'Pending'" class="action-buttons">
@@ -174,8 +181,22 @@ onMounted(() => {
     <div v-if="showModal" class="modal-backdrop">
       <div class="modal-card">
         <h3>อนุมัติสิทธิ์การเข้าถึงข้อมูล</h3>
-        <p class="mb-4 text-sm text-slate-500">เลือกกำหนดระดับการเข้าถึงข้อมูลให้กับ <strong>{{ selectedRequest?.username }}</strong> สำหรับชุดข้อมูล <strong>{{ selectedRequest?.service_name || selectedRequest?.service_id }}</strong></p>
+        <p class="mb-4 text-sm text-slate-500">เลือกกำหนดระดับการเข้าถึงข้อมูลให้กับ <strong>{{ selectedRequest?.firstname }} {{ selectedRequest?.lastname }} ({{ selectedRequest?.username }})</strong> สำหรับชุดข้อมูล <strong>{{ selectedRequest?.service_name || selectedRequest?.service_id }}</strong></p>
         
+        <div v-if="selectedRequest?.mou_file_path" style="margin-bottom: 16px; padding: 12px 14px; background: #f1f5f9; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #e2e8f0;">
+          <div>
+            <div style="font-weight: 600; font-size: 0.85rem; color: #1e293b;">📄 เอกสารแนบคำขอ:</div>
+            <div style="font-size: 0.8rem; color: #64748b;">{{ selectedRequest?.mou_filename || 'เอกสารประกอบคำขอ' }}</div>
+          </div>
+          <a :href="`/api/downloadRequestMou/${selectedRequest?.request_id}`" target="_blank" style="display: inline-block; padding: 6px 14px; background: #008236; color: white; border-radius: 6px; font-size: 0.85rem; text-decoration: none; font-weight: 600;">
+            เปิดดูไฟล์
+          </a>
+        </div>
+
+        <div v-if="selectedRequest?.reason" style="margin-bottom: 16px; padding: 10px 14px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 0.85rem;">
+          <strong style="color: #334155;">วัตถุประสงค์:</strong> <span style="color: #475569;">{{ selectedRequest.reason }}</span>
+        </div>
+
         <div class="form-group checkbox-group">
           <label>
             <input type="checkbox" v-model="granularForm.allow_dictionary">
@@ -355,11 +376,31 @@ onMounted(() => {
 }
 
 .btn-confirm {
-  background: var(--mso-accent, #2563eb);
+  background: var(--mso-accent, #008236);
   color: white;
   border: none;
   padding: 8px 16px;
   border-radius: 6px;
   cursor: pointer;
+  font-weight: 600;
+}
+
+.btn-mou-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #008236;
+  font-weight: 600;
+  font-size: 0.8rem;
+  border-radius: 6px;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+.btn-mou-download:hover {
+  background: #e2e8f0;
+  border-color: #008236;
 }
 </style>

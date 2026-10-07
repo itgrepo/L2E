@@ -39,3 +39,32 @@ def downloadFile(service_id):
             
     except Exception as e:
         return jsonify({"status": "Error: " + str(e)}), 500
+
+
+@app.route('/downloadRequestMou/<int:request_id>', methods=['GET'])
+def downloadRequestMou(request_id):
+    try:
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        sql = "SELECT mou_file_path, mou_filename FROM dataset_permission_requests WHERE request_id = %s"
+        cursor.execute(sql, (request_id,))
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if result and result[0]:
+            file_name = result[0]
+            if os.path.exists(os.path.join(UPLOAD_FOLDER, file_name)):
+                # If attachment filename is provided, pass download_name / attachment_filename
+                try:
+                    return send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, download_name=result[1] or file_name)
+                except TypeError:
+                    return send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, attachment_filename=result[1] or file_name)
+            else:
+                return jsonify({"status": "File not found on server"}), 404
+        else:
+            return jsonify({"status": "No attached file found for this request"}), 404
+            
+    except Exception as e:
+        return jsonify({"status": "Error: " + str(e)}), 500
+

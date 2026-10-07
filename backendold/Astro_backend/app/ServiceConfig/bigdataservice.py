@@ -2272,11 +2272,32 @@ def request_dataset_permission():
         service_id = dataInput.get('service_id')
         fields = dataInput.get('fields', [])
         reason = dataInput.get('reason', '')
+        mou_file_base64 = dataInput.get('mou_file')
+        mou_filename = dataInput.get('mou_filename', '')
         
         if not user_id or not service_id:
             return jsonify({'status': 'error', 'message': 'Missing user or service ID'}), 400
             
         fields_json = json.dumps(fields)
+        
+        mou_file_path = None
+        if mou_file_base64 and mou_filename:
+            try:
+                import time
+                if ',' in mou_file_base64:
+                    header, base64_data = mou_file_base64.split(',', 1)
+                else:
+                    base64_data = mou_file_base64
+                file_bytes = base64.b64decode(base64_data)
+                
+                clean_name = secure_filename(mou_filename) or 'mou_document.pdf'
+                saved_filename = f"mou_req_{user_id}_{service_id}_{int(time.time())}_{clean_name}"
+                saved_filepath = os.path.join(UPLOAD_FOLDER, saved_filename)
+                with open(saved_filepath, 'wb') as f:
+                    f.write(file_bytes)
+                mou_file_path = saved_filename
+            except Exception as fe:
+                current_app.logger.warning(f"Error saving MOU file: {fe}")
         
         conn = mysql.connect()
         cursor = conn.cursor()
@@ -2290,9 +2311,9 @@ def request_dataset_permission():
             return jsonify({'status': 'error', 'message': 'คุณได้ส่งคำขอที่อยู่ระหว่างรอดำเนินการสำหรับชุดข้อมูลนี้แล้ว'}), 400
             
         # Insert request
-        sql_insert = """INSERT INTO dataset_permission_requests (user_id, service_id, fields_json, reason, status) 
-                        VALUES (%s, %s, %s, %s, 'Pending')"""
-        cursor.execute(sql_insert, (user_id, service_id, fields_json, reason))
+        sql_insert = """INSERT INTO dataset_permission_requests (user_id, service_id, fields_json, reason, status, mou_file_path, mou_filename) 
+                        VALUES (%s, %s, %s, %s, 'Pending', %s, %s)"""
+        cursor.execute(sql_insert, (user_id, service_id, fields_json, reason, mou_file_path, mou_filename))
         conn.commit()
         
         # Log the action
@@ -2345,8 +2366,9 @@ def get_pending_dataset_requests():
         cursor = conn.cursor()
         if filter_status == 'All':
             sql = """SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
-                            u.username, u.firstname, u.lastname, u.email,
-                            s.service_name, s.dataset_id
+                            r.mou_file_path, r.mou_filename,
+                            u.username, u.firstname, u.lastname, u.email, u.organization,
+                            s.service_name, s.dataset_id, s.organization as dataset_org
                      FROM dataset_permission_requests r
                      JOIN user u ON r.user_id = u.user_id
                      JOIN service s ON r.service_id = s.service_id
@@ -2354,8 +2376,9 @@ def get_pending_dataset_requests():
             cursor.execute(sql)
         else:
             sql = """SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
-                            u.username, u.firstname, u.lastname, u.email,
-                            s.service_name, s.dataset_id
+                            r.mou_file_path, r.mou_filename,
+                            u.username, u.firstname, u.lastname, u.email, u.organization,
+                            s.service_name, s.dataset_id, s.organization as dataset_org
                      FROM dataset_permission_requests r
                      JOIN user u ON r.user_id = u.user_id
                      JOIN service s ON r.service_id = s.service_id
