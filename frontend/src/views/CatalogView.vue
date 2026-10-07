@@ -141,7 +141,16 @@ const isModalOpen = ref(false);
 const isPreviewModalOpen = ref(false);
 const previewType = ref('');
 const selectedDataset = ref(null);
-const activeTab = ref('info');
+const catIsCsv = computed(() => {
+  const path = selectedDataset.value?.file_path;
+  return path ? path.toLowerCase().endsWith('.csv') : false;
+});
+const catIsExcel = computed(() => {
+  const p1 = selectedDataset.value?.excel_file_path;
+  const p2 = selectedDataset.value?.file_path;
+  const path = p1 || (p2 && (p2.toLowerCase().endsWith('.xls') || p2.toLowerCase().endsWith('.xlsx')) ? p2 : '');
+  return path ? (path.toLowerCase().endsWith('.xls') || path.toLowerCase().endsWith('.xlsx')) : false;
+});
 
 const openPreview = (type) => {
   previewType.value = type;
@@ -745,8 +754,8 @@ onMounted(async () => {
                     <h4>ดาวน์โหลดข้อมูล</h4>
                     <p>ดาวน์โหลดไฟล์ข้อมูลต้นฉบับในรูปแบบต่างๆ</p>
                     <div class="download-buttons">
-                      <button class="btn-download csv" @click="openPreview('CSV')">CSV</button>
-                      <button class="btn-download xls" @click="openPreview('Excel')">Excel</button>
+                      <button class="btn-download csv" :disabled="!catIsCsv" @click="openPreview('CSV')">CSV</button>
+                      <button class="btn-download xls" :disabled="!catIsExcel" @click="openPreview('Excel')">Excel</button>
                     </div>
                     <button v-if="selectedDataset?.file_path" class="btn-primary-outline w-full mt-4" @click="openPreview('ไฟล์แนบต้นฉบับ')">ดาวน์โหลดไฟล์แนบ</button>
                   </div>
@@ -1782,19 +1791,40 @@ onMounted(async () => {
 
 .btn-download {
   flex: 1;
+  min-width: 70px;
   padding: 10px;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background-color: white;
+  border: 1px solid #cbd5e1;
+  background-color: #e2e8f0;
+  color: #94a3b8;
   font-size: 0.8125rem;
   font-weight: 700;
-  cursor: pointer;
+  cursor: not-allowed;
   transition: all 0.2s;
+  text-align: center;
 }
 
-.btn-download:hover {
-  border-color: var(--primary);
-  color: var(--primary);
+.btn-download:not(:disabled) {
+  background-color: #008236;
+  color: #ffffff;
+  border-color: #008236;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 130, 54, 0.2);
+}
+
+.btn-download:hover:not(:disabled) {
+  background-color: #00682b;
+  border-color: #00682b;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.btn-download:disabled, .btn-download.disabled {
+  background-color: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+  border-color: #cbd5e1;
+  opacity: 0.85;
 }
 
 .btn-primary-outline {

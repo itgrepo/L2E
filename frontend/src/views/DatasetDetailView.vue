@@ -255,18 +255,27 @@ const apiIsCsv = computed(() => {
   return path ? path.toLowerCase().endsWith('.csv') : false;
 });
 const apiIsExcel = computed(() => {
-  const path = selectedDataset.value?.excel_file_path;
+  const p1 = selectedDataset.value?.excel_file_path;
+  const p2 = selectedDataset.value?.file_path;
+  const path = p1 || (p2 && (p2.toLowerCase().endsWith('.xls') || p2.toLowerCase().endsWith('.xlsx')) ? p2 : '');
   return path ? (path.toLowerCase().endsWith('.xls') || path.toLowerCase().endsWith('.xlsx')) : false;
+});
+const apiIsJson = computed(() => {
+  const path = selectedDataset.value?.file_path;
+  return path ? path.toLowerCase().endsWith('.json') : false;
+});
+const apiIsXml = computed(() => {
+  const path = selectedDataset.value?.file_path;
+  return path ? path.toLowerCase().endsWith('.xml') : false;
 });
 
 const openPreview = (format) => {
   if (selectedDataset.value) {
-    
     let fileTypeParam = 'data';
     const fmt = String(format || '').toUpperCase();
     if (fmt === 'DICTIONARY') fileTypeParam = 'dictionary';
     else if (fmt === 'SAMPLING') fileTypeParam = 'sampling';
-    else if (fmt === 'EXCEL') fileTypeParam = 'excel';
+    else if (fmt === 'EXCEL' || fmt === 'XLS' || fmt === 'XLSX') fileTypeParam = 'excel';
     
     // Fallback: If they want data (CSV) but it's null, and dictionary exists, download dictionary instead
     if (fileTypeParam === 'data' && !selectedDataset.value.file_path && selectedDataset.value.data_dictionary_path) {
@@ -275,7 +284,6 @@ const openPreview = (format) => {
     
     // For CSV, XLS, API, etc. it corresponds to the main data file.
     window.open(`/api/downloadFile/${selectedDataset.value.id}?type=${fileTypeParam}`, '_blank');
-
   } else {
     alert(`กำลังเปิดดาวน์โหลดไฟล์/แสดงพรีวิวในรูปแบบ ${format}`);
   }
@@ -422,9 +430,11 @@ watch(() => route.params.id, (newId) => {
                   <div v-if="selectedDataset.has_access" class="action-card">
                     <h4>API</h4>
                     <p style="font-size: 0.85rem; color: #64748b; margin-top: 4px;">ดาวน์โหลดไฟล์ข้อมูลต้นฉบับ</p>
-                    <div class="download-buttons" style="margin-top: 12px; display: flex; gap: 8px;">
+                    <div class="download-buttons" style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
                       <button class="btn-download csv" :disabled="!apiIsCsv" @click="openPreview('CSV')" title="ดาวน์โหลดไฟล์ในรูปแบบ CSV">CSV</button>
                       <button class="btn-download xls" :disabled="!apiIsExcel" @click="openPreview('Excel')" title="ดาวน์โหลดไฟล์ในรูปแบบ Excel">Excel</button>
+                      <button v-if="apiIsXml" class="btn-download xml" @click="openPreview('XML')" title="ดาวน์โหลดไฟล์ในรูปแบบ XML">XML</button>
+                      <button v-if="apiIsJson" class="btn-download json" @click="openPreview('JSON')" title="ดาวน์โหลดไฟล์ในรูปแบบ JSON">JSON</button>
                     </div>
                     
                     <!-- Additional API specific files -->
@@ -935,20 +945,32 @@ h1 {
 
 .btn-download {
   flex: 1;
+  min-width: 70px;
   padding: 10px;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background-color: white;
+  border: 1px solid #cbd5e1;
+  background-color: #e2e8f0;
+  color: #94a3b8;
   font-size: 0.8125rem;
   font-weight: 700;
-  cursor: pointer;
+  cursor: not-allowed;
   transition: all 0.2s;
+  text-align: center;
+}
+
+.btn-download:not(:disabled) {
+  background-color: #008236;
+  color: #ffffff;
+  border-color: #008236;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 130, 54, 0.2);
 }
 
 .btn-download:hover:not(:disabled) {
-  border-color: var(--mso-accent, var(--primary));
-  color: var(--mso-accent, var(--primary));
-  background-color: #f0fdf4;
+  background-color: #00682b;
+  border-color: #00682b;
+  color: #ffffff;
+  transform: translateY(-1px);
 }
 
 .btn-download:disabled, .btn-download.disabled {
@@ -956,12 +978,7 @@ h1 {
   color: #94a3b8;
   cursor: not-allowed;
   border-color: #cbd5e1;
-}
-
-.btn-download:not(:disabled) {
-  background-color: var(--mso-accent, var(--primary));
-  color: white;
-  border-color: var(--mso-accent, var(--primary));
+  opacity: 0.85;
 }
 
 .btn-primary-outline {
