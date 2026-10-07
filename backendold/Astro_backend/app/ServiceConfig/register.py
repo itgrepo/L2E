@@ -48,11 +48,22 @@ def sendMailConfirmRegister(id, token, email, link, firstname, lastname):
     msg = MIMEMultipart()
     msg['From'] = fromaddr
     msg['To'] = toaddr
-    msg['Subject'] = "Verify Email Address for Department Operation Center"
-    link = str(link) + "/verify/" + str(token)
-    footer = "<br><br><br>Department Operation Center" + "<br>Call Center: +66 " + "<br>Email: adminbd@customs.go.th"
-    body = "<p style='font-size: 14px;width: 550px;'>Hi&nbsp;&nbsp;" + firstname + "&nbsp;" + lastname + "<br>Thank you for signing up with Department Operation Center.<br> Please click the \"Verify Email\" button below to verify your email address.</p> <a href='" + str(
-        link) + "' style='margin: 0 auto;display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #10b981;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Verify Email</a>" + footer
+    msg['Subject'] = "ยืนยันอีเมลของคุณ - Data Exchange"
+    verify_url = str(link) + "/verify/" + str(token)
+    fullname = f"{firstname} {lastname}".strip()
+    body = f"""
+    <div style="font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
+        <h2 style="color: #008236; margin-top: 0; font-size: 20px; font-weight: 700;">ยืนยันอีเมลของคุณ</h2>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 8px;">สวัสดีคุณ {fullname}</p>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 8px;">ขอบคุณที่สมัครสมาชิก Data Exchange</p>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 24px;">กรุณาคลิกปุ่มด้านล่างเพื่อยืนยันอีเมลและเปิดใช้งานบัญชีของคุณ</p>
+        <div style="text-align: center; margin: 28px 0;">
+            <a href="{verify_url}" style="display: inline-block; padding: 12px 32px; background-color: #008236; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">ยืนยันอีเมล</a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 0;">หากคุณไม่ได้ลงทะเบียนบัญชีนี้ โปรดเพิกเฉยต่ออีเมลฉบับนี้</p>
+    </div>
+    """
 
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:

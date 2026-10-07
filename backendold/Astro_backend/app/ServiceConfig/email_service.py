@@ -116,17 +116,19 @@ def notify_added_to_group(group_name, to_emails):
     """
     send_email_async(to_emails, subject, body)
 def notify_verification_email(firstname, lastname, verify_url, to_emails):
-    subject = "Verify Email Address for DataX Portal"
+    subject = "ยืนยันอีเมลของคุณ - Data Exchange"
+    fullname = f"{firstname} {lastname}".strip()
     body = f"""
-    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-        <h2 style="color: #10b981;">Verify Your Email Address</h2>
-        <p>Hi {firstname} {lastname},</p>
-        <p>Thank you for signing up with DataX Portal.</p>
-        <p>Please click the button below to verify your email address and activate your account:</p>
-        <br>
-        <a href="{verify_url}" style="display: inline-block; padding: 12px 24px; background-color: #10b981; color: white; text-decoration: none; border-radius: 4px; font-weight: bold;">Verify Email</a>
-        <br><br>
-        <p style="font-size: 12px; color: #777;">If you did not register for an account, please ignore this email.</p>
+    <div style="font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
+        <h2 style="color: #008236; margin-top: 0; font-size: 20px; font-weight: 700;">ยืนยันอีเมลของคุณ</h2>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 8px;">สวัสดีคุณ {fullname}</p>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 8px;">ขอบคุณที่สมัครสมาชิก Data Exchange</p>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 24px;">กรุณาคลิกปุ่มด้านล่างเพื่อยืนยันอีเมลและเปิดใช้งานบัญชีของคุณ</p>
+        <div style="text-align: center; margin: 28px 0;">
+            <a href="{verify_url}" style="display: inline-block; padding: 12px 32px; background-color: #008236; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">ยืนยันอีเมล</a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 0;">หากคุณไม่ได้ลงทะเบียนบัญชีนี้ โปรดเพิกเฉยต่ออีเมลฉบับนี้</p>
     </div>
     """
     send_email_async(to_emails, subject, body)
