@@ -1247,7 +1247,7 @@ def submitContact():
         message = dataInput.get('message', 'No Message')
         
         try:
-            fromaddr = "Department Operation Center Team <" + username_mail + ">"
+            fromaddr = MAIL_FROM
             toaddr = "learn2earn@bde.go.th"
             msg = MIMEMultipart()
             msg['From'] = fromaddr
@@ -1266,34 +1266,40 @@ def submitContact():
             msg.attach(MIMEText(body, 'html', "utf-8"))
             
             if MAIL_USE_SSL:
-                server = smtplib.SMTP_SSL(SERVER, int(os.environ.get('MAIL_PORT', 465)), timeout=5)
+                server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=10)
             else:
-                server = smtplib.SMTP(SERVER, int(os.environ.get('MAIL_PORT', 587)), timeout=5)
+                server = smtplib.SMTP(SERVER, MAIL_PORT, timeout=10)
                 server.starttls()
                 
-            server.login(username_mail, password_mail)
+            if username_mail and password_mail:
+                server.login(username_mail, password_mail)
             
             # Send to admin
             text = msg.as_string()
             server.sendmail(fromaddr, toaddr, text)
+            print(f"DEBUG: Contact email sent to admin ({toaddr}) successfully")
 
             # Send confirmation to user
-            if email and email != 'No Email':
+            if email and email != 'No Email' and check_email_format(email):
                 msg_user = MIMEMultipart()
                 msg_user['From'] = fromaddr
                 msg_user['To'] = email
                 msg_user['Subject'] = f"ยืนยันการรับเรื่องติดต่อ: {subject}"
                 user_body = f"""
-                <h3>สวัสดีคุณ {name},</h3>
-                <p>ทางเราได้รับข้อความติดต่อของคุณเรียบร้อยแล้ว ทีมงานจะดำเนินการตรวจสอบและติดต่อกลับโดยเร็วที่สุด</p>
-                <hr>
-                <p><b>รายละเอียดข้อความของคุณ:</b><br/>{message.replace(chr(10), '<br/>')}</p>
+                <div style="font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
+                    <h2 style="color: #008236; margin-top: 0;">เรียนคุณ {name}</h2>
+                    <p style="font-size: 15px; line-height: 1.6;">ทางเราได้รับข้อความติดต่อของคุณเรียบร้อยแล้ว ทีมงานจะดำเนินการตรวจสอบและติดต่อกลับโดยเร็วที่สุด</p>
+                    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 16px 0;">
+                    <p style="font-size: 14px; color: #475569;"><b>รายละเอียดข้อความ:</b><br/>{message.replace(chr(10), '<br/>')}</p>
+                </div>
                 """
                 msg_user.attach(MIMEText(user_body, 'html', "utf-8"))
                 server.sendmail(fromaddr, email, msg_user.as_string())
+                print(f"DEBUG: Contact confirmation email sent to user ({email}) successfully")
 
             server.quit()
         except Exception as email_err:
+            print(f"ERROR sending contact email: {email_err}")
             current_app.logger.error(f"Could not send contact email: {email_err}")
             # we'll still return success to the user so they don't get stuck if SMTP is down
             
