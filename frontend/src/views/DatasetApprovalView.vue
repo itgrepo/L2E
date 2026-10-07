@@ -1,11 +1,32 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { encodeUserData } from '../utils/api';
 
 const pendingRequests = ref([]);
 const isLoading = ref(true);
 const currentFilter = ref('Pending');
+const currentTypeFilter = ref('all'); // 'all', 'api', 'dashboard'
+
+const filteredRequests = computed(() => {
+  if (currentTypeFilter.value === 'all') {
+    return pendingRequests.value;
+  }
+  return pendingRequests.value.filter(req => {
+    if (currentTypeFilter.value === 'dashboard') {
+      return req.request_type === 'dashboard';
+    }
+    if (currentTypeFilter.value === 'api') {
+      return req.request_type === 'api';
+    }
+    return true;
+  });
+});
+
+const getCountByType = (type) => {
+  if (type === 'all') return pendingRequests.value.length;
+  return pendingRequests.value.filter(r => r.request_type === type).length;
+};
 
 const showModal = ref(false);
 const selectedRequest = ref(null);
@@ -99,6 +120,37 @@ onMounted(() => {
         </div>
       </header>
 
+      <!-- Primary Category Tabs: API / Dashboard / All -->
+      <div class="category-tabs">
+        <button 
+          :class="['category-tab-btn', currentTypeFilter === 'all' ? 'active' : '']" 
+          @click="currentTypeFilter = 'all'"
+        >
+          <span style="font-size: 1.1rem;">🌐</span>
+          <span>คำขอทั้งหมด</span>
+          <span class="count-badge">{{ getCountByType('all') }}</span>
+        </button>
+
+        <button 
+          :class="['category-tab-btn', currentTypeFilter === 'api' ? 'active' : '']" 
+          @click="currentTypeFilter = 'api'"
+        >
+          <span style="font-size: 1.1rem;">⚡</span>
+          <span>คำขอข้อมูล API</span>
+          <span class="count-badge">{{ getCountByType('api') }}</span>
+        </button>
+
+        <button 
+          :class="['category-tab-btn', currentTypeFilter === 'dashboard' ? 'active' : '']" 
+          @click="currentTypeFilter = 'dashboard'"
+        >
+          <span style="font-size: 1.1rem;">📊</span>
+          <span>คำขอแดชบอร์ด</span>
+          <span class="count-badge">{{ getCountByType('dashboard') }}</span>
+        </button>
+      </div>
+
+      <!-- Status Sub-tabs: Pending / Approved / Rejected -->
       <div class="filter-tabs" style="display: flex; gap: 16px; margin-bottom: 24px; border-bottom: 1px solid #e2e8f0; padding-bottom: 0;">
         <button 
           :class="['filter-tab', currentFilter === 'Pending' ? 'active' : '']" 
@@ -128,11 +180,16 @@ onMounted(() => {
       </div>
 
       <div v-else class="requests-container">
-        <div v-if="pendingRequests.length === 0" class="no-data">
-          <p v-if="currentFilter === 'Pending'">ไม่มีคำขอที่รอการอนุมัติในขณะนี้</p>
-          <p v-else-if="currentFilter === 'Approved'">ไม่มีรายการที่อนุมัติแล้ว</p>
-          <p v-else-if="currentFilter === 'Rejected'">ไม่มีรายการที่ถูกปฏิเสธ</p>
-          <p v-else>ไม่มีข้อมูล</p>
+        <div v-if="filteredRequests.length === 0" class="no-data">
+          <p v-if="currentTypeFilter === 'api'">
+            ไม่มีคำขอข้อมูล API ในสถานะ {{ currentFilter === 'Pending' ? 'รอการอนุมัติ' : (currentFilter === 'Approved' ? 'อนุมัติแล้ว' : 'ถูกปฏิเสธ') }}
+          </p>
+          <p v-else-if="currentTypeFilter === 'dashboard'">
+            ไม่มีคำขอแดชบอร์ดในสถานะ {{ currentFilter === 'Pending' ? 'รอการอนุมัติ' : (currentFilter === 'Approved' ? 'อนุมัติแล้ว' : 'ถูกปฏิเสธ') }}
+          </p>
+          <p v-else>
+            ไม่มีคำขอในสถานะ {{ currentFilter === 'Pending' ? 'รอการอนุมัติ' : (currentFilter === 'Approved' ? 'อนุมัติแล้ว' : 'ถูกปฏิเสธ') }}
+          </p>
         </div>
         <table v-else class="data-table">
           <thead>
@@ -150,7 +207,7 @@ onMounted(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="req in pendingRequests" :key="req.request_id">
+            <tr v-for="req in filteredRequests" :key="req.request_id">
               <td>#{{ req.request_id }}</td>
               <td>
                 <span v-if="req.request_type === 'dashboard'" class="badge-type badge-dashboard">📊 แดชบอร์ด</span>
@@ -429,6 +486,59 @@ onMounted(() => {
 .btn-mou-download:hover {
   background: #e2e8f0;
   border-color: #008236;
+}
+
+.category-tabs {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.category-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  color: #475569;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+
+.category-tab-btn:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #1e293b;
+}
+
+.category-tab-btn.active {
+  background: #008236;
+  border-color: #008236;
+  color: white;
+  box-shadow: 0 4px 6px -1px rgba(0, 130, 54, 0.25);
+}
+
+.count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  background: #f1f5f9;
+  color: #475569;
+  font-weight: 700;
+}
+
+.category-tab-btn.active .count-badge {
+  background: rgba(255, 255, 255, 0.25);
+  color: white;
 }
 
 .badge-type {
