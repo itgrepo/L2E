@@ -14,7 +14,6 @@ const confirmPassword = ref('');
 const firstname = ref('');
 const lastname = ref('');
 const organization = ref('');
-const agreeTerms = ref(false);
 
 // UI state
 const isLoading = ref(false);
@@ -35,10 +34,16 @@ const handleScroll = (e) => {
   }
 };
 
+const modalBodyRef = ref(null);
+
 // Reset scroll state when modal opens
 watch(showTermsModal, (newVal) => {
   if (newVal) {
     isScrolledToBottom.value = false;
+    // ensure scroll is at top next tick
+    setTimeout(() => {
+      if (modalBodyRef.value) modalBodyRef.value.scrollTop = 0;
+    }, 50);
   }
 });
 
@@ -50,8 +55,20 @@ const acceptTerms = () => {
   
   if (termsType.value === 'terms') {
     hasAcceptedTerms.value = true;
+    if (!hasAcceptedPrivacy.value) {
+      termsType.value = 'privacy';
+      isScrolledToBottom.value = false;
+      if (modalBodyRef.value) modalBodyRef.value.scrollTop = 0;
+      return;
+    }
   } else {
     hasAcceptedPrivacy.value = true;
+    if (!hasAcceptedTerms.value) {
+      termsType.value = 'terms';
+      isScrolledToBottom.value = false;
+      if (modalBodyRef.value) modalBodyRef.value.scrollTop = 0;
+      return;
+    }
   }
   
   showTermsModal.value = false;
@@ -106,7 +123,8 @@ const isFormValid = computed(() => {
          firstname.value.trim() && 
          lastname.value.trim() && 
          organization.value.trim() &&
-         agreeTerms.value;
+         hasAcceptedTerms.value &&
+         hasAcceptedPrivacy.value;
 });
 
 const nextStep = () => {
@@ -286,27 +304,20 @@ const goToVerify = () => {
               <input id="reg-org" v-model="organization" type="text" placeholder="ชื่อหน่วยงาน / สังกัด *" required :disabled="isLoading">
             </div>
 
-            <div class="terms-group">
-              <label class="checkbox-container" :class="{ 'disabled-label': !hasAcceptedTerms || !hasAcceptedPrivacy }">
-                <input type="checkbox" v-model="agreeTerms" :disabled="!hasAcceptedTerms || !hasAcceptedPrivacy || isLoading">
-                <span class="checkmark"></span>
-                <div style="display: flex; flex-direction: column; gap: 4px; margin-left: 8px;">
-                  <span>ฉันยอมรับเอกสารทั้ง 2 ฉบับต่อไปนี้:</span>
-                  <div style="display: flex; align-items: center; gap: 6px;">
-                    <span v-if="hasAcceptedTerms" style="color: #10b981;">✓</span>
-                    <span v-else style="color: #ef4444; font-size: 12px;">*</span>
-                    <a href="#" @click.prevent="termsType = 'terms'; showTermsModal = true" :style="hasAcceptedTerms ? 'color: #10b981;' : ''">ข้อตกลงการใช้งาน</a>
-                  </div>
-                  <div style="display: flex; align-items: center; gap: 6px;">
-                    <span v-if="hasAcceptedPrivacy" style="color: #10b981;">✓</span>
-                    <span v-else style="color: #ef4444; font-size: 12px;">*</span>
-                    <a href="#" @click.prevent="termsType = 'privacy'; showTermsModal = true" :style="hasAcceptedPrivacy ? 'color: #10b981;' : ''">นโยบายความเป็นส่วนตัว</a>
-                  </div>
-                  <div v-if="!hasAcceptedTerms || !hasAcceptedPrivacy" style="font-size: 0.8rem; color: #ef4444; margin-top: 4px;">
-                    (กรุณาคลิกอ่านและกดยอมรับให้ครบทั้ง 2 ฉบับ จึงจะสามารถติ๊กถูกได้)
-                  </div>
+            <div class="terms-group" style="padding: 16px; background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; margin-top: 8px;">
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <span style="font-weight: 600; color: #334155; margin-bottom: 4px;">กรุณาอ่านเอกสาร 2 ฉบับต่อไปนี้</span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span v-if="hasAcceptedTerms" style="color: #10b981; font-weight: bold;">✓</span>
+                  <span v-else style="color: #ef4444; font-weight: bold; font-size: 14px;">*</span>
+                  <a href="#" @click.prevent="termsType = 'terms'; showTermsModal = true" :style="hasAcceptedTerms ? 'color: #10b981;' : 'color: var(--primary); text-decoration: underline;'">ข้อตกลงการใช้งาน</a>
                 </div>
-              </label>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span v-if="hasAcceptedPrivacy" style="color: #10b981; font-weight: bold;">✓</span>
+                  <span v-else style="color: #ef4444; font-weight: bold; font-size: 14px;">*</span>
+                  <a href="#" @click.prevent="termsType = 'privacy'; showTermsModal = true" :style="hasAcceptedPrivacy ? 'color: #10b981;' : 'color: var(--primary); text-decoration: underline;'">นโยบายความเป็นส่วนตัว</a>
+                </div>
+              </div>
             </div>
 
             <button type="submit" class="btn-primary" :disabled="!isFormValid || isLoading" style="width: 100%; margin-top: 1rem;">
@@ -387,7 +398,7 @@ const goToVerify = () => {
           <h3 v-else>นโยบายความเป็นส่วนตัว (Privacy Policy)</h3>
           <button @click="showTermsModal = false" class="modal-close">&times;</button>
         </div>
-        <div class="modal-body" @scroll="handleScroll" style="height: 60vh; overflow-y: auto; padding: 0; background: #f1f5f9; text-align: center;">
+        <div class="modal-body" ref="modalBodyRef" @scroll="handleScroll" style="height: 60vh; overflow-y: auto; padding: 0; background: #f1f5f9; text-align: center;">
           <template v-if="termsType === 'terms'">
             <img v-for="n in 5" :key="'terms-'+n" :src="`/terms_page_${n}.png`" style="max-width: 100%; display: block; margin: 0 auto 10px auto; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);" alt="Terms Page" />
           </template>
