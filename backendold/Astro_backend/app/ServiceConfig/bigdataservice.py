@@ -12,10 +12,19 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'csv', 'xlsx', 'xls', 'zip'}
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'csv', 'xlsx', 'xls', 'zip', 'xml', 'json'}
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def safe_remove_uploaded_file(fname):
+    if fname:
+        target = os.path.join(UPLOAD_FOLDER, fname)
+        if os.path.exists(target) and os.path.isfile(target):
+            try:
+                os.remove(target)
+            except OSError:
+                pass
 
 
 def log_api_audit(action, target_user_id=None, service_id=None, credential_id=None, result='success'):
@@ -322,11 +331,19 @@ def addService():
                     conn.close()
                     return jsonify({"status": err_msg}), 400
                     
-                sql = "SELECT service_id FROM service WHERE service_id = %s"
-                cursor.execute(sql, (service_id))
+                sql = "SELECT service_id, dataset_id, service_url, file_path, excel_file_path, data_dictionary_path, data_sampling_path FROM service WHERE service_id = %s"
+                cursor.execute(sql, (service_id,))
                 service_result = cursor.fetchall()
                 
                 if len(service_result) != 0:
+                    svc_row_info = service_result[0]
+                    existing_dataset_id = svc_row_info[1]
+                    existing_service_url = svc_row_info[2]
+                    old_file_path = svc_row_info[3]
+                    old_excel_path = svc_row_info[4]
+                    old_dict_path = svc_row_info[5]
+                    old_samp_path = svc_row_info[6]
+
                     # Construct update query dynamically for provided fields
                     fields = []
                     values = []
@@ -395,34 +412,43 @@ def addService():
                     if data_file:
                         ext = data_file.filename.rsplit('.', 1)[-1].lower() if '.' in data_file.filename else ''
                         if file_type == 'dictionary' and ext not in ['csv', 'xls', 'xlsx']:
+                            cursor.close()
+                            conn.close()
                             return jsonify({"status": "รูปแบบไฟล์ Data Dictionary ไม่ถูกต้อง (รองรับเฉพาะ CSV, Excel)"}), 400
                         elif file_type == 'zip' and ext != 'zip':
+                            cursor.close()
+                            conn.close()
                             return jsonify({"status": "รูปแบบไฟล์ Sampling ไม่ถูกต้อง (รองรับเฉพาะ ZIP)"}), 400
-                        elif file_type == 'main' and ext not in ['csv']:
-                            return jsonify({"status": "รูปแบบไฟล์ Dataset (CSV) ไม่ถูกต้อง (รองรับเฉพาะ CSV)"}), 400
+                        elif file_type == 'main' and ext not in ['csv', 'xls', 'xlsx', 'xml', 'json']:
+                            cursor.close()
+                            conn.close()
+                            return jsonify({"status": "รูปแบบไฟล์ Data File For API ไม่ถูกต้อง (รองรับเฉพาะ CSV, Excel, XML, JSON)"}), 400
                         elif file_type == 'excel' and ext not in ['xls', 'xlsx']:
+                            cursor.close()
+                            conn.close()
                             return jsonify({"status": "รูปแบบไฟล์ Dataset (Excel) ไม่ถูกต้อง (รองรับเฉพาะ Excel)"}), 400
                         elif not allowed_file(data_file.filename):
+                            cursor.close()
+                            conn.close()
                             return jsonify({"status": "นามสกุลไฟล์ไม่ได้รับอนุญาต"}), 400
                             
                         filename = secure_filename(f"ds_{service_id}_{data_file.filename}")
                         save_path = os.path.join(UPLOAD_FOLDER, filename)
                         data_file.save(save_path)
 
-                        # Content validation: file must actually be readable as CSV/Excel.
-                        # On failure remove the saved file so nothing is left behind.
-                        if file_type in ('main', 'excel', 'dictionary'):
+                        if file_type == 'dictionary':
                             try:
                                 import pandas as pd
                                 if ext == 'csv':
                                     try:
-                                        df_check = pd.read_csv(save_path, nrows=5, encoding='utf-8-sig')
+                                        df = pd.read_csv(save_path, nrows=5, encoding='utf-8-sig')
                                     except UnicodeDecodeError:
-                                        df_check = pd.read_csv(save_path, nrows=5, encoding='cp874')
+                                        df = pd.read_csv(save_path, nrows=5, encoding='cp874')
                                 else:
-                                    df_check = pd.read_excel(save_path, nrows=5)
-                                if len(df_check.columns) == 0:
-                                    raise ValueError('ไม่พบ Header/คอลัมน์ในไฟล์')
+                                    df = pd.read_excel(save_path, nrows=5)
+                                columns = [str(c).strip() for c in df.columns if str(c).strip() and not str(c).startswith('Unnamed:')]
+                                if not columns:
+                                    raise ValueError('ไม่พบคอลัมน์ในไฟล์ Data Dictionary')
                             except Exception as ve:
                                 try:
                                     os.remove(save_path)
@@ -430,32 +456,124 @@ def addService():
                                     pass
                                 cursor.close()
                                 conn.close()
-                                return jsonify({"status": f"ไฟล์ไม่ผ่านการตรวจสอบ (Validation failed): ไม่สามารถอ่านไฟล์ได้หรือไฟล์เสียหาย - {str(ve)[:150]}"}), 400
-                        
-                        if file_type == 'dictionary':
+                                return jsonify({"status": f"ไฟล์ Data Dictionary ไม่ผ่านการตรวจสอบ: {str(ve)[:150]}"}), 400
+
                             fields.append("data_dictionary_path = %s")
                             values.append(filename)
-                            # Parse data dictionary file to extract columns
+                            fields.append("api_response_fields = %s")
+                            values.append(json.dumps(columns))
+
+                            if old_dict_path and old_dict_path != filename:
+                                safe_remove_uploaded_file(old_dict_path)
+
+                        elif file_type == 'main':
                             try:
-                                import pandas as pd
-                                if filename.endswith('.csv'):
-                                    df = pd.read_csv(save_path, nrows=0)
-                                else:
-                                    df = pd.read_excel(save_path, nrows=0)
-                                columns = list(df.columns)
-                                fields.append("api_response_fields = %s")
-                                values.append(json.dumps(columns))
-                            except Exception as e:
-                                print(f"Error parsing dictionary file: {e}")
+                                columns = []
+                                if ext == 'csv':
+                                    import pandas as pd
+                                    try:
+                                        df = pd.read_csv(save_path, nrows=5, encoding='utf-8-sig')
+                                    except UnicodeDecodeError:
+                                        df = pd.read_csv(save_path, nrows=5, encoding='cp874')
+                                    columns = [str(c).strip() for c in df.columns if str(c).strip() and not str(c).startswith('Unnamed:')]
+                                elif ext in ['xls', 'xlsx']:
+                                    import pandas as pd
+                                    df = pd.read_excel(save_path, nrows=5)
+                                    columns = [str(c).strip() for c in df.columns if str(c).strip() and not str(c).startswith('Unnamed:')]
+                                elif ext == 'json':
+                                    with open(save_path, 'r', encoding='utf-8') as jf:
+                                        jdata = json.load(jf)
+                                    if isinstance(jdata, list) and len(jdata) > 0 and isinstance(jdata[0], dict):
+                                        columns = list(jdata[0].keys())
+                                    elif isinstance(jdata, dict):
+                                        if 'data' in jdata and isinstance(jdata['data'], list) and len(jdata['data']) > 0 and isinstance(jdata['data'][0], dict):
+                                            columns = list(jdata['data'][0].keys())
+                                        elif 'rows' in jdata and isinstance(jdata['rows'], list) and len(jdata['rows']) > 0 and isinstance(jdata['rows'][0], dict):
+                                            columns = list(jdata['rows'][0].keys())
+                                        elif 'items' in jdata and isinstance(jdata['items'], list) and len(jdata['items']) > 0 and isinstance(jdata['items'][0], dict):
+                                            columns = list(jdata['items'][0].keys())
+                                        else:
+                                            columns = list(jdata.keys())
+                                    columns = [str(c).strip() for c in columns if str(c).strip()]
+                                elif ext == 'xml':
+                                    import xml.etree.ElementTree as ET
+                                    tree = ET.parse(save_path)
+                                    root = tree.getroot()
+                                    found_cols = []
+                                    for child in root:
+                                        for sub in child:
+                                            tag = sub.tag.split('}')[-1] if '}' in sub.tag else sub.tag
+                                            if tag not in found_cols:
+                                                found_cols.append(tag)
+                                        if not found_cols and child.attrib:
+                                            for k in child.attrib.keys():
+                                                if k not in found_cols:
+                                                    found_cols.append(k)
+                                    if not found_cols:
+                                        for child in root:
+                                            tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                                            if tag not in found_cols:
+                                                found_cols.append(tag)
+                                    columns = [str(c).strip() for c in found_cols if str(c).strip()]
+
+                                if not columns:
+                                    raise ValueError('ไม่สามารถอ่าน Header หรือฟิลด์ข้อมูลจากไฟล์ได้')
+                            except Exception as ve:
+                                try:
+                                    os.remove(save_path)
+                                except OSError:
+                                    pass
+                                cursor.close()
+                                conn.close()
+                                return jsonify({"status": f"ไฟล์ Data File For API ไม่ผ่านการตรวจสอบ: {str(ve)[:150]}"}), 400
+
+                            if ext in ['xls', 'xlsx']:
+                                fields.append("excel_file_path = %s")
+                                values.append(filename)
+                                fields.append("file_path = %s")
+                                values.append(filename)
+                                if old_excel_path and old_excel_path != filename:
+                                    safe_remove_uploaded_file(old_excel_path)
+                                if old_file_path and old_file_path != filename and old_file_path != old_excel_path:
+                                    safe_remove_uploaded_file(old_file_path)
+                            else:
+                                fields.append("file_path = %s")
+                                values.append(filename)
+                                if old_file_path and old_file_path != filename:
+                                    safe_remove_uploaded_file(old_file_path)
+
+                            # Save parsed response fields
+                            fields.append("api_response_fields = %s")
+                            values.append(json.dumps(columns))
+
+                            # Enable API automatically
+                            fields.append("api_enabled = %s")
+                            values.append(1)
+
+                            # Auto endpoint setting
+                            target_ds = existing_dataset_id or dataset_id or service_id
+                            if not existing_service_url or existing_service_url in ('#', '', '/api/data/#') or not service_url:
+                                auto_endpoint = f"/api/data/{target_ds}"
+                                fields.append("service_url = %s")
+                                values.append(auto_endpoint)
+
                         elif file_type == 'zip':
                             fields.append("data_sampling_path = %s")
                             values.append(filename)
+                            if old_samp_path and old_samp_path != filename:
+                                safe_remove_uploaded_file(old_samp_path)
+
                         elif file_type == 'excel':
                             fields.append("excel_file_path = %s")
                             values.append(filename)
+                            if old_excel_path and old_excel_path != filename:
+                                safe_remove_uploaded_file(old_excel_path)
+
                         else:
                             fields.append("file_path = %s")
                             values.append(filename)
+                            if old_file_path and old_file_path != filename:
+                                safe_remove_uploaded_file(old_file_path)
 
                     if not fields:
                         return jsonify({"status":"No fields to update"})
@@ -899,15 +1017,55 @@ def get_dataset_file_api(dataset_id):
             
         ext = file_path.split('.')[-1].lower()
         if ext in ['csv']:
-            df = pd.read_csv(full_path)
+            try:
+                df = pd.read_csv(full_path, encoding='utf-8-sig')
+            except UnicodeDecodeError:
+                df = pd.read_csv(full_path, encoding='cp874')
+            df = df.fillna("")
+            json_data = df.to_dict(orient='records')
         elif ext in ['xls', 'xlsx']:
             df = pd.read_excel(full_path)
+            df = df.fillna("")
+            json_data = df.to_dict(orient='records')
+        elif ext == 'json':
+            with open(full_path, 'r', encoding='utf-8') as f:
+                raw_json = json.load(f)
+            if isinstance(raw_json, list):
+                json_data = raw_json
+            elif isinstance(raw_json, dict):
+                if 'data' in raw_json and isinstance(raw_json['data'], list):
+                    json_data = raw_json['data']
+                elif 'rows' in raw_json and isinstance(raw_json['rows'], list):
+                    json_data = raw_json['rows']
+                elif 'items' in raw_json and isinstance(raw_json['items'], list):
+                    json_data = raw_json['items']
+                else:
+                    json_data = [raw_json]
+            else:
+                json_data = []
+        elif ext == 'xml':
+            import xml.etree.ElementTree as ET
+            tree = ET.parse(full_path)
+            root = tree.getroot()
+            json_data = []
+            for child in root:
+                row = {}
+                for sub in child:
+                    tag = sub.tag.split('}')[-1] if '}' in sub.tag else sub.tag
+                    row[tag] = (sub.text or '').strip()
+                if not row and child.attrib:
+                    row = dict(child.attrib)
+                if row:
+                    json_data.append(row)
+            if not json_data:
+                row = {}
+                for child in root:
+                    tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                    row[tag] = (child.text or '').strip()
+                if row:
+                    json_data.append(row)
         else:
             return jsonify({'status': 'error', 'message': 'Unsupported file format', 'request_id': request_id}), 400
-            
-        # Return as JSON
-        df = df.fillna("")
-        json_data = df.to_dict(orient='records')
         
         return jsonify({
             'status': 'success',

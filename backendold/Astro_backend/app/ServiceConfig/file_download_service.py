@@ -13,29 +13,33 @@ def downloadFile(service_id):
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        col = 'file_path'
-        if file_type == 'dictionary':
-            col = 'data_dictionary_path'
-        elif file_type == 'sampling':
-            col = 'data_sampling_path'
-        elif file_type == 'excel':
-            col = 'excel_file_path'
-            
-        sql = f"SELECT {col} FROM service WHERE service_id = %s"
+        sql = "SELECT file_path, excel_file_path, data_dictionary_path, data_sampling_path FROM service WHERE service_id = %s"
         cursor.execute(sql, (service_id,))
         result = cursor.fetchone()
         
         cursor.close()
         conn.close()
         
-        if result and result[0]:
-            file_name = result[0]
-            if os.path.exists(os.path.join(UPLOAD_FOLDER, file_name)):
-                return send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True)
+        if result:
+            file_path_val, excel_path_val, dict_path_val, samp_path_val = result
+            file_name = None
+            if file_type == 'dictionary':
+                file_name = dict_path_val
+            elif file_type == 'sampling':
+                file_name = samp_path_val
+            elif file_type == 'excel':
+                file_name = excel_path_val or file_path_val
             else:
+                file_name = file_path_val or excel_path_val
+
+            if file_name and os.path.exists(os.path.join(UPLOAD_FOLDER, file_name)):
+                return send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True)
+            elif file_name:
                 return jsonify({"status": "File not found on server"}), 404
+            else:
+                return jsonify({"status": "No file associated with this dataset"}), 404
         else:
-            return jsonify({"status": "No file associated with this dataset"}), 404
+            return jsonify({"status": "Dataset not found"}), 404
             
     except Exception as e:
         return jsonify({"status": "Error: " + str(e)}), 500

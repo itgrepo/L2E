@@ -436,8 +436,7 @@ const handleLinkSubmit = async () => {
 
 const acceptedExtensions = {
   dictionary: ['csv', 'xls', 'xlsx'],
-  main: ['csv'],
-  excel: ['xls', 'xlsx'],
+  main: ['csv', 'xls', 'xlsx', 'xml', 'json'],
   zip: ['zip']
 };
 
@@ -1222,7 +1221,7 @@ const updateDatasetPrefix = () => {
 
             <div class="file-type-selector">
               <label class="radio-card">
-                <input type="radio" value="dictionary" v-model="fileType">
+                <input type="radio" value="dictionary" v-model="fileType" @change="selectedFile = null">
                 <div class="radio-card-content">
                   <span class="radio-circle"></span>
                   <span>Add Data Dictionary</span>
@@ -1232,14 +1231,7 @@ const updateDatasetPrefix = () => {
                 <input type="radio" value="main" v-model="fileType" @change="selectedFile = null">
                 <div class="radio-card-content">
                   <span class="radio-circle"></span>
-                  <span>Add CSV File (ชุดข้อมูล CSV)</span>
-                </div>
-              </label>
-              <label class="radio-card">
-                <input type="radio" value="excel" v-model="fileType" @change="selectedFile = null">
-                <div class="radio-card-content">
-                  <span class="radio-circle"></span>
-                  <span>Add Excel File (ชุดข้อมูล XLS/XLSX)</span>
+                  <span>Add Data File For API (Excel/CSV/XML/JSON)</span>
                 </div>
               </label>
               <label class="radio-card">
@@ -1260,9 +1252,8 @@ const updateDatasetPrefix = () => {
                 <p v-if="!selectedFile">ลากไฟล์มาวางที่นี่ หรือ <span>คลิกเพื่อเลือกไฟล์</span></p>
                 <p v-else class="text-green-600 font-bold">เลือกไฟล์แล้ว: {{ selectedFile.name }}</p>
                 <span class="text-xs text-slate-400" v-if="fileType === 'dictionary'">รองรับไฟล์ CSV, XLS, XLSX (เฉพาะพจนานุกรมข้อมูล)</span>
-                <span class="text-xs text-slate-400" v-else-if="fileType === 'main'">รองรับเฉพาะไฟล์ CSV (ผู้ใช้จะดาวน์โหลดได้จากปุ่ม CSV)</span>
-                <span class="text-xs text-slate-400" v-else-if="fileType === 'excel'">รองรับเฉพาะไฟล์ XLS, XLSX (ผู้ใช้จะดาวน์โหลดได้จากปุ่ม Excel)</span>
-                <span class="text-xs text-slate-400" v-else-if="fileType === 'zip'">รองรับไฟล์ ZIP (สำหรับการดาวน์โหลดข้อมูลสุ่ม)</span>
+                <span class="text-xs text-slate-400" v-else-if="fileType === 'main'">รองรับไฟล์ CSV, XLS, XLSX, XML, JSON (สำหรับสร้าง API อัตโนมัติ)</span>
+                <span class="text-xs text-slate-400" v-else-if="fileType === 'zip'">รองรับเฉพาะไฟล์ ZIP (สำหรับการดาวน์โหลดข้อมูลสุ่ม/ตัวอย่าง)</span>
               </div>
             </div>
 
