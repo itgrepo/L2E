@@ -331,7 +331,7 @@ def addService():
                     conn.close()
                     return jsonify({"status": err_msg}), 400
                     
-                sql = "SELECT service_id, dataset_id, service_url, file_path, excel_file_path, data_dictionary_path, data_sampling_path FROM service WHERE service_id = %s"
+                sql = "SELECT service_id, dataset_id, service_url, file_path, excel_file_path, data_dictionary_path, data_sampling_path, api_response_fields, api_enabled FROM service WHERE service_id = %s"
                 cursor.execute(sql, (service_id,))
                 service_result = cursor.fetchall()
                 
@@ -343,6 +343,8 @@ def addService():
                     old_excel_path = svc_row_info[4]
                     old_dict_path = svc_row_info[5]
                     old_samp_path = svc_row_info[6]
+                    old_api_res_fields = svc_row_info[7] if len(svc_row_info) > 7 else None
+                    has_existing_api_fields = bool(old_api_res_fields and str(old_api_res_fields).strip() not in ['', '[]', 'null', 'None'])
 
                     # Construct update query dynamically for provided fields
                     fields = []
@@ -460,8 +462,9 @@ def addService():
 
                             fields.append("data_dictionary_path = %s")
                             values.append(filename)
-                            fields.append("api_response_fields = %s")
-                            values.append(json.dumps(columns))
+                            if not has_existing_api_fields:
+                                fields.append("api_response_fields = %s")
+                                values.append(json.dumps(columns))
 
                             if not old_file_path and ext in ['csv', 'xls', 'xlsx']:
                                 fields.append("file_path = %s")
@@ -553,9 +556,10 @@ def addService():
                                 fields.append("data_dictionary_path = %s")
                                 values.append(filename)
 
-                            # Save parsed response fields
-                            fields.append("api_response_fields = %s")
-                            values.append(json.dumps(columns))
+                            # Save parsed response fields ONLY if no API fields exist yet (Public API always prioritized)
+                            if not has_existing_api_fields:
+                                fields.append("api_response_fields = %s")
+                                values.append(json.dumps(columns))
 
                             # Enable API automatically
                             fields.append("api_enabled = %s")
