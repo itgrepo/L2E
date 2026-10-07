@@ -77,7 +77,7 @@ const submitContact = async () => {
                 <label>ข้อความ</label>
                 <textarea v-model="form.message" rows="5" placeholder="บอกรายละเอียดเพิ่มเติมเกี่ยวกับการสอบถามของคุณ..." required maxlength="1000"></textarea>
               </div>
-              <button type="submit" class="btn-primary" :disabled="isSubmitting">{{ isSubmitting ? "กำลังส่ง..." : "Send ข้อความ" }}</button>
+              <button type="submit" class="btn-primary" :disabled="isSubmitting">{{ isSubmitting ? "กำลังส่ง..." : "ส่งข้อความ" }}</button>
             </form>
           </div>
         </div>

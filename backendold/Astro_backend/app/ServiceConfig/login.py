@@ -1081,12 +1081,12 @@ def sendMailUnlockAccount(token, email, link, username, user_id):
     data = cursor.fetchall()
     columns = [column[0] for column in cursor.description]
     result = toJson(data, columns)
-    firstname = result[0]['firstname'] if result[0]['firstname'] else username
-    lastname = result[0]['lastname'] if result[0]['lastname'] else ''
+    firstname = result[0]['firstname'] if result and result[0]['firstname'] else username
+    lastname = result[0]['lastname'] if result and result[0]['lastname'] else ''
     conn.commit()
     cursor.close()
     conn.close()
-    fromaddr = "Department Operation Center Team <adminbd@customs.go.th>"
+    fromaddr = MAIL_FROM
     toaddr = email
     msg = MIMEMultipart()
     msg['From'] = fromaddr
@@ -1108,17 +1108,20 @@ def sendMailUnlockAccount(token, email, link, username, user_id):
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
         if MAIL_USE_SSL:
-            server = smtplib.SMTP_SSL(SERVER, int(os.environ.get('MAIL_PORT', 465)), timeout=5)
+            server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=10)
         else:
-            server = smtplib.SMTP(SERVER, int(os.environ.get('MAIL_PORT', 587)), timeout=5)
+            server = smtplib.SMTP(SERVER, MAIL_PORT, timeout=10)
             server.starttls()
             
-        server.login(username_mail, password_mail)
+        if username_mail and password_mail:
+            server.login(username_mail, password_mail)
         text = msg.as_string()
         server.sendmail(fromaddr, toaddr, text)
         server.quit()
+        print(f"DEBUG: Unlock email sent successfully to {toaddr}")
         return "success"
     except Exception as e:
+        print(f"SMTP Error in sendMailUnlockAccount: {e}")
         current_app.logger.info(e)
         return "error"
 
