@@ -19,6 +19,8 @@ const handleSessionTimeout = () => {
     localStorage.removeItem('user');
     localStorage.removeItem('token');
     localStorage.removeItem('lastActivity');
+    localStorage.removeItem('user_favorites');
+    sessionStorage.clear();
     window.dispatchEvent(new Event('auth-change'));
     alert('เซสชันของคุณหมดอายุเนื่องจากไม่มีการใช้งานเป็นเวลา 30 นาที กรุณาเข้าสู่ระบบใหม่');
     window.location.href = '/login';
@@ -88,11 +90,7 @@ onUnmounted(() => {
     <AppNavbar />
     
     <main>
-      <router-view v-slot="{ Component }">
-        <keep-alive>
-          <component :is="Component" />
-        </keep-alive>
-      </router-view>
+      <router-view :key="$route.fullPath" />
     </main>
 
     <AppFooter />

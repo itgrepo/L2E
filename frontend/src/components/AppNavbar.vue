@@ -92,10 +92,13 @@ const checkAuth = () => {
 const handleLogout = () => {
   localStorage.removeItem('user');
   localStorage.removeItem('token');
+  localStorage.removeItem('lastActivity');
+  localStorage.removeItem('user_favorites');
+  sessionStorage.clear();
   isAuthenticated.value = false;
   isMobileMenuOpen.value = false;
   window.dispatchEvent(new Event('auth-change'));
-  router.push('/');
+  window.location.href = '/login';
 };
 
 const toggleMobileMenu = () => {

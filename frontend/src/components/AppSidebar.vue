@@ -147,8 +147,11 @@ const toggleSettings = () => {
 const handleLogout = () => {
   localStorage.removeItem('user');
   localStorage.removeItem('token');
+  localStorage.removeItem('lastActivity');
+  localStorage.removeItem('user_favorites');
+  sessionStorage.clear();
   window.dispatchEvent(new Event('auth-change'));
-  window.location.href = '/';
+  window.location.href = '/login';
 };
 
 const menuItems = [

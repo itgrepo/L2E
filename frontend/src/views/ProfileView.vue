@@ -1,12 +1,25 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { postWithUser, encodeUserData } from '../utils/api';
 
+const router = useRouter();
 const activeTab = ref('personal');
 const isLoading = ref(false);
 const isGeneratingKey = ref(false);
 const message = ref({ text: '', type: '' });
+
+const user = ref({
+  user_id: '',
+  firstname: '',
+  lastname: '',
+  email: '',
+  usage_objective: '',
+  other_object: '',
+  apikey: '',
+  role: 'User'
+});
 
 // Password Change states & methods
 const showPasswordForm = ref(false);
@@ -76,8 +89,12 @@ const handlePasswordChange = async () => {
       setTimeout(() => {
         // Cancel old session
         localStorage.removeItem('user');
+        localStorage.removeItem('token');
+        localStorage.removeItem('lastActivity');
+        localStorage.removeItem('user_favorites');
+        sessionStorage.clear();
         window.dispatchEvent(new Event('auth-change'));
-        router.push('/login');
+        window.location.href = '/login';
       }, 2000);
     } else if (result.status === 'password incorrect') {
       message.value = { text: 'รหัสผ่านปัจจุบันไม่ถูกต้อง', type: 'error' };
@@ -154,17 +171,6 @@ const generateApiKey = async () => {
   }
 };
 
-const user = ref({
-  user_id: '',
-  firstname: '',
-  lastname: '',
-  email: '',
-  usage_objective: '',
-  other_object: '',
-  apikey: '',
-  role: 'User'
-});
-
 onMounted(() => {
   const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
   if (savedUser) {
@@ -227,7 +233,7 @@ const saveChanges = async () => {
     <main class="profile-content">
       <header class="profile-header">
         <div class="avatar-area">
-          <div class="avatar-circle">SJ</div>
+          <div class="avatar-circle">{{ (user.firstname ? user.firstname.charAt(0).toUpperCase() : '') + (user.lastname ? user.lastname.charAt(0).toUpperCase() : '') || 'U' }}</div>
           <button class="edit-avatar">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
               <path d="M10.5 8.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/>
