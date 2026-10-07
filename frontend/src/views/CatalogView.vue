@@ -454,7 +454,7 @@ const fetchDatasets = async () => {
         external_api_url: item.external_api_url,
         has_access: item.has_access === 1 || item.has_access === '1' || item.has_access === true,
         permission_status: item.permission_status,
-        api_response_fields: item.api_response_fields ? (typeof item.api_response_fields === 'string' ? JSON.parse(item.api_response_fields) : item.api_response_fields) : ['id', 'name', 'amount', 'date'],
+        api_response_fields: item.api_response_fields ? (typeof item.api_response_fields === 'string' ? JSON.parse(item.api_response_fields) : item.api_response_fields) : [],
         api_enabled: item.api_enabled == 1 || item.api_enabled === '1' || item.api_enabled === true || String(item.api_enabled).toLowerCase() === 'true',
         api_type: item.api_type || 'public',
         formats: item.data_format ? item.data_format.split(',') : ['CSV', 'API', 'JSON'],
@@ -712,7 +712,7 @@ onMounted(async () => {
 
           <nav class="modal-tabs">
             <button :class="{ active: activeTab === 'info' }" @click="activeTab = 'info'">คำอธิบายข้อมูล</button>
-            <button :class="{ active: activeTab === 'dictionary' }" @click="selectedDataset?.has_access ? activeTab = 'dictionary' : alert('กรุณาส่งคำขอเข้าถึงข้อมูลก่อน')"><span v-if="!selectedDataset?.has_access" style="font-size:0.8rem">🔒</span> พจนานุกรมข้อมูล</button>
+            <button :class="{ active: activeTab === 'dictionary' }" @click="activeTab = 'dictionary'">พจนานุกรมข้อมูล</button>
             <button :class="{ active: activeTab === 'visual' }" @click="activeTab = 'visual'">แดชบอร์ด</button>
             <button :class="{ active: activeTab === 'api' }" @click="activeTab = 'api'">ข้อมูล API</button>
           </nav>
@@ -837,7 +837,14 @@ onMounted(async () => {
 
             <!-- Dictionary Tab -->
             <div v-if="activeTab === 'dictionary'" class="tab-content transition-fade">
-              <table class="dictionary-table">
+              <div v-if="!selectedDataset?.api_response_fields || selectedDataset.api_response_fields.length === 0" style="padding: 40px 20px; text-align: center; color: #94a3b8; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0;">
+                <svg xmlns="http://www.w3.org/2000/svg" style="width: 44px; height: 44px; margin: 0 auto 10px auto; color: #cbd5e1;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+                <h4 style="font-size: 1rem; font-weight: 600; color: #475569; margin: 0 0 4px 0;">ยังไม่มีพจนานุกรมข้อมูลสำหรับชุดข้อมูลนี้</h4>
+                <p style="font-size: 0.85rem; color: #94a3b8; margin: 0;">ชุดข้อมูลนี้ยังไม่มีการสร้าง API หรืออัปโหลดไฟล์พจนานุกรมข้อมูล (Data Dictionary)</p>
+              </div>
+              <table v-else class="dictionary-table">
                 <thead>
                   <tr>
                     <th>ลำดับ</th>
@@ -849,7 +856,7 @@ onMounted(async () => {
                 <tbody>
                   <tr v-for="(field, index) in selectedDataset?.api_response_fields" :key="field">
                     <td>{{ index + 1 }}</td>
-                    <td>{{ field }}</td>
+                    <td class="font-mono" style="font-weight:600;">{{ field }}</td>
                     <td>VARCHAR / String</td>
                     <td>ฟิลด์ข้อมูลที่ให้บริการสำหรับชุดข้อมูลนี้</td>
                   </tr>

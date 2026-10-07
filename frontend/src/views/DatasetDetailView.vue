@@ -140,7 +140,7 @@ const fetchDatasetDetail = async () => {
           permission_status: found.permission_status,
           dashboard_permission_status: found.dashboard_permission_status,
           api_permission_status: found.api_permission_status,
-          api_response_fields: found.api_response_fields ? (typeof found.api_response_fields === 'string' ? JSON.parse(found.api_response_fields) : found.api_response_fields) : ['id', 'name', 'amount', 'date'],
+          api_response_fields: found.api_response_fields ? (typeof found.api_response_fields === 'string' ? JSON.parse(found.api_response_fields) : found.api_response_fields) : [],
           
           api_enabled: found.api_enabled == 1 || found.api_enabled === '1' || found.api_enabled === true,
         };
@@ -534,7 +534,14 @@ watch(() => route.params.id, (newId) => {
             
             <!-- Dictionary Tab (Always Publicly Viewable) -->
             <div v-if="activeTab === 'dictionary'" class="dictionary-tab transition-fade">
-              <table class="dictionary-table">
+              <div v-if="!selectedDataset.api_response_fields || selectedDataset.api_response_fields.length === 0" style="padding: 48px 24px; text-align: center; color: #64748b; background: white; border-radius: 12px; border: 1px solid #e2e8f0;">
+                <svg xmlns="http://www.w3.org/2000/svg" style="width: 48px; height: 48px; margin: 0 auto 12px auto; color: #cbd5e1;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+                <h4 style="font-size: 1.05rem; font-weight: 600; color: #334155; margin: 0 0 6px 0;">ยังไม่มีพจนานุกรมข้อมูลสำหรับชุดข้อมูลนี้</h4>
+                <p style="font-size: 0.85rem; color: #94a3b8; margin: 0;">ชุดข้อมูลนี้ยังไม่มีการสร้าง API หรืออัปโหลดไฟล์พจนานุกรมข้อมูล (Data Dictionary)</p>
+              </div>
+              <table v-else class="dictionary-table">
                 <thead>
                   <tr>
                     <th style="width: 10%">ลำดับ</th>
@@ -661,17 +668,20 @@ watch(() => route.params.id, (newId) => {
                   <div class="form-group mb-4" style="margin-bottom: 16px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                       <label class="font-semibold text-slate-700" style="font-size:0.9rem; font-weight:600;">ฟิลด์ข้อมูลที่ต้องการใช้งาน (Request Fields) <span style="color:#ef4444;">*</span></label>
-                      <button type="button" @click="toggleAllApiFields" style="background:none; border:none; color:var(--mso-accent, var(--primary)); font-size:0.8rem; font-weight:600; cursor:pointer; text-decoration:underline;">
+                      <button v-if="selectedDataset.api_response_fields && selectedDataset.api_response_fields.length > 0" type="button" @click="toggleAllApiFields" style="background:none; border:none; color:var(--mso-accent, var(--primary)); font-size:0.8rem; font-weight:600; cursor:pointer; text-decoration:underline;">
                         {{ apiRequestForm.fields.length === (selectedDataset.api_response_fields || []).length ? 'ล้างการเลือกทั้งหมด' : 'เลือกทั้งหมด' }}
                       </button>
                     </div>
-                    <div class="field-checkbox-list" style="max-height:160px; overflow-y:auto; border:1px solid #cbd5e1; border-radius:8px; padding:10px 14px; background:white; display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px;">
+                    <div v-if="!selectedDataset.api_response_fields || selectedDataset.api_response_fields.length === 0" style="padding:16px; text-align:center; background:white; border:1px solid #cbd5e1; border-radius:8px; color:#94a3b8; font-size:0.85rem;">
+                      ชุดข้อมูลนี้ยังไม่มีรายการฟิลด์ข้อมูล API ที่เปิดให้บริการ
+                    </div>
+                    <div v-else class="field-checkbox-list" style="max-height:160px; overflow-y:auto; border:1px solid #cbd5e1; border-radius:8px; padding:10px 14px; background:white; display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px;">
                       <label v-for="field in selectedDataset.api_response_fields" :key="field" class="flex items-center gap-2 cursor-pointer" style="display:flex; align-items:center; gap:8px; font-size:0.85rem; cursor:pointer;">
                         <input type="checkbox" :value="field" v-model="apiRequestForm.fields" style="accent-color: var(--primary);">
                         <span class="font-mono text-slate-700">{{ field }}</span>
                       </label>
                     </div>
-                    <p style="font-size:0.75rem; color:#64748b; margin-top:4px;">เลือกแล้ว {{ apiRequestForm.fields.length }} จาก {{ (selectedDataset.api_response_fields || []).length }} ฟิลด์</p>
+                    <p v-if="selectedDataset.api_response_fields && selectedDataset.api_response_fields.length > 0" style="font-size:0.75rem; color:#64748b; margin-top:4px;">เลือกแล้ว {{ apiRequestForm.fields.length }} จาก {{ (selectedDataset.api_response_fields || []).length }} ฟิลด์</p>
                   </div>
 
                   <div class="form-group mb-4" style="margin-bottom: 16px;">
