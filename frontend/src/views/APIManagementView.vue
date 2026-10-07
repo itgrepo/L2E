@@ -6,11 +6,17 @@ import apiClient, { postWithUser, encodeUserData } from '../utils/api';
 const activeTab = ref('general');
 const services = ref([]);
 const generalApiServices = computed(() => {
-  return services.value.filter(s => s.api_endpoint && s.api_endpoint.trim() !== '' && (!s.api_type || s.api_type === 'general'));
+  return services.value.filter(s => 
+    ((s.api_endpoint && s.api_endpoint.trim() !== '') || s.api_enabled == 1 || s.api_enabled === '1' || s.api_enabled === true) && 
+    s.api_type !== 'scope'
+  );
 });
 
 const scopeApiServices = computed(() => {
-  return services.value.filter(s => s.api_endpoint && s.api_endpoint.trim() !== '' && s.api_type === 'scope');
+  return services.value.filter(s => 
+    ((s.api_endpoint && s.api_endpoint.trim() !== '') || s.api_enabled == 1 || s.api_enabled === '1' || s.api_enabled === true) && 
+    s.api_type === 'scope'
+  );
 });
 const isLoading = ref(false);
 const message = ref({ text: '', type: '' });
@@ -480,7 +486,7 @@ const editApiService = async (svc) => {
     service_name: svc.service_name,
     api_endpoint: svc.api_endpoint,
     service_description: svc.description || svc.service_description || '',
-    api_type: svc.api_type || 'general',
+    api_type: (svc.api_type === 'scope') ? 'scope' : 'general',
     api_enabled: svc.api_enabled == 1 ? 'Active = Enable' : 'Inactive',
     api_db_name: svc.api_db_name || '',
     api_source_name: svc.api_source_name || '',
