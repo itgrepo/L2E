@@ -880,7 +880,7 @@ def retrieveService():
         cursor = conn.cursor()
         
         if user_id == 'ADMIN':
-            sql = "SELECT *, 1 AS has_access, NULL AS permission_status FROM service WHERE status = 'Active' AND (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')"
+            sql = "SELECT *, 1 AS has_access, 1 AS has_dashboard_access, 1 AS has_api_access, NULL AS permission_status, NULL AS dashboard_permission_status, NULL AS api_permission_status FROM service WHERE status = 'Active' AND (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')"
             cursor.execute(sql)
         else:
             org_id = user_data.get('org_id')
@@ -897,7 +897,45 @@ def retrieveService():
                            WHEN s.access_type = 'public' THEN 1
                            WHEN s.access_type = 'internal' AND %s IN ('1', '3', '4', '5') THEN 1
                            WHEN %s = '3' AND s.organization = %s THEN 1
-                           WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s) THEN 1
+                           WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
+                               SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s AND (sua.allow_dashboard = 1 OR sua.allow_dashboard IS NULL)
+                           ) THEN 1
+                           WHEN s.access_type IN ('restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
+                               SELECT 1 FROM service_group_access sga
+                               JOIN group_user_detail gud ON sga.group_id = gud.group_id
+                               WHERE sga.service_id = s.service_id AND gud.user_id = %s
+                           ) THEN 1
+                           ELSE 0
+                       END) AS has_dashboard_access,
+                       (CASE 
+                           WHEN s.access_type = 'public' THEN 1
+                           WHEN s.access_type = 'internal' AND %s IN ('1', '3', '4', '5') THEN 1
+                           WHEN %s = '3' AND s.organization = %s THEN 1
+                           WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
+                               SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s AND (sua.allow_api = 1 OR sua.allow_api IS NULL)
+                           ) THEN 1
+                           WHEN s.access_type IN ('restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
+                               SELECT 1 FROM service_group_access sga
+                               JOIN group_user_detail gud ON sga.group_id = gud.group_id
+                               WHERE sga.service_id = s.service_id AND gud.user_id = %s
+                           ) THEN 1
+                           ELSE 0
+                       END) AS has_api_access,
+                       (SELECT status FROM dataset_permission_requests r 
+                        WHERE r.service_id = s.service_id AND r.user_id = %s 
+                          AND (r.request_type = 'dashboard' OR r.request_type = 'all' OR r.request_type IS NULL)
+                        ORDER BY r.created_at DESC LIMIT 1) AS dashboard_permission_status,
+                       (SELECT status FROM dataset_permission_requests r 
+                        WHERE r.service_id = s.service_id AND r.user_id = %s 
+                          AND (r.request_type = 'api' OR r.request_type = 'all' OR r.request_type IS NULL)
+                        ORDER BY r.created_at DESC LIMIT 1) AS api_permission_status,
+                       (CASE 
+                           WHEN s.access_type = 'public' THEN 1
+                           WHEN s.access_type = 'internal' AND %s IN ('1', '3', '4', '5') THEN 1
+                           WHEN %s = '3' AND s.organization = %s THEN 1
+                           WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
+                               SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s
+                           ) THEN 1
                            WHEN s.access_type IN ('restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_group_access sga
                                JOIN group_user_detail gud ON sga.group_id = gud.group_id
@@ -912,7 +950,14 @@ def retrieveService():
                 WHERE s.status = 'Active' AND (s.dataset_id IS NULL OR s.dataset_id NOT LIKE 'API\_CLONE\_%%')
             """
             previlage_id = str(user_data.get('previlage_id', '2'))
-            cursor.execute(sql, (previlage_id, previlage_id, user_org_name, user_id, user_id, user_id, user_id, user_id))
+            cursor.execute(sql, (
+                previlage_id, previlage_id, user_org_name, user_id, user_id, user_id, user_id, # has_dashboard_access (7)
+                previlage_id, previlage_id, user_org_name, user_id, user_id, user_id, user_id, # has_api_access (7)
+                user_id, # dashboard_permission_status (1)
+                user_id, # api_permission_status (1)
+                previlage_id, previlage_id, user_org_name, user_id, user_id, user_id, user_id, # has_access (7)
+                user_id # permission_status (1)
+            ))
             
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
@@ -2428,6 +2473,7 @@ def request_dataset_permission():
             user_id = parsed_user.get('user_id')
             
         service_id = dataInput.get('service_id')
+        request_type = dataInput.get('request_type', 'all')
         fields = dataInput.get('fields', [])
         reason = dataInput.get('reason', '')
         mou_file_base64 = dataInput.get('mou_file')
@@ -2436,7 +2482,13 @@ def request_dataset_permission():
         if not user_id or not service_id:
             return jsonify({'status': 'error', 'message': 'Missing user or service ID'}), 400
             
-        fields_json = json.dumps(fields)
+        if not reason or not reason.strip():
+            return jsonify({'status': 'error', 'message': 'โปรดระบุวัตถุประสงค์ในการขอเข้าถึง'}), 400
+
+        if request_type == 'api' and (not fields or len(fields) == 0):
+            return jsonify({'status': 'error', 'message': 'โปรดเลือกอย่างน้อย 1 ฟิลด์ข้อมูลที่ต้องการใช้งาน'}), 400
+            
+        fields_json = json.dumps(fields) if fields else '[]'
         
         mou_file_path = None
         if mou_file_base64 and mou_filename:
@@ -2460,22 +2512,23 @@ def request_dataset_permission():
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        # Check if there is already a Pending request
-        sql_check = "SELECT request_id FROM dataset_permission_requests WHERE user_id = %s AND service_id = %s AND status = 'Pending'"
-        cursor.execute(sql_check, (user_id, service_id))
+        # Check if there is already a Pending request for this type or 'all'
+        sql_check = "SELECT request_id FROM dataset_permission_requests WHERE user_id = %s AND service_id = %s AND (request_type = %s OR request_type = 'all' OR %s = 'all') AND status = 'Pending'"
+        cursor.execute(sql_check, (user_id, service_id, request_type, request_type))
         if cursor.fetchone():
             cursor.close()
             conn.close()
-            return jsonify({'status': 'error', 'message': 'คุณได้ส่งคำขอที่อยู่ระหว่างรอดำเนินการสำหรับชุดข้อมูลนี้แล้ว'}), 400
+            type_label = 'แดชบอร์ด' if request_type == 'dashboard' else ('API' if request_type == 'api' else 'ชุดข้อมูลนี้')
+            return jsonify({'status': 'error', 'message': f'คุณได้ส่งคำขอเข้าถึง{type_label}ที่อยู่ระหว่างรอดำเนินการแล้ว'}), 400
             
         # Insert request
-        sql_insert = """INSERT INTO dataset_permission_requests (user_id, service_id, fields_json, reason, status, mou_file_path, mou_filename) 
-                        VALUES (%s, %s, %s, %s, 'Pending', %s, %s)"""
-        cursor.execute(sql_insert, (user_id, service_id, fields_json, reason, mou_file_path, mou_filename))
+        sql_insert = """INSERT INTO dataset_permission_requests (user_id, service_id, fields_json, reason, status, mou_file_path, mou_filename, request_type) 
+                        VALUES (%s, %s, %s, %s, 'Pending', %s, %s, %s)"""
+        cursor.execute(sql_insert, (user_id, service_id, fields_json, reason, mou_file_path, mou_filename, request_type))
         conn.commit()
         
         # Log the action
-        logAction(user_id, '/requestDatasetPermission', f'Request dataset permission for service_id {service_id}', 'info')
+        logAction(user_id, '/requestDatasetPermission', f'Request dataset permission ({request_type}) for service_id {service_id}', 'info')
         
         # Notify Admins
         try:
@@ -2524,7 +2577,7 @@ def get_pending_dataset_requests():
         cursor = conn.cursor()
         if filter_status == 'All':
             sql = """SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
-                            r.mou_file_path, r.mou_filename,
+                            r.mou_file_path, r.mou_filename, r.request_type,
                             u.username, u.firstname, u.lastname, u.email, u.organization,
                             s.service_name, s.dataset_id, s.organization as dataset_org
                      FROM dataset_permission_requests r
@@ -2534,7 +2587,7 @@ def get_pending_dataset_requests():
             cursor.execute(sql)
         else:
             sql = """SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
-                            r.mou_file_path, r.mou_filename,
+                            r.mou_file_path, r.mou_filename, r.request_type,
                             u.username, u.firstname, u.lastname, u.email, u.organization,
                             s.service_name, s.dataset_id, s.organization as dataset_org
                      FROM dataset_permission_requests r
@@ -2582,7 +2635,7 @@ def approve_dataset_request():
         cursor = conn.cursor()
         
         # Get request info
-        sql_req = "SELECT user_id, service_id FROM dataset_permission_requests WHERE request_id = %s"
+        sql_req = "SELECT user_id, service_id, request_type FROM dataset_permission_requests WHERE request_id = %s"
         cursor.execute(sql_req, (request_id,))
         req_row = cursor.fetchone()
         
@@ -2591,12 +2644,12 @@ def approve_dataset_request():
             conn.close()
             return jsonify({'status': 'error', 'message': 'Request not found'}), 404
             
-        target_user_id, service_id = req_row
+        target_user_id, service_id, req_type = req_row
         
-        # Get granular permissions from request
-        allow_dictionary = 1 if dataInput.get('allow_dictionary', True) else 0
-        allow_dashboard = 1 if dataInput.get('allow_dashboard', True) else 0
-        allow_api = 1 if dataInput.get('allow_api', True) else 0
+        # Get granular permissions from request or defaults
+        allow_dictionary = 1
+        allow_dashboard = 1 if dataInput.get('allow_dashboard', (req_type in ('dashboard', 'all', None))) else 0
+        allow_api = 1 if dataInput.get('allow_api', (req_type in ('api', 'all', None))) else 0
 
         # Update request status
         sql_update = """
@@ -2609,21 +2662,21 @@ def approve_dataset_request():
         """
         cursor.execute(sql_update, (allow_dictionary, allow_dashboard, allow_api, request_id))
         
-        # Grant access in service_user_access
+        # Grant access in service_user_access (preserving previous grants with GREATEST)
         sql_grant = """
             INSERT INTO service_user_access (service_id, user_id, allow_dictionary, allow_dashboard, allow_api) 
             VALUES (%s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE 
-            allow_dictionary = VALUES(allow_dictionary),
-            allow_dashboard = VALUES(allow_dashboard),
-            allow_api = VALUES(allow_api)
+            allow_dictionary = 1,
+            allow_dashboard = GREATEST(COALESCE(allow_dashboard, 0), VALUES(allow_dashboard)),
+            allow_api = GREATEST(COALESCE(allow_api, 0), VALUES(allow_api))
         """
         cursor.execute(sql_grant, (service_id, target_user_id, allow_dictionary, allow_dashboard, allow_api))
         
         conn.commit()
         
         # Log action
-        logAction(user_data.get('user_id'), '/approveDatasetRequest', f'Approved request {request_id} for user_id {target_user_id} on service_id {service_id}', 'info')
+        logAction(user_data.get('user_id'), '/approveDatasetRequest', f'Approved request {request_id} ({req_type}) for user_id {target_user_id} on service_id {service_id}', 'info')
         
         # Notify User
         try:

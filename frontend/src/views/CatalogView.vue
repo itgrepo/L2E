@@ -331,11 +331,7 @@ const toggleFormat = (format) => {
 };
 
 const handleDatasetCardClick = (ds) => {
-  if (!ds.has_access) {
-    openDatasetDetail(ds);
-  } else {
-    router.push('/dataset/' + ds.id);
-  }
+  router.push('/dataset/' + ds.id);
 };
 const openDatasetDetail = (ds) => {
   selectedDataset.value = ds;

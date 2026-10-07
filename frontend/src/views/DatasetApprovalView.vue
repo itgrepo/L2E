@@ -35,10 +35,13 @@ const fetchPendingRequests = async () => {
 
 const openApprovalModal = (req) => {
   selectedRequest.value = req;
+  const isDashboardOnly = req.request_type === 'dashboard';
+  const isApiOnly = req.request_type === 'api';
+  
   granularForm.value = {
     allow_dictionary: true,
-    allow_dashboard: true,
-    allow_api: true
+    allow_dashboard: isDashboardOnly || (!isDashboardOnly && !isApiOnly),
+    allow_api: isApiOnly || (!isDashboardOnly && !isApiOnly)
   };
   showModal.value = true;
 };
@@ -135,6 +138,7 @@ onMounted(() => {
           <thead>
             <tr>
               <th>รหัสคำขอ</th>
+              <th>ประเภทที่ขอ</th>
               <th>ชื่อ-นามสกุลจริง</th>
               <th>อีเมลสังกัด</th>
               <th>ชื่อหน่วยงาน</th>
@@ -148,11 +152,19 @@ onMounted(() => {
           <tbody>
             <tr v-for="req in pendingRequests" :key="req.request_id">
               <td>#{{ req.request_id }}</td>
+              <td>
+                <span v-if="req.request_type === 'dashboard'" class="badge-type badge-dashboard">📊 แดชบอร์ด</span>
+                <span v-else-if="req.request_type === 'api'" class="badge-type badge-api">⚡ ข้อมูล API</span>
+                <span v-else class="badge-type badge-all">🌐 ทั้งหมด</span>
+                <div v-if="req.request_type === 'api' && req.fields && req.fields.length > 0" style="font-size: 0.75rem; color: #047857; margin-top: 4px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="req.fields.join(', ')">
+                  {{ req.fields.length }} ฟิลด์: {{ req.fields.join(', ') }}
+                </div>
+              </td>
               <td>{{ req.firstname }} {{ req.lastname }}</td>
               <td>{{ req.email }}</td>
               <td>{{ req.organization || '-' }}</td>
               <td>{{ req.service_name || req.service_id }}</td>
-              <td style="max-width: 200px; white-space: normal; font-size: 0.85rem;">{{ req.reason || '-' }}</td>
+              <td style="max-width: 180px; white-space: normal; font-size: 0.85rem;">{{ req.reason || '-' }}</td>
               <td>
                 <a v-if="req.mou_file_path" :href="`/api/downloadRequestMou/${req.request_id}`" target="_blank" class="btn-mou-download" title="คลิกเพื่อดูหรือดาวน์โหลดเอกสารแนบ">
                   📄 ดูไฟล์แนบ
@@ -180,9 +192,24 @@ onMounted(() => {
     <!-- Modal อนุมัติสิทธิ์ -->
     <div v-if="showModal" class="modal-backdrop">
       <div class="modal-card">
-        <h3>อนุมัติสิทธิ์การเข้าถึงข้อมูล</h3>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <h3 style="margin:0;">อนุมัติสิทธิ์การเข้าถึงข้อมูล</h3>
+          <span v-if="selectedRequest?.request_type === 'dashboard'" class="badge-type badge-dashboard">📊 ขอสิทธิ์แดชบอร์ด</span>
+          <span v-else-if="selectedRequest?.request_type === 'api'" class="badge-type badge-api">⚡ ขอสิทธิ์ข้อมูล API</span>
+          <span v-else class="badge-type badge-all">🌐 ขอสิทธิ์ทั้งหมด</span>
+        </div>
         <p class="mb-4 text-sm text-slate-500">เลือกกำหนดระดับการเข้าถึงข้อมูลให้กับ <strong>{{ selectedRequest?.firstname }} {{ selectedRequest?.lastname }} ({{ selectedRequest?.username }})</strong> สำหรับชุดข้อมูล <strong>{{ selectedRequest?.service_name || selectedRequest?.service_id }}</strong></p>
         
+        <!-- Requested fields info for API -->
+        <div v-if="selectedRequest?.request_type === 'api' && selectedRequest?.fields && selectedRequest?.fields.length > 0" style="margin-bottom: 16px; padding: 10px 14px; background: #ecfdf5; border-radius: 8px; border: 1px solid #a7f3d0; font-size: 0.85rem;">
+          <strong style="color: #065f46; display:block; margin-bottom:6px;">⚡ ฟิลด์ข้อมูลที่ผู้ใช้ขอเข้าถึง ({{ selectedRequest.fields.length }} ฟิลด์):</strong>
+          <div style="display: flex; flex-wrap: wrap; gap: 4px; max-height: 80px; overflow-y: auto;">
+            <span v-for="f in selectedRequest.fields" :key="f" style="background: white; border: 1px solid #6ee7b7; color: #047857; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem;">
+              {{ f }}
+            </span>
+          </div>
+        </div>
+
         <div v-if="selectedRequest?.mou_file_path" style="margin-bottom: 16px; padding: 12px 14px; background: #f1f5f9; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #e2e8f0;">
           <div>
             <div style="font-weight: 600; font-size: 0.85rem; color: #1e293b;">📄 เอกสารแนบคำขอ:</div>
@@ -402,5 +429,29 @@ onMounted(() => {
 .btn-mou-download:hover {
   background: #e2e8f0;
   border-color: #008236;
+}
+
+.badge-type {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badge-dashboard {
+  background: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+}
+.badge-api {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+.badge-all {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
 }
 </style>

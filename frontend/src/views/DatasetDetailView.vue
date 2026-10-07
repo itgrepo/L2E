@@ -15,10 +15,24 @@ const user = ref(JSON.parse(localStorage.getItem('user') || '{}'));
 const selectedDataset = ref(null);
 const apiBaseUrl = computed(() => `${window.location.origin}/dataapi/api/v1/`);
 const userApiKey = computed(() => user.value.apikey || '[YOUR_API_KEY]');
-const requestForm = ref({ fields: [], reason: '', mouFile: null, mouFileName: '' });
-const reqError = ref('');
-const reqSuccess = ref('');
-const isSubmittingReq = ref(false);
+const dashboardRequestForm = ref({
+  reason: '',
+  mouFile: null,
+  mouFileName: '',
+  isSubmitting: false,
+  error: '',
+  success: ''
+});
+
+const apiRequestForm = ref({
+  fields: [],
+  reason: '',
+  mouFile: null,
+  mouFileName: '',
+  isSubmitting: false,
+  error: '',
+  success: ''
+});
 
 const customApiEndpoints = ref([]);
 const apiClones = ref([]);
@@ -121,7 +135,11 @@ const fetchDatasetDetail = async () => {
           api_endpoint: found.api_endpoint,
           api_type: found.api_type,
           has_access: found.has_access === 1 || found.has_access === '1' || found.has_access === true,
+          has_dashboard_access: found.has_dashboard_access === 1 || found.has_dashboard_access === '1' || found.has_dashboard_access === true,
+          has_api_access: found.has_api_access === 1 || found.has_api_access === '1' || found.has_api_access === true,
           permission_status: found.permission_status,
+          dashboard_permission_status: found.dashboard_permission_status,
+          api_permission_status: found.api_permission_status,
           api_response_fields: found.api_response_fields ? (typeof found.api_response_fields === 'string' ? JSON.parse(found.api_response_fields) : found.api_response_fields) : ['id', 'name', 'amount', 'date'],
           
           api_enabled: found.api_enabled == 1 || found.api_enabled === '1' || found.api_enabled === true,
@@ -181,63 +199,125 @@ const fetchDatasetDetail = async () => {
   }
 };
 
-const handleRequestFileChange = (e) => { requestFile.value = e.target.files[0]; };
-
-const handleMouFileChange = (event) => {
+const handleDashboardMouChange = (event) => {
   const file = event.target.files[0];
   if (file) {
-    requestForm.value.mouFileName = file.name;
+    dashboardRequestForm.value.mouFileName = file.name;
     const reader = new FileReader();
     reader.onload = (e) => {
-      requestForm.value.mouFile = e.target.result;
+      dashboardRequestForm.value.mouFile = e.target.result;
     };
     reader.readAsDataURL(file);
   } else {
-    requestForm.value.mouFile = null;
-    requestForm.value.mouFileName = '';
+    dashboardRequestForm.value.mouFile = null;
+    dashboardRequestForm.value.mouFileName = '';
   }
 };
 
-const submitPermissionRequest = async () => {
-  if (requestForm.value.fields.length === 0) {
-    reqError.value = 'โปรดเลือกอย่างน้อย 1 ฟิลด์ข้อมูล';
-    return;
+const handleApiMouChange = (event) => {
+  const file = event.target.files[0];
+  if (file) {
+    apiRequestForm.value.mouFileName = file.name;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      apiRequestForm.value.mouFile = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  } else {
+    apiRequestForm.value.mouFile = null;
+    apiRequestForm.value.mouFileName = '';
   }
-  if (!requestForm.value.reason.trim()) {
-    reqError.value = 'โปรดระบุวัตถุประสงค์ในการขอเข้าถึง';
+};
+
+const toggleAllApiFields = () => {
+  const allFields = selectedDataset.value?.api_response_fields || [];
+  if (apiRequestForm.value.fields.length === allFields.length) {
+    apiRequestForm.value.fields = [];
+  } else {
+    apiRequestForm.value.fields = [...allFields];
+  }
+};
+
+const submitDashboardPermissionRequest = async () => {
+  if (!dashboardRequestForm.value.reason.trim()) {
+    dashboardRequestForm.value.error = 'โปรดระบุวัตถุประสงค์ในการขอเข้าถึงแดชบอร์ด';
     return;
   }
   
-  isSubmittingReq.value = true;
-  reqError.value = '';
-  reqSuccess.value = '';
+  dashboardRequestForm.value.isSubmitting = true;
+  dashboardRequestForm.value.error = '';
+  dashboardRequestForm.value.success = '';
   
   try {
     const userData = localStorage.getItem('user');
     const response = await apiClient.post('/requestDatasetPermission', {
       user: encodeUserData(JSON.parse(userData)),
       service_id: selectedDataset.value.id,
-      fields: requestForm.value.fields,
-      reason: requestForm.value.reason,
-      mou_file: requestForm.value.mouFile,
-      mou_filename: requestForm.value.mouFileName
+      request_type: 'dashboard',
+      reason: dashboardRequestForm.value.reason,
+      mou_file: dashboardRequestForm.value.mouFile,
+      mou_filename: dashboardRequestForm.value.mouFileName,
+      fields: []
     });
     
     if (response.data.status === 'success') {
-      reqSuccess.value = 'ส่งคำขอเข้าถึงข้อมูลเรียบร้อยแล้ว';
-      selectedDataset.value.permission_status = 'Pending';
-      requestForm.value.fields = [];
-      requestForm.value.reason = '';
-      requestForm.value.mouFile = null;
-      requestForm.value.mouFileName = '';
+      dashboardRequestForm.value.success = 'ส่งคำขอเข้าถึงแดชบอร์ดเรียบร้อยแล้ว';
+      selectedDataset.value.dashboard_permission_status = 'Pending';
+      dashboardRequestForm.value.reason = '';
+      dashboardRequestForm.value.mouFile = null;
+      dashboardRequestForm.value.mouFileName = '';
       fetchDatasetDetail();
     } else {
-      reqError.value = response.data.message || 'เกิดข้อผิดพลาด';
+      dashboardRequestForm.value.error = response.data.message || 'เกิดข้อผิดพลาด';
     }
   } catch (error) {
-    reqError.value = error.response?.data?.message || 'ไม่สามารถส่งคำขอได้';
+    dashboardRequestForm.value.error = error.response?.data?.message || 'ไม่สามารถส่งคำขอได้';
   } finally {
-    isSubmittingReq.value = false;
+    dashboardRequestForm.value.isSubmitting = false;
+  }
+};
+
+const submitApiPermissionRequest = async () => {
+  if (apiRequestForm.value.fields.length === 0) {
+    apiRequestForm.value.error = 'โปรดเลือกอย่างน้อย 1 ฟิลด์ข้อมูล';
+    return;
+  }
+  if (!apiRequestForm.value.reason.trim()) {
+    apiRequestForm.value.error = 'โปรดระบุวัตถุประสงค์ในการขอเข้าถึง API';
+    return;
+  }
+  
+  apiRequestForm.value.isSubmitting = true;
+  apiRequestForm.value.error = '';
+  apiRequestForm.value.success = '';
+  
+  try {
+    const userData = localStorage.getItem('user');
+    const response = await apiClient.post('/requestDatasetPermission', {
+      user: encodeUserData(JSON.parse(userData)),
+      service_id: selectedDataset.value.id,
+      request_type: 'api',
+      fields: apiRequestForm.value.fields,
+      reason: apiRequestForm.value.reason,
+      mou_file: apiRequestForm.value.mouFile,
+      mou_filename: apiRequestForm.value.mouFileName
+    });
+    
+    if (response.data.status === 'success') {
+      apiRequestForm.value.success = 'ส่งคำขอเข้าถึง API เรียบร้อยแล้ว';
+      selectedDataset.value.api_permission_status = 'Pending';
+      apiRequestForm.value.fields = [];
+      apiRequestForm.value.reason = '';
+      apiRequestForm.value.mouFile = null;
+      apiRequestForm.value.mouFileName = '';
+      fetchDatasetDetail();
+    } else {
+      apiRequestForm.value.error = response.data.message || 'เกิดข้อผิดพลาด';
+    }
+  } catch (error) {
+    apiRequestForm.value.error = error.response?.data?.message || 'ไม่สามารถส่งคำขอได้';
+  } finally {
+    apiRequestForm.value.isSubmitting = false;
   }
 };
 
@@ -416,7 +496,7 @@ watch(() => route.params.id, (newId) => {
                 
                 <aside class="info-sidebar">
                   
-                  <!-- Data Dictionary (Public - no access required) -->
+                  <!-- Data Dictionary (Public - always open) -->
                   <div class="action-card" style="margin-bottom: 16px;">
                     <h4>Data Dictionary</h4>
                     <p style="font-size: 0.85rem; color: #64748b; margin-top: 4px;">ดาวน์โหลดพจนานุกรมอธิบายโครงสร้างข้อมูล</p>
@@ -426,9 +506,9 @@ watch(() => route.params.id, (newId) => {
                     </div>
                   </div>
 
-                  <!-- If has access, show API / Data download options -->
-                  <div v-if="selectedDataset.has_access" class="action-card">
-                    <h4>API</h4>
+                  <!-- API / File download card -->
+                  <div v-if="selectedDataset.has_api_access" class="action-card">
+                    <h4>API & Data Files</h4>
                     <p style="font-size: 0.85rem; color: #64748b; margin-top: 4px;">ดาวน์โหลดไฟล์ข้อมูลต้นฉบับ</p>
                     <div class="download-buttons" style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
                       <button class="btn-download csv" :disabled="!apiIsCsv" @click="openPreview('CSV')" title="ดาวน์โหลดไฟล์ในรูปแบบ CSV">CSV</button>
@@ -437,66 +517,22 @@ watch(() => route.params.id, (newId) => {
                       <button v-if="apiIsJson" class="btn-download json" @click="openPreview('JSON')" title="ดาวน์โหลดไฟล์ในรูปแบบ JSON">JSON</button>
                     </div>
                     
-                    <!-- Additional API specific files -->
                     <button v-if="selectedDataset.data_sampling_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('SAMPLING')" title="ดาวน์โหลดข้อมูลตัวอย่างสำหรับทดสอบ">ดาวน์โหลดชุดข้อมูลสุ่ม (Zip File)</button>
                   </div>
                   
-                  <!-- If does NOT have access, show Request Access form -->
+                  <!-- If does NOT have API access, show clean prompt in sidebar -->
                   <div v-else class="action-card">
-                    <h4 style="display:flex;align-items:center;gap:6px;">🔒 จำกัดสิทธิ์การใช้งาน (API)</h4>
-                    <p style="font-size:0.875rem;color:#64748b;margin-bottom:16px;">ชุดข้อมูลนี้จำกัดสิทธิ์ โปรดส่งคำขออนุญาตเพื่อดาวน์โหลดข้อมูลหรือใช้ API</p>
-                    
-                    <div v-if="!selectedDataset.permission_status" class="request-access-form-wrapper">
-                      <!-- Field selector -->
-                      <div class="form-group mb-4" style="margin-bottom: 12px;">
-                        <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px; font-weight:600;">ฟิลด์ข้อมูลที่ต้องการ *</label>
-                        <div class="field-checkbox-list" style="max-height:120px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;padding:8px;background:#f8fafc; text-align:left;">
-                          <label v-for="field in selectedDataset.api_response_fields" :key="field" class="flex items-center gap-2 mb-1 cursor-pointer" style="display:flex;align-items:center;gap:6px;font-size:0.85rem; margin-bottom: 4px; cursor:pointer;">
-                            <input type="checkbox" :value="field" v-model="requestForm.fields">
-                            <span>{{ field }}</span>
-                          </label>
-                        </div>
-                      </div>
-                      
-                      <!-- Reason input -->
-                      <div class="form-group mb-4" style="margin-bottom: 12px;">
-                        <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px; font-weight:600;">วัตถุประสงค์ในการขอเข้าถึง *</label>
-                        <textarea v-model="requestForm.reason" rows="2" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px;font-size:0.85rem;resize:none; box-sizing:border-box;" placeholder="ระบุเหตุผลและวัตถุประสงค์การใช้งาน..."></textarea>
-                      </div>
-
-                                            <!-- MOU File Upload -->
-                      <div class="form-group mb-4" style="margin-bottom: 12px;">
-                        <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px; font-weight:600;">เอกสารประกอบคำขอ (MOU / Request Letter)</label>
-                        <p style="font-size:0.75rem; color:#64748b; margin-bottom:4px;">กรุณาอัปโหลดบันทึกข้อความนำส่ง, หนังสือข้อตกลง MOU หรือเอกสารสิทธิ์การใช้ข้อมูล (PDF, JPG, PNG)</p>
-                        <input type="file" @change="handleMouFileChange" accept=".pdf,image/*" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:0.8rem;background:#f8fafc;cursor:pointer;">
-                      </div>
-
-                      <div v-if="reqError" style="color:#e11d48;font-size:0.75rem;margin-bottom:8px;text-align:left;">{{ reqError }}</div>
-                      <div v-if="reqSuccess" style="color:#16a34a;font-size:0.75rem;margin-bottom:8px;text-align:left;">{{ reqSuccess }}</div>
-
-                      <button class="btn-primary w-full" style="padding:10px;font-size:0.9rem;width:100%; border:none; border-radius:8px; background:var(--mso-accent, var(--primary)); color:white; font-weight:600; cursor:pointer;" :disabled="isSubmittingReq" @click="submitPermissionRequest" title="ส่งคำขอเพื่อให้ผู้ดูแลระบบอนุมัติสิทธิ์เข้าถึง">
-                        {{ isSubmittingReq ? 'กำลังส่งคำขอ...' : 'ส่งคำขอเข้าถึงข้อมูล' }}
-                      </button>
-                    </div>
-
-                    <!-- If status is Pending -->
-                    <div v-else-if="selectedDataset.permission_status === 'Pending'" style="background:#fef3c7; color:#92400e; padding:12px; border-radius:8px; border:1px solid #fde68a; text-align:center;">
-                      <p style="font-weight:bold; margin:0 0 4px 0; font-size:0.875rem;">⏳ รอการอนุมัติสิทธิ์ (Pending Approval)</p>
-                      <p style="font-size:0.75rem; margin:0; color:#b45309;">คำขอเข้าถึงข้อมูลอยู่ระหว่างการพิจารณาโดยผู้ดูแลระบบ</p>
-                    </div>
-
-                    <!-- If status is Rejected -->
-                    <div v-else-if="selectedDataset.permission_status === 'Rejected'" style="background:#fee2e2; color:#991b1b; padding:12px; border-radius:8px; border:1px solid #fecaca; text-align:center;">
-                      <p style="font-weight:bold; margin:0 0 4px 0; font-size:0.875rem;">❌ ปฏิเสธการขอสิทธิ์ (Rejected)</p>
-                      <p style="font-size:0.75rem; margin:0 0 8px 0; color:#b91c1c;">คำขอเข้าถึงข้อมูลของคุณถูกปฏิเสธ</p>
-                      <button class="btn-primary-outline w-full" style="padding:6px; font-size:0.75rem; width:100%;" @click="selectedDataset.permission_status = null">ส่งคำขอใหม่อีกครั้ง</button>
-                    </div>
+                    <h4 style="display:flex;align-items:center;gap:6px;">🔒 ดาวน์โหลดไฟล์ & API</h4>
+                    <p style="font-size:0.85rem;color:#64748b;margin-top:4px;margin-bottom:12px;">ชุดข้อมูลนี้จำกัดสิทธิ์การดาวน์โหลดไฟล์ข้อมูลและ API</p>
+                    <button class="btn-primary-outline w-full" style="width:100%; font-size:0.85rem; padding:8px 12px;" @click="activeTab = 'api'">
+                      ไปที่แท็บ ข้อมูล API เพื่อส่งคำขอ
+                    </button>
                   </div>
                 </aside>
               </div>
             </div>
             
-            <!-- Dictionary Tab -->
+            <!-- Dictionary Tab (Always Publicly Viewable) -->
             <div v-if="activeTab === 'dictionary'" class="dictionary-tab transition-fade">
               <table class="dictionary-table">
                 <thead>
@@ -518,19 +554,54 @@ watch(() => route.params.id, (newId) => {
               </table>
             </div>
             
-            <!-- Visual Tab -->
+            <!-- Visual Tab (Dashboard) -->
             <div v-if="activeTab === 'visual'" class="visual-tab transition-fade" style="padding: 0;">
-              <!-- If does not have access, hide dashboard visualizer -->
-              <div v-if="!selectedDataset.has_access" class="visual-restricted-card" style="padding: 40px; text-align: center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px;">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto mb-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="height: 64px; width: 64px; margin: 0 auto 16px auto; color: #94a3b8;">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-                <p style="font-weight: bold; font-size: 1.125rem; margin-bottom: 4px; color:#1e293b;">แดชบอร์ดถูกจำกัดสิทธิ์</p>
-                <p style="font-size: 0.875rem; color: #64748b; margin-bottom: 16px;">โปรดส่งคำขอเข้าถึงข้อมูลเพื่อเรียกดูแดชบอร์ดของชุดข้อมูลนี้</p>
-                <button style="padding: 8px 24px; background: #1e293b; color: white; border: none; border-radius: 8px; font-weight: 500; cursor: pointer;" @click="activeTab = 'info'">
-                  ส่งคำขอเข้าถึงข้อมูล
-                </button>
+              <!-- If does NOT have dashboard access, show Dashboard Permission Request / Status -->
+              <div v-if="!selectedDataset.has_dashboard_access" style="padding: 32px 20px; background: white; border-radius: 16px; border: 1px solid #e2e8f0;">
+                <div v-if="selectedDataset.dashboard_permission_status === 'Pending'" style="background:#fef3c7; color:#92400e; padding:32px 24px; border-radius:12px; border:1px solid #fde68a; text-align:center; max-width:640px; margin:0 auto;">
+                  <div style="font-size: 40px; margin-bottom: 12px;">⏳</div>
+                  <h4 style="font-size:1.15rem; font-weight:700; margin:0 0 6px 0;">คำขอเข้าถึงแดชบอร์ดอยู่ระหว่างรอการอนุมัติ</h4>
+                  <p style="font-size:0.9rem; margin:0; color:#b45309;">คำขอเข้าถึงแดชบอร์ดของคุณถูกส่งเรียบร้อยแล้ว และอยู่ระหว่างการพิจารณาโดยผู้ดูแลระบบ</p>
+                </div>
+
+                <div v-else-if="selectedDataset.dashboard_permission_status === 'Rejected'" style="background:#fee2e2; color:#991b1b; padding:32px 24px; border-radius:12px; border:1px solid #fecaca; text-align:center; max-width:640px; margin:0 auto;">
+                  <div style="font-size: 40px; margin-bottom: 12px;">❌</div>
+                  <h4 style="font-size:1.15rem; font-weight:700; margin:0 0 6px 0;">คำขอเข้าถึงแดชบอร์ดถูกปฏิเสธ</h4>
+                  <p style="font-size:0.9rem; margin:0 0 16px 0; color:#b91c1c;">คำขอเข้าถึงแดชบอร์ดของคุณไม่ผ่านการอนุมัติ คุณสามารถตรวจสอบเอกสารและส่งคำขอใหม่อีกครั้ง</p>
+                  <button class="btn-primary-outline" style="padding:8px 20px;" @click="selectedDataset.dashboard_permission_status = null">ส่งคำขอเข้าถึงแดชบอร์ดใหม่</button>
+                </div>
+
+                <div v-else class="dashboard-request-form" style="max-width: 640px; margin: 0 auto; padding: 28px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+                  <div style="text-align: center; margin-bottom: 24px;">
+                    <div style="width: 56px; height: 56px; border-radius: 50%; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px auto; font-size: 26px;">
+                      📊
+                    </div>
+                    <h3 style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin: 0 0 8px 0;">ขอสิทธิ์เข้าถึงแดชบอร์ด (Dashboard Access Request)</h3>
+                    <p style="font-size: 0.9rem; color: #64748b; margin: 0;">ชุดข้อมูลนี้จำกัดสิทธิ์การเข้าถึงแดชบอร์ด กรุณากรอกวัตถุประสงค์และแนบเอกสารเพื่อขออนุมัติสิทธิ์</p>
+                  </div>
+
+                  <div class="form-group mb-4" style="margin-bottom: 16px;">
+                    <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.9rem; display:block; margin-bottom: 6px; font-weight:600;">วัตถุประสงค์ในการขอเข้าถึงแดชบอร์ด <span style="color:#ef4444;">*</span></label>
+                    <textarea v-model="dashboardRequestForm.reason" rows="3" style="width:100%; border:1px solid #cbd5e1; border-radius:8px; padding:10px 12px; font-size:0.9rem; resize:vertical; box-sizing:border-box;" placeholder="ระบุเหตุผลและวัตถุประสงค์ในการใช้งานแดชบอร์ดชุดข้อมูลนี้..."></textarea>
+                  </div>
+
+                  <div class="form-group mb-4" style="margin-bottom: 20px;">
+                    <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.9rem; display:block; margin-bottom: 4px; font-weight:600;">เอกสารประกอบคำขอ (MOU / Request Letter)</label>
+                    <p style="font-size:0.8rem; color:#64748b; margin:0 0 8px 0;">กรุณาอัปโหลดบันทึกข้อความนำส่ง, หนังสือข้อตกลง MOU หรือเอกสารขอความอนุเคราะห์ (PDF, JPG, PNG)</p>
+                    <input type="file" @change="handleDashboardMouChange" accept=".pdf,image/*" style="width:100%; border:1px solid #cbd5e1; border-radius:8px; padding:8px 12px; font-size:0.85rem; background:white; cursor:pointer;">
+                  </div>
+
+                  <div v-if="dashboardRequestForm.error" style="color:#e11d48; font-size:0.85rem; margin-bottom:12px; padding:8px 12px; background:#ffe4e6; border-radius:6px;">{{ dashboardRequestForm.error }}</div>
+                  <div v-if="dashboardRequestForm.success" style="color:#16a34a; font-size:0.85rem; margin-bottom:12px; padding:8px 12px; background:#dcfce7; border-radius:6px;">{{ dashboardRequestForm.success }}</div>
+
+                  <button class="btn-primary w-full" style="width:100%; padding:12px; font-size:0.95rem; border:none; border-radius:8px; background:var(--mso-accent, var(--primary)); color:white; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;" :disabled="dashboardRequestForm.isSubmitting" @click="submitDashboardPermissionRequest">
+                    <span v-if="dashboardRequestForm.isSubmitting">กำลังส่งคำขอ...</span>
+                    <span v-else>ส่งคำขอเข้าถึงแดชบอร์ด</span>
+                  </button>
+                </div>
               </div>
+
+              <!-- If HAS dashboard access -->
               <div v-else-if="selectedDataset.external_dashboard_url" class="dashboard-container">
                 <div class="dashboard-actions mb-4 p-4 flex justify-between items-center bg-slate-50 border-b border-slate-100" style="display:flex; justify-content:space-between; align-items:center; padding:16px; background:#f8fafc; border-bottom:1px solid #cbd5e1;">
                   <div style="display:flex; align-items:center; gap:8px; color:#475569; font-weight:500;">
@@ -562,10 +633,72 @@ watch(() => route.params.id, (newId) => {
             
             <!-- API Tab -->
             <div v-if="activeTab === 'api'" class="api-tab transition-fade">
-              <!-- If does not have API enabled and no clones -->
-              <div v-if="combinedApis.length === 0" style="padding:40px; text-align:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px;">
-                <p style="font-weight:bold; font-size:1.1rem; color:#475569; margin:0 0 8px 0;">🔒 ข้อมูล API เฉพาะ Private API</p>
-                <p style="font-size:0.875rem; color:#64748b; margin:0;">ชุดข้อมูลนี้ยังไม่เปิดบริการเรียกใช้ผ่านช่องทาง API สำหรับระดับสิทธิ์ของคุณ</p>
+              <!-- If does NOT have API access, show API Permission Request / Status -->
+              <div v-if="!selectedDataset.has_api_access" style="padding: 32px 20px; background: white; border-radius: 16px; border: 1px solid #e2e8f0;">
+                <div v-if="selectedDataset.api_permission_status === 'Pending'" style="background:#fef3c7; color:#92400e; padding:32px 24px; border-radius:12px; border:1px solid #fde68a; text-align:center; max-width:640px; margin:0 auto;">
+                  <div style="font-size: 40px; margin-bottom: 12px;">⏳</div>
+                  <h4 style="font-size:1.15rem; font-weight:700; margin:0 0 6px 0;">คำขอเข้าถึง API อยู่ระหว่างรอการอนุมัติ</h4>
+                  <p style="font-size:0.9rem; margin:0; color:#b45309;">คำขอเข้าถึง API ของคุณถูกส่งเรียบร้อยแล้ว และอยู่ระหว่างการพิจารณาโดยผู้ดูแลระบบ</p>
+                </div>
+
+                <div v-else-if="selectedDataset.api_permission_status === 'Rejected'" style="background:#fee2e2; color:#991b1b; padding:32px 24px; border-radius:12px; border:1px solid #fecaca; text-align:center; max-width:640px; margin:0 auto;">
+                  <div style="font-size: 40px; margin-bottom: 12px;">❌</div>
+                  <h4 style="font-size:1.15rem; font-weight:700; margin:0 0 6px 0;">คำขอเข้าถึง API ถูกปฏิเสธ</h4>
+                  <p style="font-size:0.9rem; margin:0 0 16px 0; color:#b91c1c;">คำขอเข้าถึง API ของคุณไม่ผ่านการอนุมัติ คุณสามารถตรวจสอบข้อมูลและส่งคำขอใหม่อีกครั้ง</p>
+                  <button class="btn-primary-outline" style="padding:8px 20px;" @click="selectedDataset.api_permission_status = null">ส่งคำขอเข้าถึง API ใหม่</button>
+                </div>
+
+                <div v-else class="api-request-form" style="max-width: 720px; margin: 0 auto; padding: 28px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+                  <div style="text-align: center; margin-bottom: 24px;">
+                    <div style="width: 56px; height: 56px; border-radius: 50%; background: #ecfdf5; color: #059669; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px auto; font-size: 26px;">
+                      ⚡
+                    </div>
+                    <h3 style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin: 0 0 8px 0;">ขอสิทธิ์เข้าถึง API (API Access Request)</h3>
+                    <p style="font-size: 0.9rem; color: #64748b; margin: 0;">ชุดข้อมูลนี้จำกัดสิทธิ์การเข้าถึง API โปรดเลือกฟิลด์ข้อมูลที่ต้องการใช้งาน พร้อมระบุวัตถุประสงค์</p>
+                  </div>
+
+                  <!-- Field Selector with Quick Action -->
+                  <div class="form-group mb-4" style="margin-bottom: 16px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                      <label class="font-semibold text-slate-700" style="font-size:0.9rem; font-weight:600;">ฟิลด์ข้อมูลที่ต้องการใช้งาน (Request Fields) <span style="color:#ef4444;">*</span></label>
+                      <button type="button" @click="toggleAllApiFields" style="background:none; border:none; color:var(--mso-accent, var(--primary)); font-size:0.8rem; font-weight:600; cursor:pointer; text-decoration:underline;">
+                        {{ apiRequestForm.fields.length === (selectedDataset.api_response_fields || []).length ? 'ล้างการเลือกทั้งหมด' : 'เลือกทั้งหมด' }}
+                      </button>
+                    </div>
+                    <div class="field-checkbox-list" style="max-height:160px; overflow-y:auto; border:1px solid #cbd5e1; border-radius:8px; padding:10px 14px; background:white; display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px;">
+                      <label v-for="field in selectedDataset.api_response_fields" :key="field" class="flex items-center gap-2 cursor-pointer" style="display:flex; align-items:center; gap:8px; font-size:0.85rem; cursor:pointer;">
+                        <input type="checkbox" :value="field" v-model="apiRequestForm.fields" style="accent-color: var(--primary);">
+                        <span class="font-mono text-slate-700">{{ field }}</span>
+                      </label>
+                    </div>
+                    <p style="font-size:0.75rem; color:#64748b; margin-top:4px;">เลือกแล้ว {{ apiRequestForm.fields.length }} จาก {{ (selectedDataset.api_response_fields || []).length }} ฟิลด์</p>
+                  </div>
+
+                  <div class="form-group mb-4" style="margin-bottom: 16px;">
+                    <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.9rem; display:block; margin-bottom: 6px; font-weight:600;">วัตถุประสงค์ในการขอเข้าถึง API <span style="color:#ef4444;">*</span></label>
+                    <textarea v-model="apiRequestForm.reason" rows="3" style="width:100%; border:1px solid #cbd5e1; border-radius:8px; padding:10px 12px; font-size:0.9rem; resize:vertical; box-sizing:border-box;" placeholder="ระบุเหตุผลและวัตถุประสงค์ในการเชื่อมต่อ API ชุดข้อมูลนี้..."></textarea>
+                  </div>
+
+                  <div class="form-group mb-4" style="margin-bottom: 20px;">
+                    <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.9rem; display:block; margin-bottom: 4px; font-weight:600;">เอกสารประกอบคำขอ (MOU / Request Letter)</label>
+                    <p style="font-size:0.8rem; color:#64748b; margin:0 0 8px 0;">กรุณาอัปโหลดบันทึกข้อความนำส่ง, หนังสือข้อตกลง MOU หรือเอกสารขอความอนุเคราะห์ (PDF, JPG, PNG)</p>
+                    <input type="file" @change="handleApiMouChange" accept=".pdf,image/*" style="width:100%; border:1px solid #cbd5e1; border-radius:8px; padding:8px 12px; font-size:0.85rem; background:white; cursor:pointer;">
+                  </div>
+
+                  <div v-if="apiRequestForm.error" style="color:#e11d48; font-size:0.85rem; margin-bottom:12px; padding:8px 12px; background:#ffe4e6; border-radius:6px;">{{ apiRequestForm.error }}</div>
+                  <div v-if="apiRequestForm.success" style="color:#16a34a; font-size:0.85rem; margin-bottom:12px; padding:8px 12px; background:#dcfce7; border-radius:6px;">{{ apiRequestForm.success }}</div>
+
+                  <button class="btn-primary w-full" style="width:100%; padding:12px; font-size:0.95rem; border:none; border-radius:8px; background:var(--mso-accent, var(--primary)); color:white; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;" :disabled="apiRequestForm.isSubmitting" @click="submitApiPermissionRequest">
+                    <span v-if="apiRequestForm.isSubmitting">กำลังส่งคำขอ...</span>
+                    <span v-else>ส่งคำขอเข้าถึง API</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- If HAS API access and no endpoints available -->
+              <div v-else-if="combinedApis.length === 0" style="padding:40px; text-align:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px;">
+                <p style="font-weight:bold; font-size:1.1rem; color:#475569; margin:0 0 8px 0;">🔒 ไม่พบปลายทาง API ที่เปิดใช้งาน</p>
+                <p style="font-size:0.875rem; color:#64748b; margin:0;">ชุดข้อมูลนี้ยังไม่มีการกำหนด API Endpoint สำหรับให้บริการ</p>
               </div>
               
               <!-- If has API, show details -->
