@@ -125,9 +125,9 @@ const handleLogin = async () => {
     } else if (result.status === 'not found' || result.status === 'username is incorrect') {
       if (result.attempts !== undefined) {
         const remaining = 5 - result.attempts;
-        errorMessage.value = `ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง (เหลือโอกาสเข้าระบบอีก ${remaining} ครั้ง)`;
+        errorMessage.value = `ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง (คุณสามารถลองใหม่ได้อีก ${remaining} ครั้ง)`;
       } else {
-        errorMessage.value = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง (Invalid username or password)';
+        errorMessage.value = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
       }
     } else if (result.status === 'Your account is suspended') {
       errorMessage.value = 'บัญชีของคุณถูกระงับการใช้งานชั่วคราว กรุณาติดต่อผู้ดูแลระบบ';
