@@ -153,9 +153,42 @@ const catIsExcel = computed(() => {
   return path ? (path.toLowerCase().endsWith('.xls') || path.toLowerCase().endsWith('.xlsx')) : false;
 });
 
-const openPreview = (type) => {
+const isPreviewLoading = ref(false);
+const previewColumns = ref([]);
+const previewRows = ref([]);
+
+const openPreview = async (type) => {
   previewType.value = type;
   isPreviewModalOpen.value = true;
+  isPreviewLoading.value = true;
+  previewColumns.value = [];
+  previewRows.value = [];
+
+  if (selectedDataset.value) {
+    try {
+      let fileTypeParam = 'data';
+      const fmt = String(type || '').toUpperCase();
+      if (fmt === 'DICTIONARY') fileTypeParam = 'dictionary';
+      else if (fmt === 'SAMPLING') fileTypeParam = 'sampling';
+      else if (fmt === 'EXCEL' || fmt === 'XLS' || fmt === 'XLSX') fileTypeParam = 'excel';
+      else if (fmt === 'CSV') fileTypeParam = 'csv';
+
+      const response = await apiClient.get(`/previewDatasetFile/${selectedDataset.value.service_id}?type=${fileTypeParam}`);
+      if (response.data && response.data.status === 'success') {
+        previewColumns.value = response.data.columns || [];
+        previewRows.value = response.data.rows || [];
+      } else {
+        previewColumns.value = ['ข้อความ'];
+        previewRows.value = [['ไม่พบตัวอย่างข้อมูลสำหรับไฟล์นี้']];
+      }
+    } catch (e) {
+      console.error('Failed to load preview:', e);
+      previewColumns.value = ['ข้อผิดพลาด'];
+      previewRows.value = [['ไม่สามารถโหลดตัวอย่างข้อมูลได้']];
+    } finally {
+      isPreviewLoading.value = false;
+    }
+  }
 };
 
 const downloadFile = () => {
@@ -1068,46 +1101,30 @@ onMounted(async () => {
             </button>
           </header>
           
-          <div class="modal-body" style="padding: 0; max-height: 400px; overflow-y: auto;">
-            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem;">
-              <thead style="background-color: #f8fafc; position: sticky; top: 0;">
+          <div class="modal-body" style="padding: 0; max-height: 420px; overflow-x: auto; overflow-y: auto;">
+            <div v-if="isPreviewLoading" style="padding: 48px; text-align: center; color: #64748b;">
+              <div class="spinner" style="margin: 0 auto 12px auto; width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+              <p style="margin: 0; font-size: 0.9rem;">กำลังโหลดตัวอย่างข้อมูลจากไฟล์จริง...</p>
+            </div>
+            <div v-else-if="previewRows.length === 0" style="padding: 48px; text-align: center; color: #94a3b8;">
+              <svg xmlns="http://www.w3.org/2000/svg" style="width: 40px; height: 40px; margin: 0 auto 8px auto; color: #cbd5e1;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <p style="margin: 0; font-size: 0.9rem;">ไม่พบข้อมูลแถวในไฟล์นี้ หรือชุดข้อมูลยังไม่มีไฟล์แนบ</p>
+            </div>
+            <table v-else style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; white-space: nowrap;">
+              <thead style="background-color: #f8fafc; position: sticky; top: 0; z-index: 10;">
                 <tr>
-                  <th style="padding: 12px 24px; border-bottom: 1px solid #e2e8f0; color: #475569; font-weight: 600;">รหัสรายการ</th>
-                  <th style="padding: 12px 24px; border-bottom: 1px solid #e2e8f0; color: #475569; font-weight: 600;">พื้นที่ / จังหวัด</th>
-                  <th style="padding: 12px 24px; border-bottom: 1px solid #e2e8f0; color: #475569; font-weight: 600;">จำนวน (คน)</th>
-                  <th style="padding: 12px 24px; border-bottom: 1px solid #e2e8f0; color: #475569; font-weight: 600;">ปีที่สำรวจ</th>
+                  <th v-for="(col, idx) in previewColumns" :key="idx" style="padding: 12px 18px; border-bottom: 2px solid #e2e8f0; color: #475569; font-weight: 600;">
+                    {{ col }}
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                <tr style="border-bottom: 1px solid #f1f5f9; background-color: white; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='white'">
-                  <td style="padding: 12px 24px; color: #1e293b; font-weight: 500;">001</td>
-                  <td style="padding: 12px 24px; color: #475569;">กรุงเทพมหานคร</td>
-                  <td style="padding: 12px 24px; color: #475569;">5,476,120</td>
-                  <td style="padding: 12px 24px; color: #475569;">2566</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #f1f5f9; background-color: white; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='white'">
-                  <td style="padding: 12px 24px; color: #1e293b; font-weight: 500;">002</td>
-                  <td style="padding: 12px 24px; color: #475569;">สมุทรปราการ</td>
-                  <td style="padding: 12px 24px; color: #475569;">1,350,540</td>
-                  <td style="padding: 12px 24px; color: #475569;">2566</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #f1f5f9; background-color: white; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='white'">
-                  <td style="padding: 12px 24px; color: #1e293b; font-weight: 500;">003</td>
-                  <td style="padding: 12px 24px; color: #475569;">นนทบุรี</td>
-                  <td style="padding: 12px 24px; color: #475569;">1,280,000</td>
-                  <td style="padding: 12px 24px; color: #475569;">2566</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #f1f5f9; background-color: white; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='white'">
-                  <td style="padding: 12px 24px; color: #1e293b; font-weight: 500;">004</td>
-                  <td style="padding: 12px 24px; color: #475569;">ปทุมธานี</td>
-                  <td style="padding: 12px 24px; color: #475569;">1,170,900</td>
-                  <td style="padding: 12px 24px; color: #475569;">2566</td>
-                </tr>
-                <tr style="background-color: white; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='white'">
-                  <td style="padding: 12px 24px; color: #1e293b; font-weight: 500;">005</td>
-                  <td style="padding: 12px 24px; color: #475569;">เชียงใหม่</td>
-                  <td style="padding: 12px 24px; color: #475569;">1,780,210</td>
-                  <td style="padding: 12px 24px; color: #475569;">2566</td>
+                <tr v-for="(row, rIdx) in previewRows" :key="rIdx" style="border-bottom: 1px solid #f1f5f9; background-color: white; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='white'">
+                  <td v-for="(val, cIdx) in row" :key="cIdx" style="padding: 10px 18px; color: #334155; font-family: monospace; font-size: 0.8rem;">
+                    {{ val }}
+                  </td>
                 </tr>
               </tbody>
             </table>

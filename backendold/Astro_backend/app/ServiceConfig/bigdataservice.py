@@ -463,7 +463,14 @@ def addService():
                             fields.append("api_response_fields = %s")
                             values.append(json.dumps(columns))
 
-                            if old_dict_path and old_dict_path != filename:
+                            if not old_file_path and ext in ['csv', 'xls', 'xlsx']:
+                                fields.append("file_path = %s")
+                                values.append(filename)
+                                if ext in ['xls', 'xlsx'] and not old_excel_path:
+                                    fields.append("excel_file_path = %s")
+                                    values.append(filename)
+
+                            if old_dict_path and old_dict_path != filename and old_dict_path != old_file_path:
                                 safe_remove_uploaded_file(old_dict_path)
 
                         elif file_type == 'main':
@@ -542,6 +549,10 @@ def addService():
                                 if old_file_path and old_file_path != filename:
                                     safe_remove_uploaded_file(old_file_path)
 
+                            if not old_dict_path and ext in ['csv', 'xls', 'xlsx']:
+                                fields.append("data_dictionary_path = %s")
+                                values.append(filename)
+
                             # Save parsed response fields
                             fields.append("api_response_fields = %s")
                             values.append(json.dumps(columns))
@@ -566,12 +577,18 @@ def addService():
                         elif file_type == 'excel':
                             fields.append("excel_file_path = %s")
                             values.append(filename)
+                            if not old_file_path:
+                                fields.append("file_path = %s")
+                                values.append(filename)
                             if old_excel_path and old_excel_path != filename:
                                 safe_remove_uploaded_file(old_excel_path)
 
                         else:
                             fields.append("file_path = %s")
                             values.append(filename)
+                            if not old_dict_path and ext in ['csv', 'xls', 'xlsx']:
+                                fields.append("data_dictionary_path = %s")
+                                values.append(filename)
                             if old_file_path and old_file_path != filename:
                                 safe_remove_uploaded_file(old_file_path)
 
