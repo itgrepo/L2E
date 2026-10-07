@@ -141,6 +141,7 @@ const isModalOpen = ref(false);
 const isPreviewModalOpen = ref(false);
 const previewType = ref('');
 const selectedDataset = ref(null);
+const activeTab = ref('info');
 const catIsCsv = computed(() => {
   const path = selectedDataset.value?.file_path;
   return path ? path.toLowerCase().endsWith('.csv') : false;
