@@ -48,11 +48,42 @@ const formData = ref({
     username: '',
     email: '',
     password: '',
+    confirmPassword: '',
     previlage_id: 3,
     org_id: '',
     status_id: 4,
     groups: []
 });
+
+const showPassword = ref(false);
+const showConfirmPassword = ref(false);
+
+const passwordStrength = computed(() => {
+  const p = formData.value.password;
+  if (!p) return { score: 0, label: '', color: '' };
+  let score = 0;
+  if (p.length >= 8) score++;
+  if (/[A-Z]/.test(p)) score++;
+  if (/[0-9]/.test(p)) score++;
+  if (/[^A-Za-z0-9]/.test(p)) score++;
+  
+  const levels = [
+    { score: 0, label: '', color: '' },
+    { score: 1, label: 'อ่อน', color: '#ef4444' },
+    { score: 2, label: 'ปานกลาง', color: '#f59e0b' },
+    { score: 3, label: 'ดี', color: '#22c55e' },
+    { score: 4, label: 'ดีมาก', color: '#16a34a' }
+  ];
+  return levels[score] || levels[0];
+});
+
+const isPasswordValid = computed(() => {
+  const p = formData.value.password;
+  const isStrong = p.length >= 8 && /[A-Z]/.test(p) && /[a-z]/.test(p) && /[0-9]/.test(p) && /[^A-Za-z0-9]/.test(p);
+  const isMatch = p === formData.value.confirmPassword;
+  return isStrong && isMatch;
+});
+
 const isSubmitting = ref(false);
 
 const fetchGroups = async () => {
@@ -72,10 +103,13 @@ const openAddModal = () => {
         username: '',
         email: '',
         password: '',
+        confirmPassword: '',
         previlage_id: 3,
         status_id: 4,
         groups: []
     };
+    showPassword.value = false;
+    showConfirmPassword.value = false;
     showAddModal.value = true;
 };
 
@@ -86,6 +120,11 @@ const closeAddModal = () => {
 const handleSaveUser = async () => {
     if (!formData.value.username || !formData.value.email || !formData.value.password) {
         showAlert('กรุณากรอกข้อมูล Username, Email และ Password ให้ครบถ้วน', 'error');
+        return;
+    }
+
+    if (!isPasswordValid.value) {
+        showAlert('รหัสผ่านไม่ผ่านเกณฑ์ความปลอดภัย หรือรหัสผ่านไม่ตรงกัน', 'error');
         return;
     }
 
@@ -467,9 +506,43 @@ onMounted(() => {
                 <label>Email <span class="required">*</span></label>
                 <input type="email" v-model="formData.email" class="dark-input" placeholder="Enter email" />
               </div>
-              <div class="form-group">
+              <div class="form-group" style="margin-bottom: 16px;">
                 <label>Password <span class="required">*</span></label>
-                <input type="password" v-model="formData.password" class="dark-input" placeholder="Enter password" />
+                <div class="password-input-wrapper" style="position: relative;">
+                  <input :type="showPassword ? 'text' : 'password'" v-model="formData.password" class="dark-input" placeholder="ตั้งรหัสผ่าน 8 ตัวขึ้นไป" style="padding-right: 40px;" />
+                  <button class="toggle-password" @click="showPassword = !showPassword" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #94a3b8;">
+                    <span v-if="showPassword">🙈</span>
+                    <span v-else>👁️</span>
+                  </button>
+                </div>
+                <div class="password-strength-meter" v-if="formData.password" style="margin-top: 12px; display: flex; align-items: center; gap: 10px;">
+                  <div class="meter-bar" style="flex: 1; height: 6px; background: #334155; border-radius: 4px; overflow: hidden; display: flex;">
+                    <div :style="{ width: (passwordStrength.score * 25) + '%', backgroundColor: passwordStrength.color, transition: 'all 0.3s' }"></div>
+                  </div>
+                  <span :style="{ color: passwordStrength.color, fontWeight: 'bold', fontSize: '0.8rem', minWidth: '50px' }">
+                    {{ passwordStrength.label }}
+                  </span>
+                </div>
+                <ul v-if="formData.password" style="margin-top: 10px; font-size: 0.75rem; color: #94a3b8; padding-left: 20px;">
+                  <li :style="{ color: formData.password.length >= 8 ? '#22c55e' : '#ef4444' }">อย่างน้อย 8 ตัวอักษร</li>
+                  <li :style="{ color: /[A-Z]/.test(formData.password) ? '#22c55e' : '#ef4444' }">มีตัวอักษรพิมพ์ใหญ่ (A-Z)</li>
+                  <li :style="{ color: /[a-z]/.test(formData.password) ? '#22c55e' : '#ef4444' }">มีตัวอักษรพิมพ์เล็ก (a-z)</li>
+                  <li :style="{ color: /[0-9]/.test(formData.password) ? '#22c55e' : '#ef4444' }">มีตัวเลข (0-9)</li>
+                  <li :style="{ color: /[^A-Za-z0-9]/.test(formData.password) ? '#22c55e' : '#ef4444' }">มีอักขระพิเศษ (เช่น !@#$%)</li>
+                </ul>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 24px;">
+                <label>Confirm Password <span class="required">*</span></label>
+                <div class="password-input-wrapper" style="position: relative;">
+                  <input :type="showConfirmPassword ? 'text' : 'password'" v-model="formData.confirmPassword" class="dark-input" placeholder="พิมพ์รหัสผ่านใหม่อีกครั้ง" style="padding-right: 40px;" />
+                  <button class="toggle-password" @click="showConfirmPassword = !showConfirmPassword" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #94a3b8;">
+                    <span v-if="showConfirmPassword">🙈</span>
+                    <span v-else>👁️</span>
+                  </button>
+                </div>
+                <p v-if="formData.confirmPassword && formData.password !== formData.confirmPassword" style="color: #ef4444; font-size: 0.8rem; margin-top: 4px;">รหัสผ่านไม่ตรงกัน</p>
+                <p v-if="formData.confirmPassword && formData.password === formData.confirmPassword" style="color: #22c55e; font-size: 0.8rem; margin-top: 4px;">รหัสผ่านตรงกัน ✓</p>
               </div>
               
               <div class="form-row">

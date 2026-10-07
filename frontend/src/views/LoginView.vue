@@ -74,6 +74,13 @@ onMounted(() => {
   if (route.query.verified === 'true') {
     successMessage.value = 'อีเมลได้รับการยืนยันแล้ว คุณสามารถเข้าสู่ระบบได้';
   }
+
+  // Load remembered username
+  const savedUsername = localStorage.getItem('remembered_username');
+  if (savedUsername) {
+    username.value = savedUsername;
+    rememberMe.value = true;
+  }
 });
 
 const handleLogin = async () => {
@@ -90,6 +97,13 @@ const handleLogin = async () => {
     const result = response.data;
     
     if (result.status === 'success' || result.status === 'user is admin' || result.status === 'change password' || result.status === 'change password admin') {
+      // Handle Remember Me
+      if (rememberMe.value) {
+        localStorage.setItem('remembered_username', username.value);
+      } else {
+        localStorage.removeItem('remembered_username');
+      }
+
       // Store user data in localStorage for simplicity (replace with Pinia if needed)
       localStorage.setItem('user', JSON.stringify(result.data));
       
@@ -109,7 +123,12 @@ const handleLogin = async () => {
     } else if (result.status && result.status.includes('Please check in your email confirmation')) {
       errorMessage.value = 'กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ ตรวจสอบกล่องจดหมายของคุณ';
     } else if (result.status === 'not found' || result.status === 'username is incorrect') {
-      errorMessage.value = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง (Invalid username or password)';
+      if (result.attempts !== undefined) {
+        const remaining = 5 - result.attempts;
+        errorMessage.value = `ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง (เหลือโอกาสเข้าระบบอีก ${remaining} ครั้ง)`;
+      } else {
+        errorMessage.value = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง (Invalid username or password)';
+      }
     } else if (result.status === 'Your account is suspended') {
       errorMessage.value = 'บัญชีของคุณถูกระงับการใช้งานชั่วคราว กรุณาติดต่อผู้ดูแลระบบ';
     } else {

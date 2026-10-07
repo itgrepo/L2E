@@ -38,24 +38,45 @@ const userPermissions = ref(null);
 onMounted(async () => {
   const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
   if (savedUser.username) {
-    try {
-      const res = await postWithUser('/getMenuByPermission', savedUser);
-      if (res.data && res.data.status === 'Success') {
-        userPermissions.value = res.data.data.map(m => m.menu_name.toLowerCase());
-      }
-    } catch (e) {
-      console.error('Failed to load dynamic permissions', e);
-    }
-  }
-});
-
-onMounted(() => {
-  const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
-  if (savedUser.username) {
     userName.value = `${savedUser.firstname || savedUser.username} ${savedUser.lastname || ''}`;
     userRole.value = savedUser.role || (savedUser.isAdmin === 'true' || savedUser.isAdmin === true ? 'Administrator' : 'User');
     userRoleId.value = String(savedUser.previlage_id);
     isAdmin.value = userRoleId.value === '4' || savedUser.isAdmin === 'true' || savedUser.isAdmin === true;
+
+    try {
+      const res = await postWithUser('/getMenuByPermission', savedUser);
+      if (res.data && res.data.status === 'Success') {
+        userPermissions.value = res.data.data.map(m => m.menu_name.toLowerCase());
+        
+        // Update session if backend role has changed (e.g. admin downgraded user)
+        if (res.data.current_role && String(res.data.current_role) !== String(savedUser.previlage_id)) {
+          savedUser.previlage_id = res.data.current_role;
+          if (String(res.data.current_role) === '4') {
+             savedUser.isAdmin = 'true';
+             savedUser.role = 'Administrator';
+          } else if (String(res.data.current_role) === '3') {
+             savedUser.isAdmin = 'false';
+             savedUser.role = 'Department Admin';
+          } else {
+             savedUser.isAdmin = 'false';
+             savedUser.role = 'User';
+          }
+          localStorage.setItem('user', JSON.stringify(savedUser));
+          
+          // Update reactive state immediately
+          userRoleId.value = String(res.data.current_role);
+          isAdmin.value = String(res.data.current_role) === '4';
+          userRole.value = savedUser.role;
+
+          // Kick out if current route is no longer allowed
+          if (!hasMenuAccess(route.path)) {
+            router.push('/catalog');
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load dynamic permissions', e);
+    }
   }
   checkSettingsExpanded(route.path);
 });

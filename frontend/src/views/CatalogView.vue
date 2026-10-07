@@ -57,7 +57,9 @@ const highlight = (text, query) => {
 
 const requestForm = ref({
   fields: [],
-  reason: ''
+  reason: '',
+  mouFile: null,
+  mouFileName: ''
 });
 const isSubmittingReq = ref(false);
 const reqError = ref('');
@@ -79,7 +81,9 @@ const submitPermissionRequest = async () => {
       user: encodeUserData(JSON.parse(userData)),
       service_id: selectedDataset.value.id,
       fields: requestForm.value.fields,
-      reason: requestForm.value.reason
+      reason: requestForm.value.reason,
+      mou_file: requestForm.value.mouFile,
+      mou_filename: requestForm.value.mouFileName
     });
     
     if (response.data.status === 'success') {
@@ -87,6 +91,8 @@ const submitPermissionRequest = async () => {
       selectedDataset.value.permission_status = 'Pending';
       requestForm.value.fields = [];
       requestForm.value.reason = '';
+      requestForm.value.mouFile = null;
+      requestForm.value.mouFileName = '';
       fetchDatasets();
     } else {
       reqError.value = response.data.message || 'เกิดข้อผิดพลาด';
@@ -96,6 +102,17 @@ const submitPermissionRequest = async () => {
   } finally {
     isSubmittingReq.value = false;
   }
+};
+
+const handleMouFileChange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    requestForm.value.mouFile = event.target.result;
+    requestForm.value.mouFileName = file.name;
+  };
+  reader.readAsDataURL(file);
 };
 const datasets = ref([]);
 const isLoading = ref(true);
@@ -134,8 +151,15 @@ const openPreview = (type) => {
 const downloadFile = () => {
   if (selectedDataset.value) {
     if (previewType.value === 'CSV' || previewType.value === 'Excel') {
-        const format = previewType.value === 'Excel' ? 'xls' : 'csv';
-        window.open(`/api/exportData/${selectedDataset.value.dataset_id}?format=${format}`, '_blank');
+        const isExcel = previewType.value === 'Excel';
+        const uploaded = isExcel ? selectedDataset.value.excel_file_path : selectedDataset.value.file_path;
+        if (uploaded) {
+            // Serve the uploaded file of exactly this type (CSV -> file_path, Excel -> excel_file_path)
+            window.open(`/api/downloadFile/${selectedDataset.value.service_id}?type=${isExcel ? 'excel' : 'data'}`, '_blank');
+        } else {
+            const format = isExcel ? 'xls' : 'csv';
+            window.open(`/api/exportData/${selectedDataset.value.dataset_id}?format=${format}`, '_blank');
+        }
     } else {
         let fileTypeParam = 'data';
         if (previewType.value === 'DICTIONARY') fileTypeParam = 'dictionary';
@@ -738,6 +762,13 @@ onMounted(async () => {
                       <div class="form-group mb-4" style="margin-bottom: 12px;">
                         <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px;">วัตถุประสงค์ในการขอเข้าถึง *</label>
                         <textarea v-model="requestForm.reason" rows="2" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px;font-size:0.85rem;resize:none; box-sizing:border-box;" placeholder="ระบุเหตุผลและวัตถุประสงค์การใช้งาน..."></textarea>
+                      </div>
+
+                      <!-- MOU File Upload -->
+                      <div class="form-group mb-4" style="margin-bottom: 12px;">
+                        <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px;">เอกสารประกอบคำขอ (MOU / Request Letter)</label>
+                        <p style="font-size:0.75rem; color:#64748b; margin-bottom:4px;">กรุณาอัปโหลดบันทึกข้อความนำส่ง, หนังสือข้อตกลง MOU หรือเอกสารสิทธิ์การใช้ข้อมูล (PDF, JPG, PNG)</p>
+                        <input type="file" @change="handleMouFileChange" accept=".pdf,image/*" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:0.8rem;background:#f8fafc;cursor:pointer;">
                       </div>
 
                       <div v-if="reqError" style="color:#e11d48;font-size:0.75rem;margin-bottom:8px;text-align:left;">{{ reqError }}</div>

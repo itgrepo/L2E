@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import apiClient from '../utils/api';
 import { encodePassword } from '../utils/crypto';
@@ -23,6 +23,39 @@ const successData = ref(null);
 const currentStep = ref(1);
 const showPassword = ref(false);
 const showConfirmPassword = ref(false);
+const isScrolledToBottom = ref(false);
+const showTermsModal = ref(false);
+const termsType = ref('terms'); // 'terms' or 'privacy'
+
+const handleScroll = (e) => {
+  const { scrollTop, scrollHeight, clientHeight } = e.target;
+  // If user scrolls near the bottom (within 20px)
+  if (scrollTop + clientHeight >= scrollHeight - 20) {
+    isScrolledToBottom.value = true;
+  }
+};
+
+// Reset scroll state when modal opens
+watch(showTermsModal, (newVal) => {
+  if (newVal) {
+    isScrolledToBottom.value = false;
+  }
+});
+
+const hasAcceptedTerms = ref(false);
+const hasAcceptedPrivacy = ref(false);
+
+const acceptTerms = () => {
+  if (!isScrolledToBottom.value) return;
+  
+  if (termsType.value === 'terms') {
+    hasAcceptedTerms.value = true;
+  } else {
+    hasAcceptedPrivacy.value = true;
+  }
+  
+  showTermsModal.value = false;
+};
 
 // Password encryption (matching backend)
 const encryptPassword = (pwd) => {
@@ -72,6 +105,7 @@ const isFormValid = computed(() => {
          password.value === confirmPassword.value &&
          firstname.value.trim() && 
          lastname.value.trim() && 
+         organization.value.trim() &&
          agreeTerms.value;
 });
 
@@ -253,10 +287,25 @@ const goToVerify = () => {
             </div>
 
             <div class="terms-group">
-              <label class="checkbox-container">
-                <input type="checkbox" v-model="agreeTerms" :disabled="isLoading">
+              <label class="checkbox-container" :class="{ 'disabled-label': !hasAcceptedTerms || !hasAcceptedPrivacy }">
+                <input type="checkbox" v-model="agreeTerms" :disabled="!hasAcceptedTerms || !hasAcceptedPrivacy || isLoading">
                 <span class="checkmark"></span>
-                ฉันยอมรับ <a href="#" @click.prevent>ข้อตกลงการใช้งาน</a> และ <a href="#" @click.prevent>นโยบายความเป็นส่วนตัว</a>
+                <div style="display: flex; flex-direction: column; gap: 4px; margin-left: 8px;">
+                  <span>ฉันยอมรับเอกสารทั้ง 2 ฉบับต่อไปนี้:</span>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span v-if="hasAcceptedTerms" style="color: #10b981;">✓</span>
+                    <span v-else style="color: #ef4444; font-size: 12px;">*</span>
+                    <a href="#" @click.prevent="termsType = 'terms'; showTermsModal = true" :style="hasAcceptedTerms ? 'color: #10b981;' : ''">ข้อตกลงการใช้งาน</a>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span v-if="hasAcceptedPrivacy" style="color: #10b981;">✓</span>
+                    <span v-else style="color: #ef4444; font-size: 12px;">*</span>
+                    <a href="#" @click.prevent="termsType = 'privacy'; showTermsModal = true" :style="hasAcceptedPrivacy ? 'color: #10b981;' : ''">นโยบายความเป็นส่วนตัว</a>
+                  </div>
+                  <div v-if="!hasAcceptedTerms || !hasAcceptedPrivacy" style="font-size: 0.8rem; color: #ef4444; margin-top: 4px;">
+                    (กรุณาคลิกอ่านและกดยอมรับให้ครบทั้ง 2 ฉบับ จึงจะสามารถติ๊กถูกได้)
+                  </div>
+                </div>
               </label>
             </div>
 
@@ -327,6 +376,33 @@ const goToVerify = () => {
         <p v-if="currentStep < 3" class="login-text">
           มีบัญชีอยู่แล้ว? <router-link to="/login">เข้าสู่ระบบ</router-link>
         </p>
+      </div>
+    </div>
+
+    <!-- Terms and Privacy Modal -->
+    <div v-if="showTermsModal" class="modal-overlay" @click.self="showTermsModal = false">
+      <div class="modal-content" style="max-width: 800px; width: 90%;">
+        <div class="modal-header">
+          <h3 v-if="termsType === 'terms'">ข้อตกลงการใช้งาน (Terms of Use)</h3>
+          <h3 v-else>นโยบายความเป็นส่วนตัว (Privacy Policy)</h3>
+          <button @click="showTermsModal = false" class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body" @scroll="handleScroll" style="height: 60vh; overflow-y: auto; padding: 0; background: #f1f5f9; text-align: center;">
+          <template v-if="termsType === 'terms'">
+            <img v-for="n in 5" :key="'terms-'+n" :src="`/terms_page_${n}.png`" style="max-width: 100%; display: block; margin: 0 auto 10px auto; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);" alt="Terms Page" />
+          </template>
+          <template v-else>
+            <img v-for="n in 5" :key="'privacy-'+n" :src="`/privacy_page_${n}.png`" style="max-width: 100%; display: block; margin: 0 auto 10px auto; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);" alt="Privacy Page" />
+          </template>
+        </div>
+        <div class="modal-footer" style="padding: 16px 20px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: white;">
+          <span style="font-size: 0.85rem; color: #ef4444;" v-if="!isScrolledToBottom">* กรุณาเลื่อนอ่านจนจบเอกสารเพื่อกดยอมรับ</span>
+          <span v-else></span>
+          <div style="display: flex; gap: 12px;">
+            <button @click="showTermsModal = false" class="btn-primary-outline" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #cbd5e1; background: white; color: #475569; font-weight: 600; cursor: pointer;">ปิดหน้าต่าง</button>
+            <button @click="acceptTerms" class="btn-primary" :disabled="!isScrolledToBottom" :class="{ 'disabled': !isScrolledToBottom }" style="padding: 8px 24px; border-radius: 6px; font-weight: 600;">ฉันได้อ่านและยอมรับ</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -960,4 +1036,68 @@ input:focus {
   color: #14532d;
 }
 
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 600px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  animation: modal-fade-in 0.3s ease-out forwards;
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #1e293b;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: #64748b;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.modal-close:hover {
+  color: #0f172a;
+}
+
+@keyframes modal-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
 </style>

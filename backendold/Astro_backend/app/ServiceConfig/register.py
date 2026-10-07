@@ -841,7 +841,12 @@ def sendMailUnlockAccountByAdmin(email, firstname, lastname):
 
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
-        server = smtplib.SMTP_SSL(SERVER, 465)
+        if MAIL_USE_SSL:
+            server = smtplib.SMTP_SSL(SERVER, int(os.environ.get('MAIL_PORT', 465)), timeout=5)
+        else:
+            server = smtplib.SMTP(SERVER, int(os.environ.get('MAIL_PORT', 587)), timeout=5)
+            server.starttls()
+            
         ##Login Mail server##
         server.login(username_mail,password_mail)
         #-------------------#

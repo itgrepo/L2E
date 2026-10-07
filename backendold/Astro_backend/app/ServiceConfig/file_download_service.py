@@ -18,6 +18,8 @@ def downloadFile(service_id):
             col = 'data_dictionary_path'
         elif file_type == 'sampling':
             col = 'data_sampling_path'
+        elif file_type == 'excel':
+            col = 'excel_file_path'
             
         sql = f"SELECT {col} FROM service WHERE service_id = %s"
         cursor.execute(sql, (service_id,))

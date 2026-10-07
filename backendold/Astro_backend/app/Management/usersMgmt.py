@@ -280,14 +280,20 @@ def getMenuByPermission():
             ##--Get menu--#
             conn = mysql.connect()
             cursor = conn.cursor()
+            
+            # 1. Get current user's privilege to ensure session uses latest role
+            cursor.execute("SELECT previlage_id, status_id FROM user WHERE username = %s AND status_id != '7'", (user_data['username'],))
+            user_info = cursor.fetchone()
+            current_role = user_info[0] if user_info else None
+            current_status = user_info[1] if user_info else None
+
             sql = """SELECT menu_name.menu_name 
                         FROM `menu_permission` 
                     LEFT JOIN menu_name 
                         ON menu_permission.menu_name_id = menu_name.menu_name_id 
-                    WHERE menu_permission.previlage_id = 
-                        (SELECT previlage_id FROM user WHERE username = %s AND status_id != '7') 
+                    WHERE menu_permission.previlage_id = %s
                         AND menu_permission.value = 'Yes' AND menu_name IS NOT NULL"""
-            cursor.execute(sql,(user_data['username']))
+            cursor.execute(sql,(current_role,))
             data = cursor.fetchall()
             columns = [column[0] for column in cursor.description]
             result = toJson(data,columns)
@@ -295,7 +301,12 @@ def getMenuByPermission():
             cursor.close()
             conn.close()
             #--------------#
-            return jsonify({"status":"Success","data":result})
+            return jsonify({
+                "status":"Success",
+                "data": result,
+                "current_role": current_role,
+                "current_status": current_status
+            })
         else:
             logAction(user_data['user_id'], '/getMenuByPermission', 'Permission denied', 'warning')
             return jsonify({"status": "Permission denied"})    

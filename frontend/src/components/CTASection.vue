@@ -13,8 +13,8 @@ const props = defineProps({
         <h2 class="cta-title">{{ config?.title || 'พร้อมเริ่มต้นแลกเปลี่ยนข้อมูลแล้วหรือยัง?' }}</h2>
         <p class="cta-desc">{{ config?.subtitle || 'สมัครสมาชิกวันนี้เพื่อเข้าถึงชุดข้อมูลจากหน่วยงานรัฐทั่วประเทศ' }}</p>
         <div class="cta-actions">
-          <button class="btn btn-primary btn-lg cta-btn-primary">{{ config?.btnPrimary || 'สมัครสมาชิกฟรี' }}</button>
-          <button class="btn btn-outline btn-lg cta-btn-outline">{{ config?.btnSecondary || 'ดูเอกสาร API' }}</button>
+          <button class="btn btn-primary btn-lg cta-btn-primary" @click="$router.push('/register')">{{ config?.btnPrimary || 'สมัครสมาชิกฟรี' }}</button>
+          <!-- <button class="btn btn-outline btn-lg cta-btn-outline">{{ config?.btnSecondary || 'ดูเอกสาร API' }}</button> -->
         </div>
       </div>
     </div>

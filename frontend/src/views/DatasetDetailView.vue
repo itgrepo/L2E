@@ -143,6 +143,7 @@ const fetchDatasetDetail = async () => {
 
           formats: found.data_format ? found.data_format.split(',') : ['CSV', 'API', 'JSON'],
           file_path: found.file_path,
+          excel_file_path: found.excel_file_path,
           data_dictionary_path: found.data_dictionary_path,
           data_sampling_path: found.data_sampling_path,
           views: (Math.floor(Math.random() * 900) + 100) + 'K records',
@@ -240,14 +241,34 @@ const submitPermissionRequest = async () => {
   }
 };
 
+const dictIsCsv = computed(() => {
+  const path = selectedDataset.value?.data_dictionary_path;
+  return path ? path.toLowerCase().endsWith('.csv') : false;
+});
+const dictIsExcel = computed(() => {
+  const path = selectedDataset.value?.data_dictionary_path;
+  return path ? (path.toLowerCase().endsWith('.xls') || path.toLowerCase().endsWith('.xlsx')) : false;
+});
+
+const apiIsCsv = computed(() => {
+  const path = selectedDataset.value?.file_path;
+  return path ? path.toLowerCase().endsWith('.csv') : false;
+});
+const apiIsExcel = computed(() => {
+  const path = selectedDataset.value?.excel_file_path;
+  return path ? (path.toLowerCase().endsWith('.xls') || path.toLowerCase().endsWith('.xlsx')) : false;
+});
+
 const openPreview = (format) => {
   if (selectedDataset.value) {
     
     let fileTypeParam = 'data';
-    if (format === 'DICTIONARY') fileTypeParam = 'dictionary';
-    else if (format === 'SAMPLING') fileTypeParam = 'sampling';
+    const fmt = String(format || '').toUpperCase();
+    if (fmt === 'DICTIONARY') fileTypeParam = 'dictionary';
+    else if (fmt === 'SAMPLING') fileTypeParam = 'sampling';
+    else if (fmt === 'EXCEL') fileTypeParam = 'excel';
     
-    // Fallback: If they want data (CSV/Excel) but it's null, and dictionary exists, download dictionary instead
+    // Fallback: If they want data (CSV) but it's null, and dictionary exists, download dictionary instead
     if (fileTypeParam === 'data' && !selectedDataset.value.file_path && selectedDataset.value.data_dictionary_path) {
         fileTypeParam = 'dictionary';
     }
@@ -386,23 +407,33 @@ watch(() => route.params.id, (newId) => {
                 </div>
                 
                 <aside class="info-sidebar">
-                  <!-- If has access, show download options -->
-                  <div v-if="selectedDataset.has_access" class="action-card">
-                    <h4>ดาวน์โหลดข้อมูล</h4>
-                    <p>ดาวน์โหลดไฟล์ข้อมูลต้นฉบับในรูปแบบต่างๆ</p>
-                    
-                    <div class="download-buttons">
-                      <button class="btn-download csv" @click="openPreview('CSV')" title="ดาวน์โหลดไฟล์ในรูปแบบ CSV">CSV</button title="ดาวน์โหลดไฟล์ในรูปแบบ CSV">
-                      <button class="btn-download xls" @click="openPreview('Excel')" title="ดาวน์โหลดไฟล์ในรูปแบบ Excel">Excel</button title="ดาวน์โหลดไฟล์ในรูปแบบ Excel">
+                  
+                  <!-- Data Dictionary (Public - no access required) -->
+                  <div class="action-card" style="margin-bottom: 16px;">
+                    <h4>Data Dictionary</h4>
+                    <p style="font-size: 0.85rem; color: #64748b; margin-top: 4px;">ดาวน์โหลดพจนานุกรมอธิบายโครงสร้างข้อมูล</p>
+                    <div class="download-buttons" style="margin-top: 12px; display: flex; gap: 8px;">
+                      <button class="btn-download csv" :disabled="!dictIsCsv" @click="openPreview('DICTIONARY')" title="ดาวน์โหลด Data Dictionary (CSV)">CSV</button>
+                      <button class="btn-download xls" :disabled="!dictIsExcel" @click="openPreview('DICTIONARY')" title="ดาวน์โหลด Data Dictionary (Excel)">Excel</button>
                     </div>
-                    <button v-if="selectedDataset.data_dictionary_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('DICTIONARY')" title="ดาวน์โหลดพจนานุกรมอธิบายโครงสร้างข้อมูล">ดาวน์โหลดพจนานุกรมข้อมูล (Data Dictionary)</button title="ดาวน์โหลดพจนานุกรมอธิบายโครงสร้างข้อมูล">
-                    <button v-if="selectedDataset.file_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('ไฟล์แนบต้นฉบับ')" title="ดาวน์โหลดไฟล์เอกสารแนบต้นฉบับ">ดาวน์โหลดไฟล์แนบ (API File)</button title="ดาวน์โหลดไฟล์เอกสารแนบต้นฉบับ">
-                    <button v-if="selectedDataset.data_sampling_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('ชุดข้อมูลสุ่ม (Zip File)')" title="ดาวน์โหลดข้อมูลตัวอย่างสำหรับทดสอบ">ดาวน์โหลดชุดข้อมูลสุ่ม (Zip File)</button title="ดาวน์โหลดข้อมูลตัวอย่างสำหรับทดสอบ">
+                  </div>
+
+                  <!-- If has access, show API / Data download options -->
+                  <div v-if="selectedDataset.has_access" class="action-card">
+                    <h4>API</h4>
+                    <p style="font-size: 0.85rem; color: #64748b; margin-top: 4px;">ดาวน์โหลดไฟล์ข้อมูลต้นฉบับ</p>
+                    <div class="download-buttons" style="margin-top: 12px; display: flex; gap: 8px;">
+                      <button class="btn-download csv" :disabled="!apiIsCsv" @click="openPreview('CSV')" title="ดาวน์โหลดไฟล์ในรูปแบบ CSV">CSV</button>
+                      <button class="btn-download xls" :disabled="!apiIsExcel" @click="openPreview('Excel')" title="ดาวน์โหลดไฟล์ในรูปแบบ Excel">Excel</button>
+                    </div>
+                    
+                    <!-- Additional API specific files -->
+                    <button v-if="selectedDataset.data_sampling_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('SAMPLING')" title="ดาวน์โหลดข้อมูลตัวอย่างสำหรับทดสอบ">ดาวน์โหลดชุดข้อมูลสุ่ม (Zip File)</button>
                   </div>
                   
                   <!-- If does NOT have access, show Request Access form -->
                   <div v-else class="action-card">
-                    <h4 style="display:flex;align-items:center;gap:6px;">🔒 จำกัดสิทธิ์การใช้งาน</h4>
+                    <h4 style="display:flex;align-items:center;gap:6px;">🔒 จำกัดสิทธิ์การใช้งาน (API)</h4>
                     <p style="font-size:0.875rem;color:#64748b;margin-bottom:16px;">ชุดข้อมูลนี้จำกัดสิทธิ์ โปรดส่งคำขออนุญาตเพื่อดาวน์โหลดข้อมูลหรือใช้ API</p>
                     
                     <div v-if="!selectedDataset.permission_status" class="request-access-form-wrapper">
@@ -914,9 +945,23 @@ h1 {
   transition: all 0.2s;
 }
 
-.btn-download:hover {
+.btn-download:hover:not(:disabled) {
   border-color: var(--mso-accent, var(--primary));
   color: var(--mso-accent, var(--primary));
+  background-color: #f0fdf4;
+}
+
+.btn-download:disabled, .btn-download.disabled {
+  background-color: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+  border-color: #cbd5e1;
+}
+
+.btn-download:not(:disabled) {
+  background-color: var(--mso-accent, var(--primary));
+  color: white;
+  border-color: var(--mso-accent, var(--primary));
 }
 
 .btn-primary-outline {

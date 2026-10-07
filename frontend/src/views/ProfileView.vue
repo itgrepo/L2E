@@ -21,29 +21,72 @@ const showCurrentPassword = ref(false);
 const showNewPassword = ref(false);
 const showConfirmPassword = ref(false);
 
+const passwordStrength = computed(() => {
+  const p = passwordForm.value.newPassword;
+  if (!p) return { score: 0, label: '', color: '' };
+  let score = 0;
+  if (p.length >= 8) score++;
+  if (/[A-Z]/.test(p)) score++;
+  if (/[0-9]/.test(p)) score++;
+  if (/[^A-Za-z0-9]/.test(p)) score++;
+  
+  const levels = [
+    { score: 0, label: '', color: '' },
+    { score: 1, label: 'อ่อน', color: '#ef4444' },
+    { score: 2, label: 'ปานกลาง', color: '#f59e0b' },
+    { score: 3, label: 'ดี', color: '#22c55e' },
+    { score: 4, label: 'ดีมาก', color: '#16a34a' }
+  ];
+  return levels[score] || levels[0];
+});
+
+const isPasswordFormValid = computed(() => {
+  const p = passwordForm.value.newPassword;
+  const isStrong = p.length >= 8 && /[A-Z]/.test(p) && /[a-z]/.test(p) && /[0-9]/.test(p) && /[^A-Za-z0-9]/.test(p);
+  const isMatch = p === passwordForm.value.confirmPassword;
+  return passwordForm.value.currentPassword.length > 0 && isStrong && isMatch;
+});
+
+// Password encryption (matching backend)
+const encryptPassword = (pwd) => {
+  const key = 'e9NHdT3GU6wBdWlw3RTqvrShGzyerRl4BaMhFeUI3v4j6U0opW5a19HQHDAHHCrhYXq8oG6D';
+  if (window.CryptoJS) {
+    return window.CryptoJS.HmacSHA256(pwd, key).toString();
+  }
+  return pwd;
+};
+
 const handlePasswordChange = async () => {
+  if (!isPasswordFormValid.value) return;
+
   isSavingPassword.value = true;
   message.value = { text: '', type: '' };
   
   try {
-    const response = await apiClient.post('/forgotPassword', {
-      username: user.value.username,
-      link: window.location.origin
+    const response = await apiClient.post('/changePassword', {
+      user_id: user.value.user_id,
+      currentPassword: encryptPassword(passwordForm.value.currentPassword),
+      password: encryptPassword(passwordForm.value.newPassword)
     });
     
     const result = response.data;
-    const status = typeof result === 'string' ? result : result.status;
     
-    if (status === 'success') {
-      message.value = { text: 'ส่งลิงก์รีเซ็ตรหัสผ่านไปที่อีเมลของคุณแล้ว', type: 'success' };
-    } else if (status === 'success (not have email)') {
-      message.value = { text: 'ระบบรีเซ็ตรหัสผ่านแล้ว แต่ไม่พบอีเมลในระบบ โปรดติดต่อแอดมิน', type: 'error' };
+    if (result.status === 'success') {
+      message.value = { text: 'เปลี่ยนรหัสผ่านสำเร็จ! กรุณาเข้าสู่ระบบใหม่', type: 'success' };
+      setTimeout(() => {
+        // Cancel old session
+        localStorage.removeItem('user');
+        window.dispatchEvent(new Event('auth-change'));
+        router.push('/login');
+      }, 2000);
+    } else if (result.status === 'password incorrect') {
+      message.value = { text: 'รหัสผ่านปัจจุบันไม่ถูกต้อง', type: 'error' };
     } else {
-      message.value = { text: 'เกิดข้อผิดพลาดในการส่งลิงก์รีเซ็ตรหัสผ่าน', type: 'error' };
+      message.value = { text: result.message || 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน', type: 'error' };
     }
   } catch (error) {
-    console.error('Password reset error:', error);
-    message.value = { text: 'เกิดข้อผิดพลาดในการส่งลิงก์', type: 'error' };
+    console.error('Password change error:', error);
+    message.value = { text: 'ไม่สามารถเปลี่ยนรหัสผ่านได้ กรุณาลองใหม่', type: 'error' };
   } finally {
     isSavingPassword.value = false;
   }
@@ -51,6 +94,7 @@ const handlePasswordChange = async () => {
 
 const cancelPasswordChange = () => {
   showPasswordForm.value = false;
+  passwordForm.value = { currentPassword: '', newPassword: '', confirmPassword: '' };
 };
 
 // Notifications states & methods
@@ -289,14 +333,64 @@ const saveChanges = async () => {
             </div>
             
             <div v-else class="password-form-card" style="background: #f8fafc; padding: 24px; border-radius: 16px; border: 1px solid #e2e8f0; text-align: left;">
-              <h4 style="margin: 0 0 8px 0; font-weight:700; color:#1e293b;">Request Password Reset</h4>
-              <p style="font-size:0.875rem; color:#64748b; margin-bottom: 20px;">ระบบจะส่งลิงก์สำหรับตั้งรหัสผ่านใหม่ไปยังอีเมลของคุณ <strong>{{ user.email }}</strong></p>
+              <h4 style="margin: 0 0 8px 0; font-weight:700; color:#1e293b;">เปลี่ยนรหัสผ่าน (Change Password)</h4>
+              <p style="font-size:0.875rem; color:#64748b; margin-bottom: 20px;">โปรดกรอกรหัสผ่านปัจจุบันและรหัสผ่านใหม่ที่คุณต้องการใช้</p>
+              
+              <div class="form-group" style="margin-bottom: 16px;">
+                <label style="display:block; font-size:0.875rem; font-weight:600; margin-bottom:8px;">รหัสผ่านปัจจุบัน</label>
+                <div class="password-input-wrapper">
+                  <input :type="showCurrentPassword ? 'text' : 'password'" v-model="passwordForm.currentPassword" class="form-control" placeholder="รหัสผ่านปัจจุบัน" />
+                  <button class="toggle-password" @click="showCurrentPassword = !showCurrentPassword">
+                    <span v-if="showCurrentPassword">🙈</span>
+                    <span v-else>👁️</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 16px;">
+                <label style="display:block; font-size:0.875rem; font-weight:600; margin-bottom:8px;">รหัสผ่านใหม่</label>
+                <div class="password-input-wrapper">
+                  <input :type="showNewPassword ? 'text' : 'password'" v-model="passwordForm.newPassword" class="form-control" placeholder="ตั้งรหัสผ่าน 8 ตัวขึ้นไป" />
+                  <button class="toggle-password" @click="showNewPassword = !showNewPassword">
+                    <span v-if="showNewPassword">🙈</span>
+                    <span v-else>👁️</span>
+                  </button>
+                </div>
+                <div class="password-strength-meter" v-if="passwordForm.newPassword" style="margin-top: 12px; display: flex; align-items: center; gap: 10px;">
+                  <div class="meter-bar" style="flex: 1; height: 6px; background: #e2e8f0; border-radius: 4px; overflow: hidden; display: flex;">
+                    <div :style="{ width: (passwordStrength.score * 25) + '%', backgroundColor: passwordStrength.color, transition: 'all 0.3s' }"></div>
+                  </div>
+                  <span :style="{ color: passwordStrength.color, fontWeight: 'bold', fontSize: '0.8rem', minWidth: '50px' }">
+                    {{ passwordStrength.label }}
+                  </span>
+                </div>
+                <ul v-if="passwordForm.newPassword" style="margin-top: 10px; font-size: 0.75rem; color: #64748b; padding-left: 20px;">
+                  <li :style="{ color: passwordForm.newPassword.length >= 8 ? '#22c55e' : '#ef4444' }">อย่างน้อย 8 ตัวอักษร</li>
+                  <li :style="{ color: /[A-Z]/.test(passwordForm.newPassword) ? '#22c55e' : '#ef4444' }">มีตัวอักษรพิมพ์ใหญ่ (A-Z)</li>
+                  <li :style="{ color: /[a-z]/.test(passwordForm.newPassword) ? '#22c55e' : '#ef4444' }">มีตัวอักษรพิมพ์เล็ก (a-z)</li>
+                  <li :style="{ color: /[0-9]/.test(passwordForm.newPassword) ? '#22c55e' : '#ef4444' }">มีตัวเลข (0-9)</li>
+                  <li :style="{ color: /[^A-Za-z0-9]/.test(passwordForm.newPassword) ? '#22c55e' : '#ef4444' }">มีอักขระพิเศษ (เช่น !@#$%)</li>
+                </ul>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 24px;">
+                <label style="display:block; font-size:0.875rem; font-weight:600; margin-bottom:8px;">ยืนยันรหัสผ่านใหม่</label>
+                <div class="password-input-wrapper">
+                  <input :type="showConfirmPassword ? 'text' : 'password'" v-model="passwordForm.confirmPassword" class="form-control" placeholder="พิมพ์รหัสผ่านใหม่อีกครั้ง" />
+                  <button class="toggle-password" @click="showConfirmPassword = !showConfirmPassword">
+                    <span v-if="showConfirmPassword">🙈</span>
+                    <span v-else>👁️</span>
+                  </button>
+                </div>
+                <p v-if="passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword" style="color: #ef4444; font-size: 0.8rem; margin-top: 4px;">รหัสผ่านไม่ตรงกัน</p>
+                <p v-if="passwordForm.confirmPassword && passwordForm.newPassword === passwordForm.confirmPassword" style="color: #22c55e; font-size: 0.8rem; margin-top: 4px;">รหัสผ่านตรงกัน ✓</p>
+              </div>
               
               <div class="form-actions" style="display: flex; gap: 12px;">
-                <button class="btn-primary" :disabled="isSavingPassword" @click="handlePasswordChange">
-                  {{ isSavingPassword ? 'Sending...' : 'Send Reset Link' }}
+                <button class="btn-primary" :disabled="isSavingPassword || !isPasswordFormValid" @click="handlePasswordChange">
+                  {{ isSavingPassword ? 'กำลังบันทึก...' : 'บันทึกรหัสผ่านใหม่' }}
                 </button>
-                <button class="btn-ghost" @click="cancelPasswordChange">Cancel</button>
+                <button class="btn-ghost" @click="cancelPasswordChange">ยกเลิก</button>
               </div>
             </div>
 

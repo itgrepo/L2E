@@ -392,10 +392,45 @@ def addService():
                     # Handle separate file upload if present
                     data_file = request.files.get('data_file')
                     file_type = request.form.get('file_type')
-                    if data_file and allowed_file(data_file.filename):
+                    if data_file:
+                        ext = data_file.filename.rsplit('.', 1)[-1].lower() if '.' in data_file.filename else ''
+                        if file_type == 'dictionary' and ext not in ['csv', 'xls', 'xlsx']:
+                            return jsonify({"status": "รูปแบบไฟล์ Data Dictionary ไม่ถูกต้อง (รองรับเฉพาะ CSV, Excel)"}), 400
+                        elif file_type == 'zip' and ext != 'zip':
+                            return jsonify({"status": "รูปแบบไฟล์ Sampling ไม่ถูกต้อง (รองรับเฉพาะ ZIP)"}), 400
+                        elif file_type == 'main' and ext not in ['csv']:
+                            return jsonify({"status": "รูปแบบไฟล์ Dataset (CSV) ไม่ถูกต้อง (รองรับเฉพาะ CSV)"}), 400
+                        elif file_type == 'excel' and ext not in ['xls', 'xlsx']:
+                            return jsonify({"status": "รูปแบบไฟล์ Dataset (Excel) ไม่ถูกต้อง (รองรับเฉพาะ Excel)"}), 400
+                        elif not allowed_file(data_file.filename):
+                            return jsonify({"status": "นามสกุลไฟล์ไม่ได้รับอนุญาต"}), 400
+                            
                         filename = secure_filename(f"ds_{service_id}_{data_file.filename}")
                         save_path = os.path.join(UPLOAD_FOLDER, filename)
                         data_file.save(save_path)
+
+                        # Content validation: file must actually be readable as CSV/Excel.
+                        # On failure remove the saved file so nothing is left behind.
+                        if file_type in ('main', 'excel', 'dictionary'):
+                            try:
+                                import pandas as pd
+                                if ext == 'csv':
+                                    try:
+                                        df_check = pd.read_csv(save_path, nrows=5, encoding='utf-8-sig')
+                                    except UnicodeDecodeError:
+                                        df_check = pd.read_csv(save_path, nrows=5, encoding='cp874')
+                                else:
+                                    df_check = pd.read_excel(save_path, nrows=5)
+                                if len(df_check.columns) == 0:
+                                    raise ValueError('ไม่พบ Header/คอลัมน์ในไฟล์')
+                            except Exception as ve:
+                                try:
+                                    os.remove(save_path)
+                                except OSError:
+                                    pass
+                                cursor.close()
+                                conn.close()
+                                return jsonify({"status": f"ไฟล์ไม่ผ่านการตรวจสอบ (Validation failed): ไม่สามารถอ่านไฟล์ได้หรือไฟล์เสียหาย - {str(ve)[:150]}"}), 400
                         
                         if file_type == 'dictionary':
                             fields.append("data_dictionary_path = %s")
@@ -414,6 +449,9 @@ def addService():
                                 print(f"Error parsing dictionary file: {e}")
                         elif file_type == 'zip':
                             fields.append("data_sampling_path = %s")
+                            values.append(filename)
+                        elif file_type == 'excel':
+                            fields.append("excel_file_path = %s")
                             values.append(filename)
                         else:
                             fields.append("file_path = %s")
@@ -716,8 +754,8 @@ def retrieveService():
             decoded_user = platform_decode(user_str)
             user_data = safe_json_loads(decoded_user)
             user_id = user_data.get('user_id')
-            # If user is admin (previlage_id != 3), show all active services
-            if user_data.get('previlage_id') and str(user_data.get('previlage_id')) in ['3', '4']:
+            # Only R4 (System Admin) is full ADMIN
+            if user_data.get('previlage_id') and str(user_data.get('previlage_id')) == '4':
                 user_id = 'ADMIN' 
 
         conn = mysql.connect()
@@ -727,11 +765,20 @@ def retrieveService():
             sql = "SELECT *, 1 AS has_access, NULL AS permission_status FROM service WHERE status = 'Active' AND (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')"
             cursor.execute(sql)
         else:
+            org_id = user_data.get('org_id')
+            user_org_name = ''
+            if org_id:
+                cursor.execute("SELECT org_name FROM organization WHERE org_id = %s", (org_id,))
+                org_row = cursor.fetchone()
+                if org_row:
+                    user_org_name = org_row[0]
+
             sql = """
                 SELECT s.*,
                        (CASE 
                            WHEN s.access_type = 'public' THEN 1
                            WHEN s.access_type = 'internal' AND %s IN ('1', '3', '4', '5') THEN 1
+                           WHEN %s = '3' AND s.organization = %s THEN 1
                            WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s) THEN 1
                            WHEN s.access_type IN ('restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_group_access sga
@@ -746,7 +793,8 @@ def retrieveService():
                 FROM service s
                 WHERE s.status = 'Active' AND (s.dataset_id IS NULL OR s.dataset_id NOT LIKE 'API\_CLONE\_%%')
             """
-            cursor.execute(sql, (str(user_data.get('previlage_id', '2')), user_id, user_id, user_id, user_id, user_id))
+            previlage_id = str(user_data.get('previlage_id', '2'))
+            cursor.execute(sql, (previlage_id, previlage_id, user_org_name, user_id, user_id, user_id, user_id, user_id))
             
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
@@ -785,7 +833,7 @@ def get_dataset_file_api(dataset_id):
         cursor = conn.cursor()
 
         sql_check_service = """
-            SELECT service_id, api_enabled, api_type, file_path, service_name, access_type
+            SELECT service_id, api_enabled, api_type, COALESCE(NULLIF(file_path, ''), excel_file_path) AS file_path, service_name, access_type
             FROM service 
             WHERE dataset_id = %s AND status = 'Active' LIMIT 1
         """

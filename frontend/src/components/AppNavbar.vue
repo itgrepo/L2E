@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
-import intelligistDataxLogo from '../assets/logo.svg';
+import intelligistDataxLogo from '../assets/intelligist-datax-logo.png';
 import { themeConfig } from '../utils/theme';
 
 const router = useRouter();
@@ -126,7 +126,7 @@ onMounted(() => {
   <header class="navbar">
     <div class="container nav-inner">
       <router-link to="/" class="logo-group">
-        <img v-if="themeConfig.logoUrl" :src="themeConfig.logoUrl" alt="Logo" class="datax-logo" />
+        <img :src="themeConfig.logoUrl || intelligistDataxLogo" alt="Logo" class="datax-logo" />
         <span class="logo-text">{{ themeConfig.siteName }}</span>
       </router-link>
       <nav class="nav-links">
@@ -186,7 +186,7 @@ onMounted(() => {
       <div :class="['mobile-menu', { 'open': isMobileMenuOpen }]">
         <div class="mobile-menu-header">
           <div class="logo-group">
-            <img v-if="themeConfig.logoUrl" :src="themeConfig.logoUrl" alt="Logo" class="datax-logo-small" />
+            <img :src="themeConfig.logoUrl || intelligistDataxLogo" alt="Logo" class="datax-logo-small" />
             <span class="logo-text">{{ themeConfig.siteName }}</span>
           </div>
           <button class="close-menu-btn" @click="closeMobileMenu">

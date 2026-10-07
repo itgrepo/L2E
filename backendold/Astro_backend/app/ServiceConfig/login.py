@@ -249,7 +249,9 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
             token_payload = {
                 "user_id": result[0]["user_id"],
                 "username": result[0]["username"],
-                "email": result[0].get("email", "")
+                "email": result[0].get("email", ""),
+                "previlage_id": result[0].get("previlage_id"),
+                "org_id": result[0].get("org_id")
             }
             result[0]['token'] = auth_serializer.dumps(token_payload)
             
@@ -844,8 +846,6 @@ def resetPassword():
 
 @app.route('/changePassword', methods=['POST'])
 def changePassword():
-    return jsonify({"status": "error", "message": "Direct password change is disabled. Please use email reset link."})
-    
     try:
         dataInput = request.json
         # username = dataInput['username']
@@ -1095,9 +1095,14 @@ def sendMailUnlockAccount(token, email, link, username, user_id):
     body = "<p style='font-size: 14px;'>Hi&nbsp;&nbsp;" + firstname + "&nbsp;" + lastname + "<br>Your account has been locked after five consecutive failed password attempts.<br>Please click the &quot;Unlock Account&quot; button below to unlock your account.<br>After unlocking, you can login with your existing password.</p><br/><a href='" + str(unlock_link) + "' style='display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #008236;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Unlock Account</a>" + footer
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
-        server = smtplib.SMTP_SSL(SERVER, 465)
-        text = msg.as_string()
+        if MAIL_USE_SSL:
+            server = smtplib.SMTP_SSL(SERVER, int(os.environ.get('MAIL_PORT', 465)), timeout=5)
+        else:
+            server = smtplib.SMTP(SERVER, int(os.environ.get('MAIL_PORT', 587)), timeout=5)
+            server.starttls()
+            
         server.login(username_mail, password_mail)
+        text = msg.as_string()
         server.sendmail(fromaddr, toaddr, text)
         server.quit()
         return "success"
@@ -1250,11 +1255,28 @@ def submitContact():
             else:
                 server = smtplib.SMTP(SERVER, int(os.environ.get('MAIL_PORT', 587)), timeout=5)
                 server.starttls()
-                # server.starttls() # Sometimes required
                 
             server.login(username_mail, password_mail)
+            
+            # Send to admin
             text = msg.as_string()
             server.sendmail(fromaddr, toaddr, text)
+
+            # Send confirmation to user
+            if email and email != 'No Email':
+                msg_user = MIMEMultipart()
+                msg_user['From'] = fromaddr
+                msg_user['To'] = email
+                msg_user['Subject'] = f"ยืนยันการรับเรื่องติดต่อ: {subject}"
+                user_body = f"""
+                <h3>สวัสดีคุณ {name},</h3>
+                <p>ทางเราได้รับข้อความติดต่อของคุณเรียบร้อยแล้ว ทีมงานจะดำเนินการตรวจสอบและติดต่อกลับโดยเร็วที่สุด</p>
+                <hr>
+                <p><b>รายละเอียดข้อความของคุณ:</b><br/>{message.replace(chr(10), '<br/>')}</p>
+                """
+                msg_user.attach(MIMEText(user_body, 'html', "utf-8"))
+                server.sendmail(fromaddr, email, msg_user.as_string())
+
             server.quit()
         except Exception as email_err:
             current_app.logger.error(f"Could not send contact email: {email_err}")

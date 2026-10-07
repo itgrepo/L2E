@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient from '../utils/api';
 
@@ -94,6 +94,25 @@ const recentActivity = ref([]);
 const chartData = ref([]);
 const recentDatasets = ref([]);
 
+const searchQuery = ref('');
+const filteredRecentDatasets = computed(() => {
+  if (!searchQuery.value) return recentDatasets.value;
+  return recentDatasets.value.filter(ds => 
+    ds.name.toLowerCase().includes(searchQuery.value.toLowerCase()) || 
+    ds.agency.toLowerCase().includes(searchQuery.value.toLowerCase())
+  );
+});
+
+const getTooltipForLabel = (label) => {
+  const map = {
+    'Datasets Accessed': 'จำนวนชุดข้อมูลทั้งหมดที่มีการเข้าถึง (Total Datasets Accessed)',
+    'API Keys Active': 'จำนวน API Key ที่เปิดใช้งานอยู่ในขณะนี้ (Total Active API Keys)',
+    'API Calls This Month': 'ปริมาณการเรียกใช้ API ในเดือนปัจจุบัน (API Calls current month)',
+    'Downloads This Month': 'จำนวนครั้งที่มีการดาวน์โหลดไฟล์ข้อมูลในเดือนนี้ (Total Downloads current month)'
+  };
+  return map[label] || `จำนวน ${label} ทั้งหมด`;
+};
+
 const fetchDashboardData = async () => {
   isLoading.value = true;
   try {
@@ -157,12 +176,12 @@ onMounted(() => {
           <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
-          <input type="text" placeholder="Search datasets...">
+          <input type="text" v-model="searchQuery" placeholder="ค้นหาชุดข้อมูลล่าสุด...">
         </div>
         
         <div class="header-user-actions">
 
-          <button class="icon-btn help">
+          <button class="icon-btn help custom-tooltip" data-tooltip="คู่มือการใช้งานระบบ">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -177,12 +196,12 @@ onMounted(() => {
             <p>ยินดีต้อนรับกลับมา นี่คือภาพรวมกิจกรรมของคุณ</p>
           </div>
           <div class="welcome-actions">
-            <button class="btn-secondary">Download Report</button>
+            <button class="btn-secondary custom-tooltip" data-tooltip="ดาวน์โหลดรายงานสรุป">Download Report</button>
           </div>
         </div>
         
         <div class="stats-grid">
-          <div v-for="stat in stats" :key="stat.label" :data-tooltip="`จำนวน ${stat.label} ทั้งหมดในระบบ`" class="stat-card custom-tooltip">
+          <div v-for="stat in stats" :key="stat.label" :data-tooltip="getTooltipForLabel(stat.label)" class="stat-card custom-tooltip">
             <div class="stat-header">
               <div class="stat-icon-wrapper" :style="{ color: stat.color, backgroundColor: stat.color + '15' }">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -202,7 +221,7 @@ onMounted(() => {
           <section class="main-charts">
             <div class="card chart-card">
               <div class="card-header">
-                <h3>API Usage (7 days)</h3>
+                <h3 class="custom-tooltip" data-tooltip="ปริมาณการเรียกใช้งาน API ย้อนหลัง 7 วัน">API Usage (7 days)</h3>
                 <div class="chart-legend">
                   <span class="legend-item"><span class="dot" style="background-color: var(--mso-accent)"></span> Calls</span>
                 </div>
@@ -217,7 +236,7 @@ onMounted(() => {
                   <template v-if="chartData.length > 0">
                     <div v-for="day in chartData" :key="day.date" class="bar-group">
                       <div class="bar-label">{{ day.date.split('-').slice(1).join('/') }}</div>
-                      <div :data-tooltip="day.date + ': ' + day.count" class="bar-track custom-tooltip">
+                      <div :data-tooltip="day.date + ': ' + day.count + ' calls'" class="bar-track custom-tooltip">
                         <div class="bar-progress" :style="{ width: Math.min(100, (day.count / 100) * 100) + '%', backgroundColor: day.count > 70 ? 'var(--mso-accent)' : '#3b82f6' }"></div>
                       </div>
                       <div class="bar-value">{{ day.count }}</div>
@@ -229,9 +248,9 @@ onMounted(() => {
             </div>
 
             <div class="recent-datasets-section">
-              <h3>Recent Datasets</h3>
+              <h3 class="custom-tooltip" data-tooltip="ชุดข้อมูลที่มีการอัปเดตหรือเปิดตัวล่าสุด">Recent Datasets</h3>
               <div class="datasets-list">
-                <div v-for="ds in recentDatasets" :key="ds.id" class="dataset-mini-card">
+                <div v-for="ds in filteredRecentDatasets" :key="ds.id" class="dataset-mini-card">
                   <div class="ds-info">
                     <h4>{{ ds.name }}</h4>
                     <p>{{ ds.agency }}</p>
@@ -240,6 +259,7 @@ onMounted(() => {
                     <span v-for="tag in ds.formats" :key="tag" class="tag">{{ tag }}</span>
                   </div>
                 </div>
+                <div v-if="filteredRecentDatasets.length === 0" class="no-data-msg">ไม่พบชุดข้อมูลที่ค้นหา</div>
               </div>
             </div>
           </section>

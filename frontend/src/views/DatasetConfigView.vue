@@ -434,11 +434,27 @@ const handleLinkSubmit = async () => {
   }
 };
 
+const acceptedExtensions = {
+  dictionary: ['csv', 'xls', 'xlsx'],
+  main: ['csv'],
+  excel: ['xls', 'xlsx'],
+  zip: ['zip']
+};
+
 const handleFileSelect = (event) => {
   const file = event.target.files[0];
-  if (file) {
-    selectedFile.value = file;
+  if (!file) return;
+  const ext = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : '';
+  const allowed = acceptedExtensions[fileType.value] || [];
+  if (!allowed.includes(ext)) {
+    errorMessage.value = `ไฟล์ "${file.name}" ไม่ตรงกับประเภทที่เลือก (รองรับเฉพาะ ${allowed.map(e => e.toUpperCase()).join(', ')})`;
+    selectedFile.value = null;
+    event.target.value = '';
+    return;
   }
+  errorMessage.value = '';
+  selectedFile.value = file;
+  event.target.value = '';
 };
 
 const triggerFileUpload = () => {
@@ -1213,14 +1229,21 @@ const updateDatasetPrefix = () => {
                 </div>
               </label>
               <label class="radio-card">
-                <input type="radio" value="excel" v-model="fileType">
+                <input type="radio" value="main" v-model="fileType" @change="selectedFile = null">
                 <div class="radio-card-content">
                   <span class="radio-circle"></span>
-                  <span>Add Excel File For API</span>
+                  <span>Add CSV File (ชุดข้อมูล CSV)</span>
                 </div>
               </label>
               <label class="radio-card">
-                <input type="radio" value="zip" v-model="fileType">
+                <input type="radio" value="excel" v-model="fileType" @change="selectedFile = null">
+                <div class="radio-card-content">
+                  <span class="radio-circle"></span>
+                  <span>Add Excel File (ชุดข้อมูล XLS/XLSX)</span>
+                </div>
+              </label>
+              <label class="radio-card">
+                <input type="radio" value="zip" v-model="fileType" @change="selectedFile = null">
                 <div class="radio-card-content">
                   <span class="radio-circle"></span>
                   <span>Add Zip File (Data Sampling)</span>
@@ -1229,7 +1252,7 @@ const updateDatasetPrefix = () => {
             </div>
 
                                     <div class="upload-zone" @click="triggerFileUpload">
-              <input type="file" id="fileInput" @change="handleFileSelect" style="display: none;" :accept="fileType === 'zip' ? '.zip' : '.csv,.xls,.xlsx'">
+              <input type="file" id="fileInput" @change="handleFileSelect" style="display: none;" :accept="acceptedExtensions[fileType].map(e => '.' + e).join(',')">
               <div class="upload-inner">
                 <svg xmlns="http://www.w3.org/2000/svg" style="width: 48px; height: 48px; margin: 0 auto; color: #475569;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
@@ -1237,7 +1260,8 @@ const updateDatasetPrefix = () => {
                 <p v-if="!selectedFile">ลากไฟล์มาวางที่นี่ หรือ <span>คลิกเพื่อเลือกไฟล์</span></p>
                 <p v-else class="text-green-600 font-bold">เลือกไฟล์แล้ว: {{ selectedFile.name }}</p>
                 <span class="text-xs text-slate-400" v-if="fileType === 'dictionary'">รองรับไฟล์ CSV, XLS, XLSX (เฉพาะพจนานุกรมข้อมูล)</span>
-                <span class="text-xs text-slate-400" v-else-if="fileType === 'excel'">รองรับไฟล์ CSV, XLS, XLSX (สำหรับใช้งานผ่าน API)</span>
+                <span class="text-xs text-slate-400" v-else-if="fileType === 'main'">รองรับเฉพาะไฟล์ CSV (ผู้ใช้จะดาวน์โหลดได้จากปุ่ม CSV)</span>
+                <span class="text-xs text-slate-400" v-else-if="fileType === 'excel'">รองรับเฉพาะไฟล์ XLS, XLSX (ผู้ใช้จะดาวน์โหลดได้จากปุ่ม Excel)</span>
                 <span class="text-xs text-slate-400" v-else-if="fileType === 'zip'">รองรับไฟล์ ZIP (สำหรับการดาวน์โหลดข้อมูลสุ่ม)</span>
               </div>
             </div>
