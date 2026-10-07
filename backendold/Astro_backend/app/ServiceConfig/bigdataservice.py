@@ -561,8 +561,13 @@ def addService():
                             fields.append("api_enabled = %s")
                             values.append(1)
 
+                            target_ds = existing_dataset_id or dataset_id or str(service_id)
+                            fields.append("api_endpoint = COALESCE(NULLIF(api_endpoint, ''), %s)")
+                            values.append(target_ds)
+
+                            fields.append("api_type = COALESCE(NULLIF(api_type, ''), 'general')")
+
                             # Auto endpoint setting
-                            target_ds = existing_dataset_id or dataset_id or service_id
                             if not existing_service_url or existing_service_url in ('#', '', '/api/data/#') or not service_url:
                                 auto_endpoint = f"/api/data/{target_ds}"
                                 fields.append("service_url = %s")
@@ -1015,9 +1020,9 @@ def get_dataset_file_api(dataset_id):
         sql_check_service = """
             SELECT service_id, api_enabled, api_type, COALESCE(NULLIF(file_path, ''), excel_file_path) AS file_path, service_name, access_type
             FROM service 
-            WHERE dataset_id = %s AND status = 'Active' LIMIT 1
+            WHERE (dataset_id = %s OR api_endpoint = %s OR service_id = %s) AND status = 'Active' LIMIT 1
         """
-        cursor.execute(sql_check_service, (dataset_id,))
+        cursor.execute(sql_check_service, (dataset_id, dataset_id, dataset_id))
         svc_row = cursor.fetchone()
         
         if not svc_row:
@@ -1270,9 +1275,10 @@ def get_dataset_api(dataset_id):
 
         # First, fetch service configuration by dataset_id
         sql_svc_config = """SELECT service_id, api_enabled, api_type, api_db_name, api_source_name, api_source_type, 
-                                   api_request_fields, api_response_fields, service_name, access_type
-                            FROM service WHERE (dataset_id = %s OR api_endpoint = %s) AND status = 'Active' LIMIT 1"""
-        cursor.execute(sql_svc_config, (dataset_id, dataset_id))
+                                   api_request_fields, api_response_fields, service_name, access_type,
+                                   COALESCE(NULLIF(file_path, ''), excel_file_path) AS file_path
+                            FROM service WHERE (dataset_id = %s OR api_endpoint = %s OR service_id = %s) AND status = 'Active' LIMIT 1"""
+        cursor.execute(sql_svc_config, (dataset_id, dataset_id, dataset_id))
         svc_row = cursor.fetchone()
         
         if not svc_row:
@@ -1281,7 +1287,7 @@ def get_dataset_api(dataset_id):
             conn.close()
             return jsonify({'status': 'error', 'message': 'Service not found or inactive', 'request_id': request_id}), 404
 
-        real_service_id, api_enabled, api_type, db_name, source_name, source_type, req_fields_raw, res_fields_raw, service_name, access_type = svc_row
+        real_service_id, api_enabled, api_type, db_name, source_name, source_type, req_fields_raw, res_fields_raw, service_name, access_type, file_path = svc_row
 
         if not api_enabled:
             log_api_usage(0, 'API access is disabled for this dataset', 403)
@@ -1357,9 +1363,105 @@ def get_dataset_api(dataset_id):
                         user_id, user_role = user_row
 
         if not db_name or not source_name:
-            cursor.close()
-            conn.close()
-            return jsonify({'status': 'error', 'message': 'Service source not configured', 'request_id': request_id}), 500
+            if file_path:
+                upload_folder = os.path.join(os.getcwd(), 'uploads')
+                full_path = os.path.join(upload_folder, file_path)
+                if not os.path.exists(full_path):
+                    cursor.close()
+                    conn.close()
+                    return jsonify({'status': 'error', 'message': 'File missing on server', 'request_id': request_id}), 404
+
+                ext = file_path.split('.')[-1].lower()
+                import pandas as pd
+                try:
+                    if ext == 'csv':
+                        try:
+                            df = pd.read_csv(full_path, encoding='utf-8-sig')
+                        except UnicodeDecodeError:
+                            df = pd.read_csv(full_path, encoding='cp874')
+                    elif ext in ['xls', 'xlsx']:
+                        df = pd.read_excel(full_path)
+                    elif ext == 'json':
+                        with open(full_path, 'r', encoding='utf-8') as f:
+                            raw_json = json.load(f)
+                        if isinstance(raw_json, list):
+                            df = pd.DataFrame(raw_json)
+                        elif isinstance(raw_json, dict):
+                            if 'data' in raw_json and isinstance(raw_json['data'], list):
+                                df = pd.DataFrame(raw_json['data'])
+                            elif 'rows' in raw_json and isinstance(raw_json['rows'], list):
+                                df = pd.DataFrame(raw_json['rows'])
+                            else:
+                                df = pd.DataFrame([raw_json])
+                        else:
+                            df = pd.DataFrame()
+                    else:
+                        df = pd.DataFrame()
+                except Exception as fe:
+                    cursor.close()
+                    conn.close()
+                    return jsonify({'status': 'error', 'message': f'Error reading data file: {str(fe)}', 'request_id': request_id}), 500
+
+                # Scope conditions filter for file data
+                if api_type == 'scope':
+                    cursor.execute("SELECT scope_json FROM api_scopes WHERE credential_id = %s", (credential_id,))
+                    scope_row = cursor.fetchone()
+                    if scope_row and scope_row[0]:
+                        try:
+                            scope_obj = json.loads(scope_row[0]) if isinstance(scope_row[0], str) else scope_row[0]
+                            if isinstance(scope_obj, list):
+                                for cond in scope_obj:
+                                    s_field = cond.get('field')
+                                    s_op = str(cond.get('operator', '=')).upper()
+                                    s_val = cond.get('value')
+                                    if s_field and s_field in df.columns:
+                                        if s_op == '=':
+                                            df = df[df[s_field].astype(str) == str(s_val)]
+                                        elif s_op == '!=':
+                                            df = df[df[s_field].astype(str) != str(s_val)]
+                                        elif s_op == 'LIKE':
+                                            df = df[df[s_field].astype(str).str.contains(str(s_val), case=False, na=False)]
+                                        elif s_op == 'IN' and isinstance(s_val, list):
+                                            df = df[df[s_field].isin(s_val)]
+                            elif isinstance(scope_obj, dict):
+                                for s_field, s_vals in scope_obj.items():
+                                    if s_field in df.columns and isinstance(s_vals, list):
+                                        df = df[df[s_field].isin(s_vals)]
+                        except Exception as se:
+                            current_app.logger.error(f"File scope filter error: {se}")
+
+                # Query filter params
+                for arg in request.args:
+                    if arg != 'apikey' and arg in df.columns:
+                        val = request.args.get(arg)
+                        if val is not None and val != '':
+                            df = df[df[arg].astype(str) == str(val)]
+
+                # Response fields filtering
+                if res_fields_raw:
+                    try:
+                        res_fields_list = json.loads(res_fields_raw)
+                        avail_cols = [c for c in res_fields_list if c in df.columns]
+                        if avail_cols:
+                            df = df[avail_cols]
+                    except:
+                        pass
+
+                df = df.fillna("")
+                records = df.to_dict(orient='records')
+
+                cursor.close()
+                conn.close()
+                return jsonify({
+                    'status': 'success',
+                    'count': len(records),
+                    'data': records,
+                    'request_id': request_id
+                })
+            else:
+                cursor.close()
+                conn.close()
+                return jsonify({'status': 'error', 'message': 'Service source not configured', 'request_id': request_id}), 500
 
         # Parse JSON fields
         try:

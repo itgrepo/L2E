@@ -276,13 +276,21 @@ const onReportSelect = async () => {
   const selected = services.value.find(s => s.service_id === apiForm.value.report_id);
   if (selected) {
     apiForm.value.service_name = selected.service_name || '';
-    apiForm.value.api_endpoint = `API-${selected.dataset_id || selected.service_id}`;
-    apiForm.value.service_description = selected.description || selected.service_name || '';
+    apiForm.value.api_endpoint = selected.api_endpoint || `API-${selected.dataset_id || selected.service_id}`;
+    apiForm.value.service_description = selected.description || selected.service_description || selected.service_name || '';
     apiForm.value.api_db_name = selected.api_db_name || selected.db_name || '';
     apiForm.value.api_source_name = selected.api_source_name || selected.source_name || '';
     
-    // We let the user select the DB and Table manually now.
-    // If the dataset already had a DB, we can pre-fill it and fetch tables
+    // If dataset has response fields from uploaded file, auto-populate columns & response fields
+    const fileCols = tryParseJson(selected.api_response_fields);
+    if (fileCols && Array.isArray(fileCols) && fileCols.length > 0) {
+      newApiColumns.value = fileCols.map(c => ({ name: typeof c === 'object' ? (c.name || c.COLUMN_NAME || JSON.stringify(c)) : String(c) }));
+      apiForm.value.response_fields = [...fileCols];
+      apiForm.value.request_fields = tryParseJson(selected.api_request_fields) || [];
+    } else {
+      newApiColumns.value = [];
+    }
+
     if (apiForm.value.api_db_name) {
       await fetchTables(apiForm.value.api_db_name);
       if (apiForm.value.api_source_name) {
@@ -376,17 +384,23 @@ const toggleDataPreview = async () => {
 const fetchColumnsForService = async (service) => {
   availableColumns.value = [];
   if (!service) return;
-  try {
-    const userData = JSON.parse(localStorage.getItem('user') || '{}');
-    const res = await apiClient.post('/getTableColumns', {
-      user: encodeUserData(userData),
-      db_name: service.api_db_name || service.db_name || 'WAREHOUSE',
-      table_name: service.api_source_name || service.source_name
-    });
-    if (res.data.status === 'success') {
-      availableColumns.value = res.data.data;
-    }
-  } catch (e) { console.error(e); }
+  const fileCols = tryParseJson(service.api_response_fields);
+  if (fileCols && Array.isArray(fileCols) && fileCols.length > 0) {
+    availableColumns.value = fileCols.map(c => ({ name: typeof c === 'object' ? (c.name || c.COLUMN_NAME || JSON.stringify(c)) : String(c) }));
+  }
+  if (service.api_db_name && service.api_source_name) {
+    try {
+      const userData = JSON.parse(localStorage.getItem('user') || '{}');
+      const res = await apiClient.post('/getTableColumns', {
+        user: encodeUserData(userData),
+        db_name: service.api_db_name || service.db_name || 'WAREHOUSE',
+        table_name: service.api_source_name || service.source_name
+      });
+      if (res.data.status === 'success' && res.data.data && res.data.data.length > 0) {
+        availableColumns.value = res.data.data;
+      }
+    } catch (e) { console.error(e); }
+  }
 };
 
 const openAddScopeForm = async () => {
