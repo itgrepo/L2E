@@ -616,17 +616,20 @@ def sendMailResetPassword(token, email, link, user_id):
     msg = MIMEMultipart()
     msg['From'] = fromaddr
     msg['To'] = toaddr
-    msg['Subject'] = "Data Exchange - Reset Password"
+    msg['Subject'] = "Data Exchange - ตั้งรหัสผ่านใหม่"
     reset_link = str(link) + "/resetpassword/" + str(token)
     footer = "<br><br><br>Data Exchange Team<br>Email: " + username_mail
-    body = """<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #1e293b;">Reset Password</h2>
-        <p>Hi {firstname} {lastname},</p>
-        <p>คุณได้ส่งคำขอรีเซ็ตรหัสผ่านเข้ามาในระบบ กรุณาคลิกปุ่มด้านล่างเพื่อตั้งรหัสผ่านใหม่:</p>
-        <a href="{link}" style="display: inline-block; padding: 14px 28px; margin: 20px 0; background-color: #008236; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold;">ตั้งรหัสผ่านใหม่</a>
-        <p style="color: #64748b; font-size: 0.875rem;">หากคุณไม่ได้ร้องขอ สามารถเพิกเฉยอีเมลนี้ได้ ลิงก์จะหมดอายุโดยอัตโนมัติ</p>
-        {footer}
-    </div>""".format(firstname=firstname, lastname=lastname, link=reset_link, footer=footer)
+    fullname = f"{firstname} {lastname}".strip()
+    body = f"""<div style="font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
+        <h2 style="color: #008236; margin-top: 0; font-size: 20px; font-weight: 700;">ตั้งรหัสผ่านใหม่</h2>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 8px;">สวัสดีคุณ {fullname}</p>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 8px;">คุณได้ส่งคำขอรีเซ็ตรหัสผ่านเข้ามาในระบบ กรุณาคลิกปุ่มด้านล่างเพื่อตั้งรหัสผ่านใหม่:</p>
+        <div style="text-align: center; margin: 28px 0;">
+            <a href="{reset_link}" style="display: inline-block; padding: 12px 32px; background-color: #008236; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">ตั้งรหัสผ่านใหม่</a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 0;">หากคุณไม่ได้ร้องขอ สามารถเพิกเฉยต่ออีเมลนี้ได้ ลิงก์จะหมดอายุโดยอัตโนมัติ</p>
+    </div>"""
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
         if MAIL_USE_SSL:
@@ -1088,11 +1091,20 @@ def sendMailUnlockAccount(token, email, link, username, user_id):
     msg = MIMEMultipart()
     msg['From'] = fromaddr
     msg['To'] = toaddr
-    msg['Subject'] = "Unlock Account for Department Operation Center Team"
+    msg['Subject'] = "ปลดล็อกบัญชีผู้ใช้ - Data Exchange"
     unlock_link = str(link) + "/unlock/" + str(token)
-    footer = "<br><br><br>Department Operation Center Team" + \
-      "<br>Call Center: +66" + "<br>Email: adminbd@customs.go.th"
-    body = "<p style='font-size: 14px;'>Hi&nbsp;&nbsp;" + firstname + "&nbsp;" + lastname + "<br>Your account has been locked after five consecutive failed password attempts.<br>Please click the &quot;Unlock Account&quot; button below to unlock your account.<br>After unlocking, you can login with your existing password.</p><br/><a href='" + str(unlock_link) + "' style='display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #008236;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Unlock Account</a>" + footer
+    fullname = f"{firstname} {lastname}".strip()
+    body = f"""<div style="font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
+        <h2 style="color: #008236; margin-top: 0; font-size: 20px; font-weight: 700;">ปลดล็อกบัญชีผู้ใช้</h2>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 8px;">สวัสดีคุณ {fullname}</p>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 8px;">บัญชีของคุณถูกระงับการใช้งานชั่วคราวเนื่องจากกรอกรหัสผ่านผิดเกิน 5 ครั้ง</p>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 24px;">กรุณาคลิกปุ่มด้านล่างเพื่อปลดล็อกบัญชีของคุณ หลังจากปลดล็อกแล้วจะสามารถเข้าสู่ระบบด้วยรหัสผ่านเดิมได้ทันที:</p>
+        <div style="text-align: center; margin: 28px 0;">
+            <a href="{unlock_link}" style="display: inline-block; padding: 12px 32px; background-color: #008236; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">ปลดล็อกบัญชี</a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 0;">หากคุณไม่ได้ดำเนินการนี้ โปรดติดต่อผู้ดูแลระบบ</p>
+    </div>"""
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
         if MAIL_USE_SSL:

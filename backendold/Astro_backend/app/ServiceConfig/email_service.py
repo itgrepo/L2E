@@ -57,12 +57,12 @@ def notify_dataset_created(dataset_name, dataset_desc, to_emails):
     subject = f"New Dataset Available: {dataset_name}"
     body = f"""
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-        <h2 style="color: #10b981;">New Dataset Created</h2>
+        <h2 style="color: #008236;">New Dataset Created</h2>
         <p>A new dataset has been published on DataX Portal.</p>
         <p><strong>Name:</strong> {dataset_name}</p>
         <p><strong>Description:</strong> {dataset_desc}</p>
         <br>
-        <a href="{BASE_URL}/catalog" style="display: inline-block; padding: 10px 20px; background-color: #10b981; color: white; text-decoration: none; border-radius: 4px;">View Catalog</a>
+        <a href="{BASE_URL}/catalog" style="display: inline-block; padding: 10px 20px; background-color: #008236; color: white; text-decoration: none; border-radius: 4px;">View Catalog</a>
     </div>
     """
     send_email_async(to_emails, subject, body)
@@ -71,10 +71,10 @@ def notify_dataset_updated(dataset_name, to_emails):
     subject = f"Dataset Updated: {dataset_name}"
     body = f"""
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-        <h2 style="color: #f59e0b;">Dataset Updated</h2>
+        <h2 style="color: #008236;">Dataset Updated</h2>
         <p>The dataset <strong>{dataset_name}</strong> has been modified.</p>
         <br>
-        <a href="{BASE_URL}/catalog" style="display: inline-block; padding: 10px 20px; background-color: #f59e0b; color: white; text-decoration: none; border-radius: 4px;">View Dataset</a>
+        <a href="{BASE_URL}/catalog" style="display: inline-block; padding: 10px 20px; background-color: #008236; color: white; text-decoration: none; border-radius: 4px;">View Dataset</a>
     </div>
     """
     send_email_async(to_emails, subject, body)
@@ -83,11 +83,11 @@ def notify_access_request(dataset_name, requester_name, to_emails):
     subject = f"New Access Request for {dataset_name}"
     body = f"""
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-        <h2 style="color: #10b981;">Access Request</h2>
+        <h2 style="color: #008236;">Access Request</h2>
         <p>User <strong>{requester_name}</strong> has requested access to the dataset <strong>{dataset_name}</strong>.</p>
         <p>Please log in to the admin panel to review and approve/reject this request.</p>
         <br>
-        <a href="{BASE_URL}/dataset-approval" style="display: inline-block; padding: 10px 20px; background-color: #10b981; color: white; text-decoration: none; border-radius: 4px;">Manage Requests</a>
+        <a href="{BASE_URL}/dataset-approval" style="display: inline-block; padding: 10px 20px; background-color: #008236; color: white; text-decoration: none; border-radius: 4px;">Manage Requests</a>
     </div>
     """
     send_email_async(to_emails, subject, body)
@@ -96,11 +96,11 @@ def notify_access_approved(dataset_name, to_emails):
     subject = f"Access Granted: {dataset_name}"
     body = f"""
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-        <h2 style="color: #10b981;">Access Granted</h2>
+        <h2 style="color: #008236;">Access Granted</h2>
         <p>Your request to access the dataset <strong>{dataset_name}</strong> has been approved by an administrator.</p>
         <p>You can now view and utilize this dataset.</p>
         <br>
-        <a href="{BASE_URL}/catalog" style="display: inline-block; padding: 10px 20px; background-color: #10b981; color: white; text-decoration: none; border-radius: 4px;">View Dataset</a>
+        <a href="{BASE_URL}/catalog" style="display: inline-block; padding: 10px 20px; background-color: #008236; color: white; text-decoration: none; border-radius: 4px;">View Dataset</a>
     </div>
     """
     send_email_async(to_emails, subject, body)
@@ -109,7 +109,7 @@ def notify_added_to_group(group_name, to_emails):
     subject = f"Added to Group: {group_name}"
     body = f"""
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-        <h2 style="color: #10b981;">Group Assignment</h2>
+        <h2 style="color: #008236;">Group Assignment</h2>
         <p>You have been assigned to the user group: <strong>{group_name}</strong>.</p>
         <p>This may grant you access to new datasets and features associated with this group.</p>
     </div>

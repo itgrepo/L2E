@@ -825,7 +825,7 @@ def sendMailEditEmail(dataInput, dataInputLink, firstname, lastname):
     msg['Subject'] = "Edit your email for Department Operation Center"
     footer = "<br><br><br>Department Operation Center Team" + "<br>Call Center: +66" + "<br>Email: adminbd@customs.go.th"
     body = "<p style='font-size: 14px'>Hi&nbsp;&nbsp;" + firstname + "&nbsp;" + lastname + "<br>Your member profile was changed on the Department Operation Center account.<br>If this was your action, then you can safely ignore this email.<br>If this was not yours, a malicious user may have your password.Please review your profile at <br>and change your password.If you need any help, please contact Contact Center at /contactcenter Tel: +66.</p><a href='" + str(
-        link) + "' style='margin: 0 auto;display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #10b981;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Verify Email</a>" + footer
+        link) + "' style='margin: 0 auto;display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #008236;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>ยืนยันอีเมล</a>" + footer
 
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
