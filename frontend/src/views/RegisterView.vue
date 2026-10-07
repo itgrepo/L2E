@@ -306,7 +306,7 @@ const goToVerify = () => {
 
             <div class="terms-group" style="padding: 16px; background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; margin-top: 8px;">
               <div style="display: flex; flex-direction: column; gap: 8px;">
-                <span style="font-weight: 600; color: #334155; margin-bottom: 4px;">กรุณาอ่านเอกสาร 2 ฉบับต่อไปนี้</span>
+                <span style="font-weight: 600; color: #334155; margin-bottom: 4px;">กรุณาอ่านข้อตกลงและนโยบายต่อไปนี้ก่อนสมัครสมาชิก</span>
                 <div style="display: flex; align-items: center; gap: 8px;">
                   <span v-if="hasAcceptedTerms" style="color: #10b981; font-weight: bold;">✓</span>
                   <span v-else style="color: #ef4444; font-weight: bold; font-size: 14px;">*</span>
