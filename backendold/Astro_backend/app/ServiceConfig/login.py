@@ -673,6 +673,34 @@ def verifyResetToken():
         return jsonify({"status": "Error: " + str(e)})
 
 
+def decode_raw_password(pwd_str):
+    if not pwd_str:
+        return ""
+    if isinstance(pwd_str, str) and pwd_str.startswith('$e$'):
+        try:
+            import base64
+            b64_str = pwd_str[3:][::-1]
+            return base64.b64decode(b64_str.encode('utf-8')).decode('utf-8')
+        except Exception:
+            return pwd_str
+    return pwd_str
+
+
+def validate_password_rules(raw_pwd):
+    import re
+    if not raw_pwd or len(raw_pwd) < 8:
+        return False, "รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร"
+    if not re.search(r'[A-Z]', raw_pwd):
+        return False, "รหัสผ่านต้องมีตัวอักษรภาษาอังกฤษตัวพิมพ์ใหญ่ (A-Z) อย่างน้อย 1 ตัว"
+    if not re.search(r'[a-z]', raw_pwd):
+        return False, "รหัสผ่านต้องมีตัวอักษรภาษาอังกฤษตัวพิมพ์เล็ก (a-z) อย่างน้อย 1 ตัว"
+    if not re.search(r'[0-9]', raw_pwd):
+        return False, "รหัสผ่านต้องมีตัวเลขอารบิก (0-9) อย่างน้อย 1 ตัว"
+    if not re.search(r'[^A-Za-z0-9]', raw_pwd):
+        return False, "รหัสผ่านต้องมีอักขระพิเศษอย่างน้อย 1 ตัว (เช่น @, #, $, %, !, _)"
+    return True, ""
+
+
 @app.route('/resetPasswordByToken', methods=['POST'])
 def resetPasswordByToken():
     try:
@@ -681,7 +709,13 @@ def resetPasswordByToken():
         new_password = dataInput.get('password')
 
         if not token or not new_password:
-            return jsonify({"status": "Missing token or password"})
+            return jsonify({"status": "error", "message": "กรุณากรอกรหัสผ่านใหม่"})
+
+        # Validate password complexity
+        raw_pwd = decode_raw_password(new_password)
+        is_valid, err_msg = validate_password_rules(raw_pwd)
+        if not is_valid:
+            return jsonify({"status": "invalid_password", "message": err_msg})
 
         conn = mysql.connect()
         cursor = conn.cursor()
@@ -694,7 +728,7 @@ def resetPasswordByToken():
         if len(result) == 0:
             cursor.close()
             conn.close()
-            return jsonify({"status": "invalid_token"})
+            return jsonify({"status": "invalid_token", "message": "ลิงก์นี้หมดอายุหรือถูกใช้แล้ว กรุณาส่งคำขอรีเซ็ตรหัสผ่านใหม่"})
 
         username = result[0]['username']
 
@@ -708,7 +742,7 @@ def resetPasswordByToken():
         if len(user_result) == 0:
             cursor.close()
             conn.close()
-            return jsonify({"status": "user_not_found"})
+            return jsonify({"status": "user_not_found", "message": "ไม่พบบัญชีผู้ใช้ในระบบ"})
 
         user_id = user_result[0]['user_id']
 
@@ -737,7 +771,8 @@ def resetPasswordByToken():
         logAction(user_id, '/resetPasswordByToken', 'Password reset via token', 'info')
         return jsonify({"status": "success"})
     except Exception as e:
-        return jsonify({"status": "Error: " + str(e)})
+        return jsonify({"status": "error", "message": "Error: " + str(e)})
+
 
 
 def randomStringDigits(stringLength=8):
@@ -850,9 +885,18 @@ def resetPassword():
 @app.route('/changePassword', methods=['POST'])
 def changePassword():
     try:
-        dataInput = request.json
+        dataInput = request.json or {}
         password = dataInput.get('password')
         currentPassword = dataInput.get('currentPassword')
+
+        if not password or not currentPassword:
+            return jsonify({"status": "error", "message": "กรุณากรอกรหัสผ่านให้ครบถ้วน"}), 400
+
+        # Validate password complexity
+        raw_pwd = decode_raw_password(password)
+        is_valid, err_msg = validate_password_rules(raw_pwd)
+        if not is_valid:
+            return jsonify({"status": "invalid_password", "message": err_msg})
         
         user_id = None
         user_data = getattr(request, 'current_user', {})

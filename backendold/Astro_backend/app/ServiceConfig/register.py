@@ -1103,6 +1103,34 @@ def debugUserSchema():
         return jsonify({'error': str(e)})
 
 
+def decode_raw_password(pwd_str):
+    if not pwd_str:
+        return ""
+    if isinstance(pwd_str, str) and pwd_str.startswith('$e$'):
+        try:
+            import base64
+            b64_str = pwd_str[3:][::-1]
+            return base64.b64decode(b64_str.encode('utf-8')).decode('utf-8')
+        except Exception:
+            return pwd_str
+    return pwd_str
+
+
+def validate_password_rules(raw_pwd):
+    import re
+    if not raw_pwd or len(raw_pwd) < 8:
+        return False, "รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร"
+    if not re.search(r'[A-Z]', raw_pwd):
+        return False, "รหัสผ่านต้องมีตัวอักษรภาษาอังกฤษตัวพิมพ์ใหญ่ (A-Z) อย่างน้อย 1 ตัว"
+    if not re.search(r'[a-z]', raw_pwd):
+        return False, "รหัสผ่านต้องมีตัวอักษรภาษาอังกฤษตัวพิมพ์เล็ก (a-z) อย่างน้อย 1 ตัว"
+    if not re.search(r'[0-9]', raw_pwd):
+        return False, "รหัสผ่านต้องมีตัวเลขอารบิก (0-9) อย่างน้อย 1 ตัว"
+    if not re.search(r'[^A-Za-z0-9]', raw_pwd):
+        return False, "รหัสผ่านต้องมีอักขระพิเศษอย่างน้อย 1 ตัว (เช่น @, #, $, %, !, _)"
+    return True, ""
+
+
 @app.route('/registerSimple', methods=['POST'])
 def registerSimple():
     """Simplified registration endpoint for the Intelligist DataX platform.
@@ -1110,20 +1138,29 @@ def registerSimple():
     Uses the exact same INSERT pattern as seed.py (named columns) which is proven to work.
     """
     try:
-        dataInput = request.json
-        username = dataInput['username']
-        password = dataInput['password']
-        email = dataInput['email']
+        dataInput = request.json or {}
+        username = dataInput.get('username')
+        password = dataInput.get('password')
+        email = dataInput.get('email')
         firstname = dataInput.get('firstname', '')
         lastname = dataInput.get('lastname', '')
         organization = dataInput.get('organization', '')
         link = dataInput.get('link')
+
+        if not username or not password or not email:
+            return jsonify({"status": "Failed", "message": "กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน"})
 
         import re
         if re.search(r'[<>"\'/;`%&]', username):
             return jsonify({"status": "Failed", "message": "Invalid characters in username"})
         if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email) or re.search(r'[<>"\'/;`%&]', email):
             return jsonify({"status": "Failed", "message": "Invalid email format"})
+
+        # Validate password complexity
+        raw_pwd = decode_raw_password(password)
+        is_valid, err_msg = validate_password_rules(raw_pwd)
+        if not is_valid:
+            return jsonify({"status": "error", "message": err_msg})
         # Check for duplicate username or email
         conn = mysql.connect()
         cursor = conn.cursor()
