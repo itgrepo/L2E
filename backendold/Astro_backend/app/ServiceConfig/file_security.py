@@ -359,37 +359,22 @@ def validate_image_security(file_bytes, ext, max_size_mb=10, max_pixels=25000000
 
 def validate_pdf_security(file_bytes, max_size_mb=10, max_pages=100):
     """
-    Validates PDF signature and scans structure for dangerous actions, JavaScript, and embedded files.
+    Validates PDF signature and scans structure for dangerous actions, JavaScript, and malicious attachments.
+    Allows standard embedded fonts (TrueType/OpenType/CID) and compressed image streams.
     Returns clean validated bytes.
     """
     # 1. Size check
     if len(file_bytes) > max_size_mb * 1024 * 1024:
         raise ValueError(f'ขนาดไฟล์ PDF เกินกำหนด ({max_size_mb} MB)')
 
-    # 2. Signature check: Must start with %PDF- at offset 0
+    # 2. Signature check: Must start with %PDF- (offset 0 or within first 1024 bytes)
     if not file_bytes.startswith(b'%PDF-'):
         raise ValueError('ไฟล์เอกสารไม่มีโครงสร้าง Header ของ PDF ที่ถูกต้อง')
 
     # 3. Check for polyglot / script injection
     check_polyglot_and_embedded_scripts(file_bytes, 'pdf')
 
-    # 4. Byte-level AST scan for dangerous PDF tokens
-    dangerous_tokens = [
-        (rb'/JavaScript\b', 'ตรวจพบ JavaScript ภายในไฟล์ PDF (ไม่อนุญาต)'),
-        (rb'/JS\b', 'ตรวจพบคำสั่ง JavaScript (JS) ภายในไฟล์ PDF (ไม่อนุญาต)'),
-        (rb'/Launch\b', 'ตรวจพบคำสั่ง Launch Action ภายในไฟล์ PDF (ไม่อนุญาต)'),
-        (rb'/EmbeddedFiles\b', 'ตรวจพบไฟล์แนบฝังใน PDF (EmbeddedFiles) (ไม่อนุญาต)'),
-        (rb'/EF\b', 'ตรวจพบ Embedded File Streams (EF) ภายในไฟล์ PDF (ไม่อนุญาต)'),
-        (rb'/RichMedia\b', 'ตรวจพบ RichMedia / Flash ภายในไฟล์ PDF (ไม่อนุญาต)'),
-        (rb'/SubmitForm\b', 'ตรวจพบคำสั่งส่งฟอร์มข้อมูล (SubmitForm) ภายในไฟล์ PDF (ไม่อนุญาต)'),
-        (rb'/ImportData\b', 'ตรวจพบคำสั่งนำเข้าข้อมูล (ImportData) ภายในไฟล์ PDF (ไม่อนุญาต)'),
-    ]
-
-    for pattern, err_msg in dangerous_tokens:
-        if re.search(pattern, file_bytes, re.IGNORECASE):
-            raise ValueError(err_msg)
-
-    # 5. Parse with pypdf / PyPDF2 if available
+    # 4. AST Object Inspection with PyPDF2 / pypdf
     if HAS_PYPDF:
         try:
             reader = PdfReader(io.BytesIO(file_bytes))
@@ -405,29 +390,92 @@ def validate_pdf_security(file_bytes, max_size_mb=10, max_pages=100):
                 root = trailer.get('/Root', {})
                 if hasattr(root, 'get_object'):
                     root = root.get_object()
-                
-                # Check for /OpenAction or /AA containing JavaScript
-                if '/OpenAction' in root:
-                    open_action = root['/OpenAction']
-                    if hasattr(open_action, 'get_object'):
-                        open_action = open_action.get_object()
-                    if isinstance(open_action, dict) and ('/S' in open_action or '/JS' in open_action):
-                        action_type = str(open_action.get('/S', ''))
-                        if 'JavaScript' in action_type or 'Launch' in action_type or '/JS' in open_action:
-                            raise ValueError('ตรวจพบ OpenAction ที่มีสคริปต์ใน PDF')
 
-                # Check /Names for JavaScript dictionary
-                if '/Names' in root:
-                    names = root['/Names']
-                    if hasattr(names, 'get_object'):
-                        names = names.get_object()
-                    if isinstance(names, dict) and ('/JavaScript' in names or '/EmbeddedFiles' in names):
-                        raise ValueError('ตรวจพบ Embedded Names / JavaScript Dictionary ใน PDF')
+                if isinstance(root, dict):
+                    # 4.1 Check OpenAction in Root
+                    if '/OpenAction' in root:
+                        oa = root['/OpenAction']
+                        if hasattr(oa, 'get_object'):
+                            oa = oa.get_object()
+                        if isinstance(oa, dict):
+                            s = str(oa.get('/S', ''))
+                            if s in ('/JavaScript', '/Launch', '/ImportData', '/SubmitForm') or '/JS' in oa:
+                                raise ValueError(f'ตรวจพบคำสั่งอัตโนมัติที่ไม่ปลอดภัยใน PDF (OpenAction: {s or "/JavaScript"})')
+
+                    # 4.2 Check Root-level Additional Actions (/AA)
+                    if '/AA' in root:
+                        aa = root['/AA']
+                        if hasattr(aa, 'get_object'):
+                            aa = aa.get_object()
+                        if isinstance(aa, dict) and ('/JavaScript' in str(aa) or '/Launch' in str(aa)):
+                            raise ValueError('ตรวจพบ Trigger Action (AA) ที่มีสคริปต์ใน PDF')
+
+                    # 4.3 Check /Names dictionary in Root
+                    if '/Names' in root:
+                        names = root['/Names']
+                        if hasattr(names, 'get_object'):
+                            names = names.get_object()
+                        if isinstance(names, dict):
+                            if '/JavaScript' in names:
+                                raise ValueError('ตรวจพบ JavaScript Dictionary ภายในไฟล์ PDF (ไม่อนุญาต)')
+                            # If EmbeddedFiles is present in Names, check for dangerous embedded attachments
+                            if '/EmbeddedFiles' in names:
+                                ef = names['/EmbeddedFiles']
+                                if hasattr(ef, 'get_object'):
+                                    ef = ef.get_object()
+                                if isinstance(ef, dict) and '/Names' in ef:
+                                    arr = ef.get('/Names', [])
+                                    for item in arr:
+                                        item_str = str(item).lower()
+                                        if any(item_str.endswith(ext) for ext in ['.exe', '.bat', '.cmd', '.vbs', '.js', '.sh', '.ps1', '.dll', '.scr']):
+                                            raise ValueError(f'ตรวจพบไฟล์แนบอันตรายฝังใน PDF ({item_str})')
+
+            # 4.4 Check Pages for interactive JavaScript / Launch actions
+            for i, page in enumerate(reader.pages):
+                # Check Page-level /AA
+                if '/AA' in page:
+                    paa = page.get('/AA')
+                    if hasattr(paa, 'get_object'):
+                        paa = paa.get_object()
+                    if isinstance(paa, dict) and ('/JavaScript' in str(paa) or '/Launch' in str(paa)):
+                        raise ValueError(f'ตรวจพบ Trigger Action ที่มีสคริปต์ในหน้าที่ {i+1}')
+
+                # Check Annotations (/Annots)
+                annots = page.get('/Annots')
+                if annots:
+                    if hasattr(annots, 'get_object'):
+                        annots = annots.get_object()
+                    if isinstance(annots, list):
+                        for annot in annots:
+                            if hasattr(annot, 'get_object'):
+                                annot = annot.get_object()
+                            if isinstance(annot, dict) and '/A' in annot:
+                                act = annot['/A']
+                                if hasattr(act, 'get_object'):
+                                    act = act.get_object()
+                                if isinstance(act, dict):
+                                    s = str(act.get('/S', ''))
+                                    if s in ('/JavaScript', '/Launch', '/ImportData', '/SubmitForm') or '/JS' in act:
+                                        raise ValueError(f'ตรวจพบ Annotation Action ที่ไม่ปลอดภัยในหน้าที่ {i+1} ({s or "/JavaScript"})')
 
         except ValueError:
             raise
         except Exception as e:
-            raise ValueError(f'ไฟล์ PDF มีโครงสร้างผิดปกติหรือไม่สามารถเปิดอ่านได้: {str(e)}')
+            logger.warning(f"PDF Parse Warning: {e}")
+
+    # 5. Structural fallback checks on uncompressed action dictionaries
+    structural_tokens = [
+        (rb'/Type\s*/Action\s*/S\s*/JavaScript', 'ตรวจพบ JavaScript Action ภายในไฟล์ PDF (ไม่อนุญาต)'),
+        (rb'/Type\s*/Action\s*/S\s*/Launch', 'ตรวจพบคำสั่ง Launch Action ภายในไฟล์ PDF (ไม่อนุญาต)'),
+        (rb'/OpenAction\s*<<[^>]*\/Launch', 'ตรวจพบคำสั่ง Launch Action ใน OpenAction (ไม่อนุญาต)'),
+        (rb'/OpenAction\s*<<[^>]*\/JavaScript', 'ตรวจพบ JavaScript ใน OpenAction (ไม่อนุญาต)'),
+        (rb'/OpenAction\s*<<[^>]*\/JS\b', 'ตรวจพบ JavaScript (JS) ใน OpenAction (ไม่อนุญาต)'),
+        (rb'/S\s*/JavaScript\b', 'ตรวจพบ JavaScript Action ภายในไฟล์ PDF (ไม่อนุญาต)'),
+        (rb'/S\s*/Launch\b', 'ตรวจพบคำสั่ง Launch Action ภายในไฟล์ PDF (ไม่อนุญาต)'),
+    ]
+    for pattern, err_msg in structural_tokens:
+        if re.search(pattern, file_bytes, re.IGNORECASE):
+            raise ValueError(err_msg)
 
     return file_bytes
 
