@@ -491,7 +491,7 @@ const handleFileUpload = async () => {
     }
   } catch (error) {
     console.error('Upload error:', error);
-    errorMessage.value = 'ไม่สามารถอัปโหลดไฟล์ได้';
+    errorMessage.value = error.response?.data?.status || error.response?.data?.message || 'ไม่สามารถอัปโหลดไฟล์ได้';
   } finally {
     isSubmitting.value = false;
   }

@@ -1,6 +1,7 @@
 from flask import request, jsonify
 from ServiceConfig import *
 from .validators import validate_dataset_masters
+from .file_security import validate_and_sanitize_upload, sanitize_filename
 from ServiceConfig.register import *
 from ServiceConfig.notification_util import notify_user, notify_all_users
 import base64
@@ -170,30 +171,58 @@ def addService():
                 
                 if(len(result_data) == 0):
                     image_blob = None
-                    if service_image:
-                        image_blob = service_image.read()
+                    if service_image and service_image.filename:
+                        ok_img, clean_img, _, _, err_img = validate_and_sanitize_upload(
+                            service_image, category='service_image', max_size_mb=5, user_id=user_data.get('user_id')
+                        )
+                        if not ok_img:
+                            cursor.close()
+                            conn.close()
+                            return jsonify({"status": f"รูปภาพไอคอนไม่ถูกต้อง: {err_img}"}), 400
+                        image_blob = clean_img
                         
                     # Handle specialized file uploads
                     data_file = request.files.get('data_file')
                     file_path = None
-                    if data_file and allowed_file(data_file.filename):
-                        filename = f"ds_{dataset_id}_{safe_unicode_filename(data_file.filename)}"
-                        data_file.save(os.path.join(UPLOAD_FOLDER, filename))
-                        file_path = filename
+                    if data_file and data_file.filename:
+                        ok_df, clean_df, saved_fname, _, err_df = validate_and_sanitize_upload(
+                            data_file, category='data_file', max_size_mb=50, user_id=user_data.get('user_id')
+                        )
+                        if not ok_df:
+                            cursor.close()
+                            conn.close()
+                            return jsonify({"status": f"ไฟล์ข้อมูล (Data File) ไม่ถูกต้อง: {err_df}"}), 400
+                        with open(os.path.join(UPLOAD_FOLDER, saved_fname), 'wb') as f:
+                            f.write(clean_df)
+                        file_path = saved_fname
 
                     dict_file = request.files.get('dictionary_file')
                     dict_path = None
-                    if dict_file and allowed_file(dict_file.filename):
-                        filename = f"dict_{dataset_id}_{safe_unicode_filename(dict_file.filename)}"
-                        dict_file.save(os.path.join(UPLOAD_FOLDER, filename))
-                        dict_path = filename
+                    if dict_file and dict_file.filename:
+                        ok_dic, clean_dic, saved_dic_fname, _, err_dic = validate_and_sanitize_upload(
+                            dict_file, category='dictionary_file', max_size_mb=20, user_id=user_data.get('user_id')
+                        )
+                        if not ok_dic:
+                            cursor.close()
+                            conn.close()
+                            return jsonify({"status": f"ไฟล์ Data Dictionary ไม่ถูกต้อง: {err_dic}"}), 400
+                        with open(os.path.join(UPLOAD_FOLDER, saved_dic_fname), 'wb') as f:
+                            f.write(clean_dic)
+                        dict_path = saved_dic_fname
 
                     samp_file = request.files.get('sampling_file')
                     samp_path = None
-                    if samp_file and allowed_file(samp_file.filename):
-                        filename = f"samp_{dataset_id}_{safe_unicode_filename(samp_file.filename)}"
-                        samp_file.save(os.path.join(UPLOAD_FOLDER, filename))
-                        samp_path = filename
+                    if samp_file and samp_file.filename:
+                        ok_smp, clean_smp, saved_smp_fname, _, err_smp = validate_and_sanitize_upload(
+                            samp_file, category='sampling_file', max_size_mb=50, user_id=user_data.get('user_id')
+                        )
+                        if not ok_smp:
+                            cursor.close()
+                            conn.close()
+                            return jsonify({"status": f"ไฟล์ Sampling ไม่ถูกต้อง: {err_smp}"}), 400
+                        with open(os.path.join(UPLOAD_FOLDER, saved_smp_fname), 'wb') as f:
+                            f.write(clean_smp)
+                        samp_path = saved_smp_fname
 
                     sql_insert = """INSERT INTO service(
                         service_name, service_url, service_image, status,
@@ -357,6 +386,17 @@ def addService():
                     fields = []
                     values = []
                     
+                    if service_image and service_image.filename:
+                        ok_img, clean_img, _, _, err_img = validate_and_sanitize_upload(
+                            service_image, category='service_image', max_size_mb=5, user_id=user_data.get('user_id')
+                        )
+                        if not ok_img:
+                            cursor.close()
+                            conn.close()
+                            return jsonify({"status": f"รูปภาพไอคอนไม่ถูกต้อง: {err_img}"}), 400
+                        fields.append("service_image = %s")
+                        values.append(clean_img)
+                    
                     if service_name is not None: fields.append("service_name = %s"); values.append(service_name)
                     if service_url is not None: fields.append("service_url = %s"); values.append(service_url)
                     if service_status is not None: fields.append("status = %s"); values.append(service_status)
@@ -418,33 +458,28 @@ def addService():
                     # Handle separate file upload if present
                     data_file = request.files.get('data_file')
                     file_type = request.form.get('file_type')
-                    if data_file:
-                        ext = data_file.filename.rsplit('.', 1)[-1].lower() if '.' in data_file.filename else ''
-                        if file_type == 'dictionary' and ext not in ['csv', 'xls', 'xlsx']:
+                    if data_file and data_file.filename:
+                        cat_map = {
+                            'dictionary': 'dictionary_file',
+                            'zip': 'sampling_file',
+                            'main': 'data_file',
+                            'excel': 'data_file'
+                        }
+                        target_cat = cat_map.get(file_type, 'data_file')
+                        ok_up, clean_bytes, saved_filename, clean_orig_name, err_up = validate_and_sanitize_upload(
+                            data_file, category=target_cat, max_size_mb=50, user_id=user_data.get('user_id')
+                        )
+                        if not ok_up:
                             cursor.close()
                             conn.close()
-                            return jsonify({"status": "รูปแบบไฟล์ Data Dictionary ไม่ถูกต้อง (รองรับเฉพาะ CSV, Excel)"}), 400
-                        elif file_type == 'zip' and ext != 'zip':
-                            cursor.close()
-                            conn.close()
-                            return jsonify({"status": "รูปแบบไฟล์ Sampling ไม่ถูกต้อง (รองรับเฉพาะ ZIP)"}), 400
-                        elif file_type == 'main' and ext not in ['csv', 'xls', 'xlsx', 'xml', 'json']:
-                            cursor.close()
-                            conn.close()
-                            return jsonify({"status": "รูปแบบไฟล์ Data File For API ไม่ถูกต้อง (รองรับเฉพาะ CSV, Excel, XML, JSON)"}), 400
-                        elif file_type == 'excel' and ext not in ['xls', 'xlsx']:
-                            cursor.close()
-                            conn.close()
-                            return jsonify({"status": "รูปแบบไฟล์ Dataset (Excel) ไม่ถูกต้อง (รองรับเฉพาะ Excel)"}), 400
-                        elif not allowed_file(data_file.filename):
-                            cursor.close()
-                            conn.close()
-                            return jsonify({"status": "นามสกุลไฟล์ไม่ได้รับอนุญาต"}), 400
-                            
-                        clean_fname = safe_unicode_filename(data_file.filename)
-                        filename = f"ds_{service_id}_{clean_fname}"
+                            return jsonify({"status": f"ไฟล์ที่อัปโหลดไม่ผ่านการตรวจสอบความปลอดภัย: {err_up}"}), 400
+
+                        filename = f"ds_{service_id}_{saved_filename}"
                         save_path = os.path.join(UPLOAD_FOLDER, filename)
-                        data_file.save(save_path)
+                        with open(save_path, 'wb') as f:
+                            f.write(clean_bytes)
+
+                        ext = saved_filename.rsplit('.', 1)[-1].lower() if '.' in saved_filename else ''
 
                         if file_type == 'dictionary':
                             try:
@@ -2691,11 +2726,16 @@ def request_dataset_permission():
         if not mou_file_base64 or not mou_filename:
             return jsonify({'status': 'error', 'message': 'กรุณาแนบเอกสารประกอบคำขอ (รองรับไฟล์ PDF หรือรูปภาพ ขนาดไม่เกิน 10MB)'}), 400
 
-        # Validate file extension (Strict: PDF or PNG/JPG/JPEG only, NO SVG)
-        allowed_extensions = ['.pdf', '.jpg', '.jpeg', '.png']
-        file_ext = os.path.splitext(mou_filename.lower())[1]
-        if file_ext not in allowed_extensions or file_ext == '.svg':
-            return jsonify({'status': 'error', 'message': 'รองรับเฉพาะไฟล์ PDF หรือรูปภาพ (PNG, JPG, JPEG) ขนาดไม่เกิน 10MB เท่านั้น (ไม่อนุญาตไฟล์ SVG)'}), 400
+        # Master security validation and sanitization
+        ok, clean_bytes, saved_filename, clean_orig_name, err = validate_and_sanitize_upload(
+            mou_file_base64,
+            category='mou',
+            max_size_mb=10,
+            user_id=user_id,
+            orig_filename=mou_filename
+        )
+        if not ok:
+            return jsonify({'status': 'error', 'message': err}), 400
 
         if request_type == 'api' and (not fields or len(fields) == 0):
             return jsonify({'status': 'error', 'message': 'โปรดเลือกอย่างน้อย 1 ฟิลด์ข้อมูลที่ต้องการใช้งาน'}), 400
@@ -2704,28 +2744,11 @@ def request_dataset_permission():
         
         mou_file_path = None
         try:
-            import time
-            if ',' in mou_file_base64:
-                header, base64_data = mou_file_base64.split(',', 1)
-            else:
-                base64_data = mou_file_base64
-            file_bytes = base64.b64decode(base64_data)
-            
-            # Check 10MB size limit (10 * 1024 * 1024 = 10485760 bytes)
-            if len(file_bytes) > 10 * 1024 * 1024:
-                return jsonify({'status': 'error', 'message': 'ขนาดไฟล์เอกสารแนบเกิน 10MB (รองรับสูงสุด 10MB)'}), 400
-                
-            # Disallow SVG content disguised under other extensions
-            header_sample = file_bytes[:1024].lower()
-            if b'<svg' in header_sample or b'<?xml' in header_sample or b'<script' in header_sample:
-                return jsonify({'status': 'error', 'message': 'ไม่อนุญาตให้อัปโหลดไฟล์ SVG หรือสคริปต์ รองรับเฉพาะ PDF, PNG, JPG, JPEG เท่านั้น'}), 400
-
-            clean_name = safe_unicode_filename(mou_filename) or f'mou_document{file_ext or ".pdf"}'
-            saved_filename = f"mou_req_{user_id}_{service_id}_{int(time.time())}_{clean_name}"
             saved_filepath = os.path.join(UPLOAD_FOLDER, saved_filename)
             with open(saved_filepath, 'wb') as f:
-                f.write(file_bytes)
+                f.write(clean_bytes)
             mou_file_path = saved_filename
+            mou_filename = clean_orig_name
         except Exception as fe:
             current_app.logger.warning(f"Error saving MOU file: {fe}")
             return jsonify({'status': 'error', 'message': f'ไม่สามารถบันทึกไฟล์เอกสารแนบได้: {str(fe)}'}), 400

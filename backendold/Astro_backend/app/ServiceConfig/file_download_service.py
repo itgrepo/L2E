@@ -22,6 +22,12 @@ def get_original_filename(file_name, service_id=None):
                 return parts[1]
     return clean_name
 
+def add_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'"
+    response.headers['X-Frame-Options'] = 'DENY'
+    return response
+
 @app.route('/downloadFile/<int:service_id>', methods=['GET'])
 def downloadFile(service_id):
     try:
@@ -53,9 +59,10 @@ def downloadFile(service_id):
             if file_name and os.path.exists(os.path.join(UPLOAD_FOLDER, file_name)):
                 orig_name = get_original_filename(file_name, service_id)
                 try:
-                    return send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, download_name=orig_name)
+                    resp = send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, download_name=orig_name)
                 except TypeError:
-                    return send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, attachment_filename=orig_name)
+                    resp = send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, attachment_filename=orig_name)
+                return add_security_headers(resp)
             elif file_name:
                 return jsonify({"status": "File not found on server"}), 404
             else:
@@ -183,11 +190,13 @@ def downloadRequestMou(request_id):
                     mimetype = 'image/jpeg'
                 elif display_lower.endswith('.png') or file_lower.endswith('.png'):
                     mimetype = 'image/png'
+                elif display_lower.endswith('.webp') or file_lower.endswith('.webp'):
+                    mimetype = 'image/webp'
                 else:
                     return jsonify({"status": "error", "message": "File format not supported or restricted"}), 403
                     
                 try:
-                    return send_from_directory(
+                    resp = send_from_directory(
                         UPLOAD_FOLDER, 
                         file_name, 
                         as_attachment=force_download, 
@@ -195,13 +204,14 @@ def downloadRequestMou(request_id):
                         mimetype=mimetype
                     )
                 except TypeError:
-                    return send_from_directory(
+                    resp = send_from_directory(
                         UPLOAD_FOLDER, 
                         file_name, 
                         as_attachment=force_download, 
                         attachment_filename=display_name,
                         mimetype=mimetype
                     )
+                return add_security_headers(resp)
             else:
                 return jsonify({"status": "File not found on server"}), 404
         else:
