@@ -14,6 +14,13 @@ from werkzeug.utils import secure_filename
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'csv', 'xlsx', 'xls', 'zip', 'xml', 'json'}
 
+def safe_unicode_filename(filename):
+    if not filename:
+        return 'unnamed_file'
+    fname = os.path.basename(filename).strip()
+    fname = re.sub(r'[/\\:\*\?"<>\|\x00]', '_', fname)
+    return fname or 'unnamed_file'
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -170,21 +177,21 @@ def addService():
                     data_file = request.files.get('data_file')
                     file_path = None
                     if data_file and allowed_file(data_file.filename):
-                        filename = secure_filename(f"ds_{dataset_id}_{data_file.filename}")
+                        filename = f"ds_{dataset_id}_{safe_unicode_filename(data_file.filename)}"
                         data_file.save(os.path.join(UPLOAD_FOLDER, filename))
                         file_path = filename
 
                     dict_file = request.files.get('dictionary_file')
                     dict_path = None
                     if dict_file and allowed_file(dict_file.filename):
-                        filename = secure_filename(f"dict_{dataset_id}_{dict_file.filename}")
+                        filename = f"dict_{dataset_id}_{safe_unicode_filename(dict_file.filename)}"
                         dict_file.save(os.path.join(UPLOAD_FOLDER, filename))
                         dict_path = filename
 
                     samp_file = request.files.get('sampling_file')
                     samp_path = None
                     if samp_file and allowed_file(samp_file.filename):
-                        filename = secure_filename(f"samp_{dataset_id}_{samp_file.filename}")
+                        filename = f"samp_{dataset_id}_{safe_unicode_filename(samp_file.filename)}"
                         samp_file.save(os.path.join(UPLOAD_FOLDER, filename))
                         samp_path = filename
 
@@ -434,12 +441,8 @@ def addService():
                             conn.close()
                             return jsonify({"status": "นามสกุลไฟล์ไม่ได้รับอนุญาต"}), 400
                             
-                        orig_name = data_file.filename.rsplit('.', 1)[0] if '.' in data_file.filename else data_file.filename
-                        clean_orig = re.sub(r'[^a-zA-Z0-9_-]', '_', orig_name)
-                        if not clean_orig or clean_orig.strip('_') == '':
-                            clean_orig = 'data'
-                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                        filename = f"ds_{service_id}_{file_type}_{timestamp}_{clean_orig}.{ext}"
+                        clean_fname = safe_unicode_filename(data_file.filename)
+                        filename = f"ds_{service_id}_{clean_fname}"
                         save_path = os.path.join(UPLOAD_FOLDER, filename)
                         data_file.save(save_path)
 
@@ -2628,7 +2631,7 @@ def request_dataset_permission():
                     base64_data = mou_file_base64
                 file_bytes = base64.b64decode(base64_data)
                 
-                clean_name = secure_filename(mou_filename) or 'mou_document.pdf'
+                clean_name = safe_unicode_filename(mou_filename) or 'mou_document.pdf'
                 saved_filename = f"mou_req_{user_id}_{service_id}_{int(time.time())}_{clean_name}"
                 saved_filepath = os.path.join(UPLOAD_FOLDER, saved_filename)
                 with open(saved_filepath, 'wb') as f:

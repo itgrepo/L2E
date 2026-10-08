@@ -5,6 +5,23 @@ from . import app, mysql
 
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
 
+def get_original_filename(file_name, service_id=None):
+    if not file_name:
+        return ''
+    clean_name = file_name
+    if service_id:
+        for p in [f"ds_{service_id}_", f"dict_{service_id}_", f"samp_{service_id}_", f"excel_{service_id}_"]:
+            if clean_name.startswith(p):
+                return clean_name[len(p):]
+    for p in ['ds_', 'dict_', 'samp_', 'excel_']:
+        if clean_name.startswith(p):
+            parts = clean_name.split('_', 2)
+            if len(parts) >= 3:
+                return parts[2]
+            elif len(parts) == 2:
+                return parts[1]
+    return clean_name
+
 @app.route('/downloadFile/<int:service_id>', methods=['GET'])
 def downloadFile(service_id):
     try:
@@ -34,7 +51,11 @@ def downloadFile(service_id):
                 file_name = file_path_val or excel_path_val or dict_path_val
 
             if file_name and os.path.exists(os.path.join(UPLOAD_FOLDER, file_name)):
-                return send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True)
+                orig_name = get_original_filename(file_name, service_id)
+                try:
+                    return send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, download_name=orig_name)
+                except TypeError:
+                    return send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, attachment_filename=orig_name)
             elif file_name:
                 return jsonify({"status": "File not found on server"}), 404
             else:
@@ -82,7 +103,7 @@ def previewDatasetFile(service_id):
                     cols = []
             return jsonify({
                 "status": "success",
-                "filename": file_name or '',
+                "filename": get_original_filename(file_name, service_id) if file_name else '',
                 "columns": cols if cols else ["ไม่มีไฟล์ข้อมูล"],
                 "rows": [],
                 "total_rows": 0
@@ -118,7 +139,7 @@ def previewDatasetFile(service_id):
                 
             return jsonify({
                 "status": "success",
-                "filename": file_name,
+                "filename": get_original_filename(file_name, service_id),
                 "columns": columns,
                 "rows": clean_rows,
                 "total_rows": len(clean_rows)
@@ -126,9 +147,9 @@ def previewDatasetFile(service_id):
         else:
             return jsonify({
                 "status": "success",
-                "filename": file_name,
+                "filename": get_original_filename(file_name, service_id),
                 "columns": ["ไฟล์ข้อมูล"],
-                "rows": [[file_name]],
+                "rows": [[get_original_filename(file_name, service_id)]],
                 "total_rows": 1
             })
     except Exception as e:
