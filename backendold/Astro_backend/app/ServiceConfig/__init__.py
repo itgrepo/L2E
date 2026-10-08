@@ -92,23 +92,33 @@ SECRET_KEY = "intelligist-datax-secure-secret-key-2026"
 auth_serializer = URLSafeTimedSerializer(SECRET_KEY)
 
 def decode(data):
-    if not data:
-        return b''
+    if data is None or data == '':
+        return ''
+    if isinstance(data, int):
+        return str(data)
+    if isinstance(data, str) and (data.isdigit() or (data.startswith('-') and data[1:].isdigit())):
+        return data
     # 1. Try URLSafeTimedSerializer
     try:
         user_dict = auth_serializer.loads(data, max_age=86400)
         return json.dumps(user_dict).encode('utf-8')
     except Exception:
         pass
-    # 2. Try legacy reversed base64 with 5 trailing salt characters
+    # 2. Try legacy reversed base64 with 5 trailing salt characters (only if len > 5)
     try:
-        return base64.b64decode(data[:-5][::-1])
+        if isinstance(data, str) and len(data) > 5:
+            dec = base64.b64decode(data[:-5][::-1])
+            if dec:
+                return dec
     except Exception:
         pass
     # 3. Try standard base64
     try:
-        padded = data + '=' * ((4 - len(data) % 4) % 4)
-        return base64.b64decode(padded)
+        if isinstance(data, str):
+            padded = data + '=' * ((4 - len(data) % 4) % 4)
+            dec = base64.b64decode(padded)
+            if dec:
+                return dec
     except Exception:
         pass
     if isinstance(data, str):

@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { postWithUser, encodeUserData } from '../utils/api';
+import { encodePassword } from '../utils/crypto';
 
 const router = useRouter();
 const activeTab = ref('personal');
@@ -22,7 +23,7 @@ const user = ref({
 });
 
 // Password Change states & methods
-const showPasswordForm = ref(false);
+const showPasswordForm = ref(true);
 const isSavingPassword = ref(false);
 const passwordForm = ref({
   currentPassword: '',
@@ -34,58 +35,82 @@ const showCurrentPassword = ref(false);
 const showNewPassword = ref(false);
 const showConfirmPassword = ref(false);
 
+const passwordCriteria = computed(() => {
+  const p = passwordForm.value.newPassword || '';
+  return {
+    length: p.length >= 8,
+    uppercase: /[A-Z]/.test(p),
+    lowercase: /[a-z]/.test(p),
+    number: /[0-9]/.test(p),
+    special: /[^A-Za-z0-9]/.test(p),
+    match: Boolean(p && passwordForm.value.confirmPassword && p === passwordForm.value.confirmPassword)
+  };
+});
+
+const isPasswordFormValid = computed(() => {
+  const c = passwordCriteria.value;
+  return Boolean(
+    passwordForm.value.currentPassword.trim().length > 0 &&
+    c.length &&
+    c.uppercase &&
+    c.lowercase &&
+    c.number &&
+    c.special &&
+    c.match
+  );
+});
+
 const passwordStrength = computed(() => {
   const p = passwordForm.value.newPassword;
-  if (!p) return { score: 0, label: '', color: '' };
+  if (!p) return { score: 0, label: '', color: '#e2e8f0' };
   let score = 0;
   if (p.length >= 8) score++;
   if (/[A-Z]/.test(p)) score++;
+  if (/[a-z]/.test(p)) score++;
   if (/[0-9]/.test(p)) score++;
   if (/[^A-Za-z0-9]/.test(p)) score++;
   
   const levels = [
-    { score: 0, label: '', color: '' },
-    { score: 1, label: 'อ่อน', color: '#ef4444' },
-    { score: 2, label: 'ปานกลาง', color: '#f59e0b' },
-    { score: 3, label: 'ดี', color: '#22c55e' },
-    { score: 4, label: 'ดีมาก', color: '#16a34a' }
+    { score: 0, label: '', color: '#e2e8f0' },
+    { score: 1, label: 'อ่อนมาก', color: '#ef4444' },
+    { score: 2, label: 'อ่อน', color: '#f97316' },
+    { score: 3, label: 'ปานกลาง', color: '#f59e0b' },
+    { score: 4, label: 'ดี', color: '#10b981' },
+    { score: 5, label: 'ดีมาก', color: '#059669' }
   ];
   return levels[score] || levels[0];
 });
 
-const isPasswordFormValid = computed(() => {
-  const p = passwordForm.value.newPassword;
-  const isStrong = p.length >= 8 && /[A-Z]/.test(p) && /[a-z]/.test(p) && /[0-9]/.test(p) && /[^A-Za-z0-9]/.test(p);
-  const isMatch = p === passwordForm.value.confirmPassword;
-  return passwordForm.value.currentPassword.length > 0 && isStrong && isMatch;
-});
-
-// Password encryption (matching backend)
-const encryptPassword = (pwd) => {
-  const key = 'e9NHdT3GU6wBdWlw3RTqvrShGzyerRl4BaMhFeUI3v4j6U0opW5a19HQHDAHHCrhYXq8oG6D';
-  if (window.CryptoJS) {
-    return window.CryptoJS.HmacSHA256(pwd, key).toString();
-  }
-  return pwd;
-};
-
 const handlePasswordChange = async () => {
-  if (!isPasswordFormValid.value) return;
+  if (!passwordForm.value.currentPassword) {
+    message.value = { text: 'กรุณากรอกรหัสผ่านปัจจุบัน', type: 'error' };
+    return;
+  }
+  if (!isPasswordFormValid.value) {
+    message.value = { text: 'รหัสผ่านใหม่ต้องตรงตามเงื่อนไขความปลอดภัยและยืนยันรหัสผ่านให้ตรงกัน', type: 'error' };
+    return;
+  }
 
   isSavingPassword.value = true;
   message.value = { text: '', type: '' };
   
   try {
+    const userData = localStorage.getItem('user');
+    const parsedUser = userData ? JSON.parse(userData) : {};
+    const userId = user.value.user_id || parsedUser.user_id;
+
     const response = await apiClient.post('/changePassword', {
-      user_id: user.value.user_id,
-      currentPassword: encryptPassword(passwordForm.value.currentPassword),
-      password: encryptPassword(passwordForm.value.newPassword)
+      user_id: userId,
+      user: userData ? encodeUserData(parsedUser) : null,
+      currentPassword: encodePassword(passwordForm.value.currentPassword),
+      password: encodePassword(passwordForm.value.newPassword)
     });
     
     const result = response.data;
     
     if (result.status === 'success') {
-      message.value = { text: 'เปลี่ยนรหัสผ่านสำเร็จ! กรุณาเข้าสู่ระบบใหม่', type: 'success' };
+      message.value = { text: 'เปลี่ยนรหัสผ่านสำเร็จ! กำลังนำท่านเข้าสู่ระบบใหม่...', type: 'success' };
+      passwordForm.value = { currentPassword: '', newPassword: '', confirmPassword: '' };
       setTimeout(() => {
         // Cancel old session
         localStorage.removeItem('user');
@@ -98,20 +123,22 @@ const handlePasswordChange = async () => {
       }, 2000);
     } else if (result.status === 'password incorrect') {
       message.value = { text: 'รหัสผ่านปัจจุบันไม่ถูกต้อง', type: 'error' };
+    } else if (result.status === 'same password') {
+      message.value = { text: 'ไม่สามารถใช้รหัสผ่านเดิมที่เคยใช้งานแล้วได้', type: 'error' };
     } else {
       message.value = { text: result.message || 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน', type: 'error' };
     }
   } catch (error) {
     console.error('Password change error:', error);
-    message.value = { text: 'ไม่สามารถเปลี่ยนรหัสผ่านได้ กรุณาลองใหม่', type: 'error' };
+    message.value = { text: error.response?.data?.message || 'ไม่สามารถเปลี่ยนรหัสผ่านได้ กรุณาลองใหม่', type: 'error' };
   } finally {
     isSavingPassword.value = false;
   }
 };
 
 const cancelPasswordChange = () => {
-  showPasswordForm.value = false;
   passwordForm.value = { currentPassword: '', newPassword: '', confirmPassword: '' };
+  message.value = { text: '', type: '' };
 };
 
 // Notifications states & methods
@@ -330,71 +357,110 @@ const saveChanges = async () => {
           </div>
           
           <div v-if="activeTab === 'security'" class="security-pane">
-            <div class="security-item" v-if="!showPasswordForm">
-              <div class="item-info">
-                <h4>Change Password</h4>
-                <p>Update your password to keep your account secure.</p>
+            <div class="password-form-card" style="background: #f8fafc; padding: 28px; border-radius: 16px; border: 1px solid #e2e8f0; text-align: left;">
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                <div style="width: 36px; height: 36px; border-radius: 10px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                  🔒
+                </div>
+                <h4 style="margin: 0; font-weight:700; color:#1e293b; font-size: 1.15rem;">เปลี่ยนรหัสผ่าน (Change Password)</h4>
               </div>
-              <button class="btn-outline" @click="showPasswordForm = true">Update</button>
-            </div>
-            
-            <div v-else class="password-form-card" style="background: #f8fafc; padding: 24px; border-radius: 16px; border: 1px solid #e2e8f0; text-align: left;">
-              <h4 style="margin: 0 0 8px 0; font-weight:700; color:#1e293b;">เปลี่ยนรหัสผ่าน (Change Password)</h4>
-              <p style="font-size:0.875rem; color:#64748b; margin-bottom: 20px;">โปรดกรอกรหัสผ่านปัจจุบันและรหัสผ่านใหม่ที่คุณต้องการใช้</p>
+              <p style="font-size:0.875rem; color:#64748b; margin-bottom: 24px;">โปรดกรอกรหัสผ่านปัจจุบันและตั้งรหัสผ่านใหม่ตามเงื่อนไขความปลอดภัย</p>
               
-              <div class="form-group" style="margin-bottom: 16px;">
-                <label style="display:block; font-size:0.875rem; font-weight:600; margin-bottom:8px;">รหัสผ่านปัจจุบัน</label>
+              <!-- Message Alert inside form -->
+              <div v-if="message.text" :class="['alert-box', message.type]" style="margin-bottom: 20px; padding: 12px 16px; border-radius: 10px; font-size: 0.9rem; font-weight: 500;" :style="message.type === 'success' ? 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;' : 'background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;'">
+                {{ message.text }}
+              </div>
+
+              <!-- Current Password -->
+              <div class="form-group" style="margin-bottom: 20px;">
+                <label style="display:block; font-size:0.875rem; font-weight:600; margin-bottom:8px; color:#334155;">
+                  รหัสผ่านปัจจุบัน <span style="color:#ef4444;">*</span>
+                </label>
                 <div class="password-input-wrapper">
                   <input :type="showCurrentPassword ? 'text' : 'password'" v-model="passwordForm.currentPassword" class="form-control" placeholder="รหัสผ่านปัจจุบัน" />
-                  <button class="toggle-password" @click="showCurrentPassword = !showCurrentPassword">
-                    <span v-if="showCurrentPassword">🙈</span>
-                    <span v-else>👁️</span>
+                  <button type="button" class="toggle-password" @click="showCurrentPassword = !showCurrentPassword" tabindex="-1" title="แสดง/ซ่อนรหัสผ่าน">
+                    <svg v-if="!showCurrentPassword" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
                   </button>
                 </div>
               </div>
 
-              <div class="form-group" style="margin-bottom: 16px;">
-                <label style="display:block; font-size:0.875rem; font-weight:600; margin-bottom:8px;">รหัสผ่านใหม่</label>
+              <!-- New Password -->
+              <div class="form-group" style="margin-bottom: 20px;">
+                <label style="display:block; font-size:0.875rem; font-weight:600; margin-bottom:8px; color:#334155;">
+                  รหัสผ่านใหม่ <span style="color:#ef4444;">*</span>
+                </label>
                 <div class="password-input-wrapper">
                   <input :type="showNewPassword ? 'text' : 'password'" v-model="passwordForm.newPassword" class="form-control" placeholder="ตั้งรหัสผ่าน 8 ตัวขึ้นไป" />
-                  <button class="toggle-password" @click="showNewPassword = !showNewPassword">
-                    <span v-if="showNewPassword">🙈</span>
-                    <span v-else>👁️</span>
+                  <button type="button" class="toggle-password" @click="showNewPassword = !showNewPassword" tabindex="-1" title="แสดง/ซ่อนรหัสผ่าน">
+                    <svg v-if="!showNewPassword" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
                   </button>
                 </div>
-                <div class="password-strength-meter" v-if="passwordForm.newPassword" style="margin-top: 12px; display: flex; align-items: center; gap: 10px;">
+                
+                <!-- Strength Meter -->
+                <div class="password-strength-meter" style="margin-top: 10px; display: flex; align-items: center; gap: 10px;">
                   <div class="meter-bar" style="flex: 1; height: 6px; background: #e2e8f0; border-radius: 4px; overflow: hidden; display: flex;">
-                    <div :style="{ width: (passwordStrength.score * 25) + '%', backgroundColor: passwordStrength.color, transition: 'all 0.3s' }"></div>
+                    <div :style="{ width: (passwordStrength.score * 20) + '%', backgroundColor: passwordStrength.color, transition: 'all 0.3s' }"></div>
                   </div>
-                  <span :style="{ color: passwordStrength.color, fontWeight: 'bold', fontSize: '0.8rem', minWidth: '50px' }">
-                    {{ passwordStrength.label }}
+                  <span v-if="passwordStrength.label" :style="{ color: passwordStrength.color, fontWeight: 'bold', fontSize: '0.8rem', minWidth: '60px' }">
+                    ความปลอดภัย: {{ passwordStrength.label }}
                   </span>
                 </div>
-                <ul v-if="passwordForm.newPassword" style="margin-top: 10px; font-size: 0.75rem; color: #64748b; padding-left: 20px;">
-                  <li :style="{ color: passwordForm.newPassword.length >= 8 ? '#22c55e' : '#ef4444' }">อย่างน้อย 8 ตัวอักษร</li>
-                  <li :style="{ color: /[A-Z]/.test(passwordForm.newPassword) ? '#22c55e' : '#ef4444' }">มีตัวอักษรพิมพ์ใหญ่ (A-Z)</li>
-                  <li :style="{ color: /[a-z]/.test(passwordForm.newPassword) ? '#22c55e' : '#ef4444' }">มีตัวอักษรพิมพ์เล็ก (a-z)</li>
-                  <li :style="{ color: /[0-9]/.test(passwordForm.newPassword) ? '#22c55e' : '#ef4444' }">มีตัวเลข (0-9)</li>
-                  <li :style="{ color: /[^A-Za-z0-9]/.test(passwordForm.newPassword) ? '#22c55e' : '#ef4444' }">มีอักขระพิเศษ (เช่น !@#$%)</li>
-                </ul>
+
+                <!-- Password Checklist (Always Visible) -->
+                <div class="password-checklist">
+                  <div class="checklist-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                    </svg>
+                    <span>เงื่อนไขความปลอดภัยของรหัสผ่าน:</span>
+                  </div>
+                  <ul class="checklist-items">
+                    <li :class="{ valid: passwordCriteria.length }">
+                      <span class="icon">{{ passwordCriteria.length ? '✔' : '✘' }}</span>
+                      <span>ความยาวอย่างน้อย 8 ตัวอักษร</span>
+                    </li>
+                    <li :class="{ valid: passwordCriteria.uppercase }">
+                      <span class="icon">{{ passwordCriteria.uppercase ? '✔' : '✘' }}</span>
+                      <span>มีตัวอักษรภาษาอังกฤษตัวพิมพ์ใหญ่ (A-Z) อย่างน้อย 1 ตัว</span>
+                    </li>
+                    <li :class="{ valid: passwordCriteria.lowercase }">
+                      <span class="icon">{{ passwordCriteria.lowercase ? '✔' : '✘' }}</span>
+                      <span>มีตัวอักษรภาษาอังกฤษตัวพิมพ์เล็ก (a-z) อย่างน้อย 1 ตัว</span>
+                    </li>
+                    <li :class="{ valid: passwordCriteria.number }">
+                      <span class="icon">{{ passwordCriteria.number ? '✔' : '✘' }}</span>
+                      <span>มีตัวเลขอารบิก (0-9) อย่างน้อย 1 ตัว</span>
+                    </li>
+                    <li :class="{ valid: passwordCriteria.special }">
+                      <span class="icon">{{ passwordCriteria.special ? '✔' : '✘' }}</span>
+                      <span>มีอักขระพิเศษอย่างน้อย 1 ตัว (เช่น @, #, $, %, !)</span>
+                    </li>
+                  </ul>
+                </div>
               </div>
 
+              <!-- Confirm Password -->
               <div class="form-group" style="margin-bottom: 24px;">
-                <label style="display:block; font-size:0.875rem; font-weight:600; margin-bottom:8px;">ยืนยันรหัสผ่านใหม่</label>
+                <label style="display:block; font-size:0.875rem; font-weight:600; margin-bottom:8px; color:#334155;">
+                  ยืนยันรหัสผ่านใหม่ <span style="color:#ef4444;">*</span>
+                </label>
                 <div class="password-input-wrapper">
                   <input :type="showConfirmPassword ? 'text' : 'password'" v-model="passwordForm.confirmPassword" class="form-control" placeholder="พิมพ์รหัสผ่านใหม่อีกครั้ง" />
-                  <button class="toggle-password" @click="showConfirmPassword = !showConfirmPassword">
-                    <span v-if="showConfirmPassword">🙈</span>
-                    <span v-else>👁️</span>
+                  <button type="button" class="toggle-password" @click="showConfirmPassword = !showConfirmPassword" tabindex="-1" title="แสดง/ซ่อนรหัสผ่าน">
+                    <svg v-if="!showConfirmPassword" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
                   </button>
                 </div>
-                <p v-if="passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword" style="color: #ef4444; font-size: 0.8rem; margin-top: 4px;">รหัสผ่านไม่ตรงกัน</p>
-                <p v-if="passwordForm.confirmPassword && passwordForm.newPassword === passwordForm.confirmPassword" style="color: #22c55e; font-size: 0.8rem; margin-top: 4px;">รหัสผ่านตรงกัน ✓</p>
+                <small v-if="passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword" style="color: #ef4444; font-size: 0.8rem; margin-top: 6px; display: block; font-weight: 500;">✘ รหัสผ่านใหม่ไม่ตรงกัน</small>
+                <small v-if="passwordForm.confirmPassword && passwordForm.newPassword === passwordForm.confirmPassword" style="color: #10b981; font-size: 0.8rem; margin-top: 6px; display: block; font-weight: 500;">✔ รหัสผ่านตรงกันแล้ว</small>
               </div>
               
-              <div class="form-actions" style="display: flex; gap: 12px;">
-                <button class="btn-primary" :disabled="isSavingPassword || !isPasswordFormValid" @click="handlePasswordChange">
-                  {{ isSavingPassword ? 'กำลังบันทึก...' : 'บันทึกรหัสผ่านใหม่' }}
+              <div class="form-actions" style="display: flex; gap: 12px; margin-top: 10px;">
+                <button class="btn-primary" :disabled="isSavingPassword || !isPasswordFormValid" @click="handlePasswordChange" style="padding: 10px 24px;">
+                  <span v-if="isSavingPassword">กำลังบันทึก...</span>
+                  <span v-else>บันทึกรหัสผ่านใหม่</span>
                 </button>
                 <button class="btn-ghost" @click="cancelPasswordChange">ยกเลิก</button>
               </div>
@@ -699,7 +765,7 @@ input:disabled {
 
 .password-input-wrapper input {
   width: 100%;
-  padding-right: 40px;
+  padding-right: 44px;
 }
 
 .toggle-password {
@@ -712,8 +778,77 @@ input:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.1rem;
   color: #64748b;
   height: 100%;
+}
+
+.toggle-password:hover {
+  color: #1e293b;
+}
+
+.password-checklist {
+  margin-top: 14px;
+  margin-bottom: 8px;
+  padding: 16px;
+  background-color: #f1f8f5;
+  border-radius: 12px;
+  border: 1px solid #dcfce7;
+}
+
+.checklist-title {
+  font-weight: 600;
+  color: #166534;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.checklist-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checklist-items li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: #ef4444; /* Default red when condition not met */
+  transition: all 0.2s ease;
+}
+
+.checklist-items li.valid {
+  color: #15803d; /* Green when condition met */
+  font-weight: 500;
+}
+
+.checklist-items li .icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: bold;
+  background-color: #fee2e2;
+  color: #dc2626;
+  flex-shrink: 0;
+}
+
+.checklist-items li.valid .icon {
+  background-color: #86efac;
+  color: #14532d;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

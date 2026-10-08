@@ -851,84 +851,91 @@ def resetPassword():
 def changePassword():
     try:
         dataInput = request.json
-        # username = dataInput['username']
-        password = dataInput['password']
-        currentPassword = dataInput['currentPassword']
-        #cpassword = dataInput['cpassword']
-        user_id = decode(dataInput['user_id'])
-        # conn = mysql.connect()
-        # cursor = conn.cursor()
-        # sql = "SELECT username, email FROM token_forgotpassword WHERE token = %s"
-        # cursor.execute(sql,(token))
-        # data = cursor.fetchall()
-        # columns = [column[0] for column in cursor.description]
-        # result = toJson(data,columns)
+        password = dataInput.get('password')
+        currentPassword = dataInput.get('currentPassword')
+        
+        user_id = None
+        user_data = getattr(request, 'current_user', {})
+        if user_data and user_data.get('user_id'):
+            user_id = user_data.get('user_id')
+        elif dataInput.get('user'):
+            user_dec = platform_decode(dataInput.get('user'))
+            user_obj = safe_json_loads(user_dec)
+            user_id = user_obj.get('user_id')
+            
+        if not user_id and dataInput.get('user_id'):
+            raw_id = dataInput.get('user_id')
+            try:
+                dec_id = decode(raw_id)
+                user_id = dec_id if dec_id else raw_id
+            except Exception:
+                user_id = raw_id
+                
+        if isinstance(user_id, bytes):
+            user_id = user_id.decode('utf-8', errors='ignore')
+        if isinstance(user_id, str) and user_id.isdigit():
+            user_id = int(user_id)
+            
+        if not user_id:
+            return jsonify({"status": "error", "message": "ไม่พบข้อมูลผู้ใช้งาน"}), 400
+
         conn = mysql.connect()
         cursor = conn.cursor()
         sql = "SELECT user.user_id, user_activity.password, email, firstname, lastname FROM user JOIN user_activity ON user.user_id = user_activity.user_id WHERE user.user_id = %s"
-        cursor.execute(sql, user_id)
+        cursor.execute(sql, (user_id,))
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         result = toJson(data, columns)
-        # M&M ????1_5
-        sql_pass = "SELECT password FROM (SELECT history_id , password FROM user_password_history WHERE user_id = %s ORDER BY history_id DESC LIMIT 3) AS new WHERE password = %s "
+        
+        if not result or len(result) == 0:
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "error", "message": "ไม่พบผู้ใช้งานในระบบ"}), 404
+            
+        db_password = result[0]['password']
+        if currentPassword != db_password:
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "password incorrect", "message": "รหัสผ่านปัจจุบันไม่ถูกต้อง"})
+
+        # Check password history (last 3 passwords)
+        sql_pass = "SELECT password FROM (SELECT history_id, password FROM user_password_history WHERE user_id = %s ORDER BY history_id DESC LIMIT 3) AS new WHERE password = %s"
         cursor.execute(sql_pass, (user_id, password))
         data_pass = cursor.fetchall()
-        columns = [column[0] for column in cursor.description]
-        result_pass = toJson(data_pass, columns)
-        sql_max = "SELECT MAX(password_rank) as max_rank FROM user_password_history WHERE user_id = %s "
-        cursor.execute(sql_max, user_id)
+        if len(data_pass) > 0 or password == db_password:
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "same password", "message": "ไม่สามารถใช้รหัสผ่านเดิมที่เคยใช้งานแล้วได้"})
+
+        sql_max = "SELECT MAX(password_rank) as max_rank FROM user_password_history WHERE user_id = %s"
+        cursor.execute(sql_max, (user_id,))
         data_max = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         result_max = toJson(data_max, columns)
-        # /M&M ????1_5
-        # return jsonify({"status": str(result_pass)})
+        max_seq = int(result_max[0]['max_rank']) if result_max and result_max[0]['max_rank'] is not None else 0
+
+        # Update user_activity password
+        sql_update = "UPDATE user_activity SET create_date = UNIX_TIMESTAMP(), password = %s, emailnews = %s WHERE user_id = %s"
+        cursor.execute(sql_update, (password, "-", user_id))
+
+        # Insert password history
+        sql_hist = "INSERT INTO user_password_history VALUES(NULL, %s, %s, %s, UNIX_TIMESTAMP())"
+        cursor.execute(sql_hist, (user_id, max_seq + 1, password))
+        conn.commit()
+
         cursor.close()
         conn.close()
-        if currentPassword == result[0]['password']:
-            # if str(result_pass) == '[]':
-            if len(result_pass) == 0:
-                # conn = mysql.connect()
-                # cursor = conn.cursor()
-                # sql = "UPDATE user SET password = %s, create_at = CURRENT_TIMESTAMP WHERE user_id = %s AND status_account = 'active'"
-                # cursor.execute(sql, (password, user_id))
-                # conn.commit()
-                # cursor.close()
 
-                conn = mysql.connect()
-                cursor = conn.cursor()
-                # DB_5 /
-                sql = "UPDATE user_activity SET create_date = UNIX_TIMESTAMP(), password = %s , emailnews = %s   WHERE user_id = %s"
-                cursor.execute(sql, (password, "-", user_id))
-                conn.commit()
-                cursor.close()
-                conn.close()
-                logAction(result[0]['user_id'], '/resetPassword',
-                          'resetPassword success', 'info')
-                sendMailEditPassword(
-                    result[0]['email'], result[0]['firstname'], result[0]['lastname'])
-                # M&M ????1_6
-                conn = mysql.connect()
-                cursor = conn.cursor()
-                
-                max_seq = int(result_max[0]['max_rank']) if result_max[0]['max_rank'] is not None else 0
-                
-                sql = "INSERT INTO user_password_history VALUES(NULL, %s,%s,%s,UNIX_TIMESTAMP())"
-                cursor.execute(
-                    sql, (user_id, max_seq + 1, password))
-                conn.commit()
-                cursor.close()
-                conn.close()
-                # /M&M ????1_6
-                return jsonify({"status": "success"})
-            else:
-                return jsonify({"status": "same password"})
-        else:
-            return jsonify({"status": str(currentPassword)})
+        logAction(result[0]['user_id'], '/changePassword', 'changePassword success', 'info')
+        try:
+            sendMailEditPassword(result[0]['email'], result[0]['firstname'], result[0]['lastname'])
+        except Exception as me:
+            current_app.logger.warning(f"Error sending password change email: {me}")
 
+        return jsonify({"status": "success", "message": "เปลี่ยนรหัสผ่านสำเร็จ"})
     except Exception as e:
-        current_app.logger.info(e)
-        return jsonify({"status": "Error"})
+        current_app.logger.error(f"Error in changePassword: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 def sendMailEditPassword(dataInput, firstname, lastname):
