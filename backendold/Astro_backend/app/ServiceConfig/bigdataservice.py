@@ -1323,7 +1323,8 @@ def get_dataset_api(dataset_id):
         # First, fetch service configuration by dataset_id
         sql_svc_config = """SELECT service_id, api_enabled, api_type, api_db_name, api_source_name, api_source_type, 
                                    api_request_fields, api_response_fields, service_name, access_type,
-                                   COALESCE(NULLIF(file_path, ''), excel_file_path) AS file_path
+                                   COALESCE(NULLIF(file_path, ''), excel_file_path) AS file_path,
+                                   dataset_id
                             FROM service WHERE (dataset_id = %s OR api_endpoint = %s OR service_id = %s) AND status = 'Active' LIMIT 1"""
         cursor.execute(sql_svc_config, (dataset_id, dataset_id, dataset_id))
         svc_row = cursor.fetchone()
@@ -1334,13 +1335,32 @@ def get_dataset_api(dataset_id):
             conn.close()
             return jsonify({'status': 'error', 'message': 'Service not found or inactive', 'request_id': request_id}), 404
 
-        real_service_id, api_enabled, api_type, db_name, source_name, source_type, req_fields_raw, res_fields_raw, service_name, access_type, file_path = svc_row
+        real_service_id, api_enabled, api_type, db_name, source_name, source_type, req_fields_raw, res_fields_raw, service_name, access_type, file_path, actual_dataset_id = svc_row
 
         if not api_enabled:
             log_api_usage(0, 'API access is disabled for this dataset', 403)
             cursor.close()
             conn.close()
             return jsonify({'status': 'error', 'message': 'API access is disabled for this dataset', 'request_id': request_id}), 403
+
+        # Resolve all related service IDs (parent dataset + clones)
+        related_service_ids = [real_service_id]
+        base_dataset_id = str(actual_dataset_id)
+        if base_dataset_id.startswith("API_CLONE_"):
+            parts = base_dataset_id.split('_')
+            if len(parts) >= 3:
+                base_dataset_id = parts[2]
+            else:
+                base_dataset_id = base_dataset_id.replace("API_CLONE_", "")
+
+        cursor.execute("""
+            SELECT service_id FROM service 
+            WHERE (dataset_id = %s OR dataset_id LIKE %s OR service_id = %s) 
+               OR (dataset_id = %s OR dataset_id LIKE %s)
+        """, (actual_dataset_id, f"API_CLONE_{actual_dataset_id}_%", real_service_id, base_dataset_id, f"API_CLONE_{base_dataset_id}_%"))
+        for r in cursor.fetchall():
+            if r[0] not in related_service_ids:
+                related_service_ids.append(r[0])
 
         # Enforce key check if NOT public or if access_type requires authentication
         user_id = 0
@@ -1359,9 +1379,15 @@ def get_dataset_api(dataset_id):
                 public_key_id = apikey.split('.')[0]
                 secret_hash = hashlib.sha256(apikey.encode('utf-8')).hexdigest()
 
-                sql_cred = "SELECT c.credential_id, c.user_id, c.status, c.expires_at, u.previlage_id FROM api_credentials c JOIN user u ON c.user_id = u.user_id WHERE c.public_key_id = %s AND c.secret_hash = %s AND c.service_id = %s"
-                cursor.execute(sql_cred, (public_key_id, secret_hash, real_service_id))
+                placeholders = ', '.join(['%s'] * len(related_service_ids))
+                sql_cred = f"SELECT c.credential_id, c.user_id, c.status, c.expires_at, u.previlage_id FROM api_credentials c JOIN user u ON c.user_id = u.user_id WHERE c.public_key_id = %s AND c.secret_hash = %s AND c.service_id IN ({placeholders}) ORDER BY c.credential_id DESC LIMIT 1"
+                cursor.execute(sql_cred, [public_key_id, secret_hash] + related_service_ids)
                 cred_row = cursor.fetchone()
+
+                if not cred_row:
+                    sql_cred_fallback = "SELECT c.credential_id, c.user_id, c.status, c.expires_at, u.previlage_id FROM api_credentials c JOIN user u ON c.user_id = u.user_id WHERE c.public_key_id = %s AND c.secret_hash = %s ORDER BY c.credential_id DESC LIMIT 1"
+                    cursor.execute(sql_cred_fallback, (public_key_id, secret_hash))
+                    cred_row = cursor.fetchone()
 
                 if not cred_row:
                     log_api_usage(0, 'Invalid API key for this dataset', 403)
@@ -1392,6 +1418,12 @@ def get_dataset_api(dataset_id):
                     conn.close()
                     return jsonify({'status': 'error', 'message': 'Invalid Global API Key', 'request_id': request_id}), 403
                 user_id, user_role = user_row
+                
+                placeholders = ', '.join(['%s'] * len(related_service_ids))
+                cursor.execute(f"SELECT credential_id FROM api_credentials WHERE user_id = %s AND service_id IN ({placeholders}) AND status = 'active' ORDER BY credential_id DESC LIMIT 1", [user_id] + related_service_ids)
+                c_row = cursor.fetchone()
+                if c_row:
+                    credential_id = c_row[0]
         else:
             if apikey:
                 if "." in apikey:
@@ -1408,6 +1440,55 @@ def get_dataset_api(dataset_id):
                     user_row = cursor.fetchone()
                     if user_row:
                         user_id, user_role = user_row
+                        placeholders = ', '.join(['%s'] * len(related_service_ids))
+                        cursor.execute(f"SELECT credential_id FROM api_credentials WHERE user_id = %s AND service_id IN ({placeholders}) AND status = 'active' ORDER BY credential_id DESC LIMIT 1", [user_id] + related_service_ids)
+                        c_row = cursor.fetchone()
+                        if c_row:
+                            credential_id = c_row[0]
+
+        # Scope resolution (Field Request, Field Response, Row Conditions)
+        user_req_fields = []
+        user_res_fields = []
+        user_conditions = []
+
+        if credential_id:
+            cursor.execute("SELECT scope_json FROM api_scopes WHERE credential_id = %s", (credential_id,))
+            scope_row = cursor.fetchone()
+            if scope_row and scope_row[0]:
+                try:
+                    scope_obj = json.loads(scope_row[0]) if isinstance(scope_row[0], str) else scope_row[0]
+                    if isinstance(scope_obj, dict) and ('request_fields' in scope_obj or 'response_fields' in scope_obj or 'conditions' in scope_obj):
+                        user_req_fields = scope_obj.get('request_fields', []) or []
+                        user_res_fields = scope_obj.get('response_fields', []) or []
+                        user_conditions = scope_obj.get('conditions', []) or []
+                    elif isinstance(scope_obj, list):
+                        user_conditions = scope_obj
+                    elif isinstance(scope_obj, dict):
+                        user_conditions = scope_obj
+                except Exception as se:
+                    current_app.logger.error(f"Scope parse error: {se}")
+
+        # If user_res_fields is still empty, check approved dataset permission requests for this user
+        if not user_res_fields and user_id:
+            placeholders = ', '.join(['%s'] * len(related_service_ids))
+            cursor.execute(f"""
+                SELECT fields_json FROM dataset_permission_requests 
+                WHERE user_id = %s AND service_id IN ({placeholders}) AND status = 'Approved' AND (approved_api = 1 OR request_type IN ('api', 'all'))
+                ORDER BY request_id DESC LIMIT 1
+            """, [user_id] + related_service_ids)
+            p_row = cursor.fetchone()
+            if p_row and p_row[0]:
+                try:
+                    p_fields = json.loads(p_row[0]) if isinstance(p_row[0], str) else p_row[0]
+                    if isinstance(p_fields, list) and p_fields:
+                        user_res_fields = p_fields
+                        if not user_req_fields:
+                            user_req_fields = p_fields
+                except Exception as pe:
+                    current_app.logger.error(f"Permission request fields parse error: {pe}")
+
+        if user_req_fields and not user_res_fields:
+            user_res_fields = list(user_req_fields)
 
         if not db_name or not source_name:
             if file_path:
@@ -1449,58 +1530,37 @@ def get_dataset_api(dataset_id):
                     conn.close()
                     return jsonify({'status': 'error', 'message': f'Error reading data file: {str(fe)}', 'request_id': request_id}), 500
 
-                # Scope conditions & field filters for file data
-                user_req_fields = []
-                user_res_fields = []
-                user_conditions = []
-                if credential_id:
-                    cursor.execute("SELECT scope_json FROM api_scopes WHERE credential_id = %s", (credential_id,))
-                    scope_row = cursor.fetchone()
-                    if scope_row and scope_row[0]:
-                        try:
-                            scope_obj = json.loads(scope_row[0]) if isinstance(scope_row[0], str) else scope_row[0]
-                            if isinstance(scope_obj, dict) and ('request_fields' in scope_obj or 'response_fields' in scope_obj or 'conditions' in scope_obj):
-                                user_req_fields = scope_obj.get('request_fields', []) or []
-                                user_res_fields = scope_obj.get('response_fields', []) or []
-                                user_conditions = scope_obj.get('conditions', []) or []
-                            elif isinstance(scope_obj, list):
-                                user_conditions = scope_obj
-                            elif isinstance(scope_obj, dict):
-                                user_conditions = scope_obj
-                        except Exception as se:
-                            current_app.logger.error(f"File scope filter error: {se}")
-
-                    # 1. Apply user row conditions (Row-Level Security)
-                    if isinstance(user_conditions, list):
-                        for cond in user_conditions:
-                            s_field = cond.get('field')
-                            s_op = str(cond.get('operator', '=')).upper()
-                            s_val = cond.get('value')
-                            if s_field and s_field in df.columns:
-                                if s_op == '=':
-                                    df = df[df[s_field].astype(str) == str(s_val)]
-                                elif s_op == '!=':
-                                    df = df[df[s_field].astype(str) != str(s_val)]
-                                elif s_op == '>':
-                                    try: df = df[pd.to_numeric(df[s_field]) > float(s_val)]
-                                    except: df = df[df[s_field].astype(str) > str(s_val)]
-                                elif s_op == '<':
-                                    try: df = df[pd.to_numeric(df[s_field]) < float(s_val)]
-                                    except: df = df[df[s_field].astype(str) < str(s_val)]
-                                elif s_op == '>=':
-                                    try: df = df[pd.to_numeric(df[s_field]) >= float(s_val)]
-                                    except: df = df[df[s_field].astype(str) >= str(s_val)]
-                                elif s_op == '<=':
-                                    try: df = df[pd.to_numeric(df[s_field]) <= float(s_val)]
-                                    except: df = df[df[s_field].astype(str) <= str(s_val)]
-                                elif s_op == 'LIKE':
-                                    df = df[df[s_field].astype(str).str.contains(str(s_val), case=False, na=False)]
-                                elif s_op == 'IN' and isinstance(s_val, list):
-                                    df = df[df[s_field].isin(s_val)]
-                    elif isinstance(user_conditions, dict):
-                        for s_field, s_vals in user_conditions.items():
-                            if s_field in df.columns and isinstance(s_vals, list):
-                                df = df[df[s_field].isin(s_vals)]
+                # 1. Apply user row conditions (Row-Level Security)
+                if isinstance(user_conditions, list):
+                    for cond in user_conditions:
+                        s_field = cond.get('field')
+                        s_op = str(cond.get('operator', '=')).upper()
+                        s_val = cond.get('value')
+                        if s_field and s_field in df.columns:
+                            if s_op == '=':
+                                df = df[df[s_field].astype(str) == str(s_val)]
+                            elif s_op == '!=':
+                                df = df[df[s_field].astype(str) != str(s_val)]
+                            elif s_op == '>':
+                                try: df = df[pd.to_numeric(df[s_field]) > float(s_val)]
+                                except: df = df[df[s_field].astype(str) > str(s_val)]
+                            elif s_op == '<':
+                                try: df = df[pd.to_numeric(df[s_field]) < float(s_val)]
+                                except: df = df[df[s_field].astype(str) < str(s_val)]
+                            elif s_op == '>=':
+                                try: df = df[pd.to_numeric(df[s_field]) >= float(s_val)]
+                                except: df = df[df[s_field].astype(str) >= str(s_val)]
+                            elif s_op == '<=':
+                                try: df = df[pd.to_numeric(df[s_field]) <= float(s_val)]
+                                except: df = df[df[s_field].astype(str) <= str(s_val)]
+                            elif s_op == 'LIKE':
+                                df = df[df[s_field].astype(str).str.contains(str(s_val), case=False, na=False)]
+                            elif s_op == 'IN' and isinstance(s_val, list):
+                                df = df[df[s_field].isin(s_val)]
+                elif isinstance(user_conditions, dict):
+                    for s_field, s_vals in user_conditions.items():
+                        if s_field in df.columns and isinstance(s_vals, list):
+                            df = df[df[s_field].isin(s_vals)]
 
                 # 2. Determine allowed Request Fields (Field Request)
                 allowed_req_fields = user_req_fields if user_req_fields else []
@@ -1523,7 +1583,7 @@ def get_dataset_api(dataset_id):
                             if val is not None and val != '':
                                 df = df[df[arg].astype(str) == str(val)]
 
-                # 3. Response fields filtering (Field Response per user vs global)
+                # 3. Response fields filtering (Field Response per user vs default)
                 allowed_res_fields = user_res_fields if user_res_fields else []
                 if not allowed_res_fields and res_fields_raw:
                     try: allowed_res_fields = json.loads(res_fields_raw) or []
@@ -1537,11 +1597,17 @@ def get_dataset_api(dataset_id):
                 df = df.fillna("")
                 records = df.to_dict(orient='records')
 
+                log_api_usage(user_id, 'API Invoked Successfully', 200)
+
                 cursor.close()
                 conn.close()
                 return jsonify({
                     'status': 'success',
+                    'dataset_id': dataset_id,
+                    'dataset_name': service_name,
+                    'total_rows': len(records),
                     'count': len(records),
+                    'rows': records,
                     'data': records,
                     'request_id': request_id
                 })
@@ -1558,68 +1624,46 @@ def get_dataset_api(dataset_id):
             current_app.logger.error(f"JSON Parse Error: {e} -> RAW: {req_fields_raw}")
             req_fields_list = []
             res_fields_list = []
-            
-        current_app.logger.info(f"REQ LIST VALID: {req_fields_list}")
-            
+
         # Validate dynamic SQL identifiers
         if not re.match(r'^[a-zA-Z0-9_]+$', source_name):
             return jsonify({'status': 'error', 'message': 'Invalid source name', 'request_id': request_id}), 400
-            
-        # 3. Handle Scopes (Row-Level Security & Per-User Fields)
+
+        # 3. Handle Scopes (Row-Level Security)
         scope_where_clause = " 1=1 "
         scope_params = []
-        user_req_fields = []
-        user_res_fields = []
-        user_conditions = []
+        allowed_ops = ['=', '!=', '>', '<', '>=', '<=', 'LIKE', 'IN']
 
-        if credential_id:
-            cursor.execute("SELECT scope_json FROM api_scopes WHERE credential_id = %s", (credential_id,))
-            scope_row = cursor.fetchone()
-            if scope_row and scope_row[0]:
-                try:
-                    scope_obj = json.loads(scope_row[0]) if isinstance(scope_row[0], str) else scope_row[0]
-                    if isinstance(scope_obj, dict) and ('request_fields' in scope_obj or 'response_fields' in scope_obj or 'conditions' in scope_obj):
-                        user_req_fields = scope_obj.get('request_fields', []) or []
-                        user_res_fields = scope_obj.get('response_fields', []) or []
-                        user_conditions = scope_obj.get('conditions', []) or []
-                    elif isinstance(scope_obj, list):
-                        user_conditions = scope_obj
-                    elif isinstance(scope_obj, dict):
-                        user_conditions = scope_obj
+        if isinstance(user_conditions, list):
+            for idx, cond in enumerate(user_conditions):
+                field = cond.get('field')
+                op = str(cond.get('operator', '=')).upper()
+                val = cond.get('value')
+                logic = str(cond.get('logic', 'AND')).upper()
+                if logic not in ['AND', 'OR']: logic = 'AND'
+                if field and op in allowed_ops:
+                    if not re.match(r'^[a-zA-Z0-9_]+$', field): continue
+                    prefix = f" {logic} " if idx > 0 else " AND "
+                    if op == 'IN' and isinstance(val, list):
+                        if val:
+                            placeholders = ', '.join(['%s'] * len(val))
+                            scope_where_clause += f"{prefix}`{field}` IN ({placeholders})"
+                            scope_params.extend(val)
+                    else:
+                        scope_where_clause += f"{prefix}`{field}` {op} %s"
+                        scope_params.append(val)
+                else:
+                    if field:
+                        return jsonify({'status': 'error', 'message': f'Invalid scope operator: {op}'}), 400
+        elif isinstance(user_conditions, dict):
+            for field, values in user_conditions.items():
+                if values and isinstance(values, list):
+                    if not re.match(r'^[a-zA-Z0-9_]+$', field): continue
+                    placeholders = ', '.join(['%s'] * len(values))
+                    scope_where_clause += f" AND `{field}` IN ({placeholders})"
+                    scope_params.extend(values)
 
-                    allowed_ops = ['=', '!=', '>', '<', '>=', '<=', 'LIKE', 'IN']
-                    if isinstance(user_conditions, list):
-                        for idx, cond in enumerate(user_conditions):
-                            field = cond.get('field')
-                            op = str(cond.get('operator', '=')).upper()
-                            val = cond.get('value')
-                            logic = str(cond.get('logic', 'AND')).upper()
-                            if logic not in ['AND', 'OR']: logic = 'AND'
-                            if field and op in allowed_ops:
-                                if not re.match(r'^[a-zA-Z0-9_]+$', field): continue
-                                prefix = f" {logic} " if idx > 0 else " AND "
-                                if op == 'IN' and isinstance(val, list):
-                                    if val:
-                                        placeholders = ', '.join(['%s'] * len(val))
-                                        scope_where_clause += f"{prefix}`{field}` IN ({placeholders})"
-                                        scope_params.extend(val)
-                                else:
-                                    scope_where_clause += f"{prefix}`{field}` {op} %s"
-                                    scope_params.append(val)
-                            else:
-                                if field:
-                                    return jsonify({'status': 'error', 'message': f'Invalid scope operator: {op}'}), 400
-                    elif isinstance(user_conditions, dict):
-                        for field, values in user_conditions.items():
-                            if values and isinstance(values, list):
-                                if not re.match(r'^[a-zA-Z0-9_]+$', field): continue
-                                placeholders = ', '.join(['%s'] * len(values))
-                                scope_where_clause += f" AND `{field}` IN ({placeholders})"
-                                scope_params.extend(values)
-                except Exception as e:
-                    current_app.logger.error(f"[{request_id}] Scope parsing error: {e}")
-
-        # 4. Handle User Filters (Request Fields - Per User Scope or Global)
+        # 4. Handle User Filters (Request Fields)
         effective_req_fields = user_req_fields if user_req_fields else req_fields_list
         effective_req_fields_valid = [f for f in effective_req_fields if re.match(r'^[a-zA-Z0-9_]+$', f)]
 
@@ -1628,21 +1672,21 @@ def get_dataset_api(dataset_id):
 
         filter_where_clause = ""
         filter_params = []
-        
+
         # Deny unallowed request fields
         for arg in request.args:
             if arg not in ['apikey', 'key']:
                 if effective_req_fields_valid and arg not in effective_req_fields_valid:
                     return jsonify({'status': 'error', 'message': f'Disallowed request field: {arg}'}), 400
-                
+
         for field in effective_req_fields_valid:
             val = request.args.get(field)
-            if val:
+            if val is not None and val != '':
                 filter_where_clause += f" AND `{field}` = %s"
                 filter_params.append(val)
 
         # 5. Build Dynamic SQL safely
-        # Limit response fields to what was configured
+        # Limit response fields strictly to what was configured
         select_clause = "*"
         if effective_res_fields_valid:
             select_clause = ", ".join([f"`{f}`" for f in effective_res_fields_valid])
@@ -1655,7 +1699,7 @@ def get_dataset_api(dataset_id):
 
         # Construct final SQL
         all_params = scope_params + filter_params
-        
+
         if db_name in ['STG_DATAEXCHAGE', 'DWH_DATAEXCHAGE']:
             import re
             bind_counter = 0
@@ -1666,28 +1710,24 @@ def get_dataset_api(dataset_id):
 
             scope_where_clause_ora = re.sub(r'%s', replace_bind, scope_where_clause)
             filter_where_clause_ora = re.sub(r'%s', replace_bind, filter_where_clause)
-            
-            # Oracle identifiers might be uppercase. Safest is double quotes if it was unquoted, or just uppercase.
+
             select_clause_ora = "*"
             if effective_res_fields_valid:
                 select_clause_ora = ", ".join([f'"{f}"' for f in effective_res_fields_valid])
-            
-            # Replace backticks in where clauses
+
             scope_where_clause_ora = scope_where_clause_ora.replace('`', '"')
             filter_where_clause_ora = filter_where_clause_ora.replace('`', '"')
 
             final_sql = f'SELECT {select_clause_ora} FROM "{db_name}"."{source_name}" WHERE {scope_where_clause_ora} {filter_where_clause_ora} FETCH FIRST 1000 ROWS ONLY'
-            
-            # Oracle connection
+
             oracle_conn = get_oracle_connection(db_name)
             oracle_cursor = oracle_conn.cursor()
             oracle_cursor.execute(final_sql, all_params)
             rows_data = oracle_cursor.fetchall()
             columns = [col[0] for col in oracle_cursor.description]
-            
+
             results = [dict(zip(columns, row)) for row in rows_data]
-            
-            # Must read LOBs before closing oracle connection
+
             for row in results:
                 for k, v in row.items():
                     if hasattr(v, 'read'):
@@ -1695,26 +1735,38 @@ def get_dataset_api(dataset_id):
                             row[k] = str(v.read())
                         except:
                             row[k] = str(v)
-                            
+
             oracle_cursor.close()
             oracle_conn.close()
-            
         else:
             final_sql = f"SELECT {select_clause} FROM `{db_name}`.`{source_name}` WHERE {scope_where_clause} {filter_where_clause} LIMIT 1000"
-            
-            # 6. Execute and Return
+
             cursor.execute(final_sql, all_params)
             rows_data = cursor.fetchall()
             columns = [col[0] for col in cursor.description]
-            
+
             results = toJson(rows_data, columns)
-        
+
+        # Enforce exact response fields filtering on rows
+        if effective_res_fields_valid:
+            clean_results = []
+            for row in results:
+                new_row = {}
+                row_keys_upper = {k.upper(): k for k in row.keys()}
+                for f in effective_res_fields_valid:
+                    if f in row:
+                        new_row[f] = row[f]
+                    elif f.upper() in row_keys_upper:
+                        new_row[f] = row[row_keys_upper[f.upper()]]
+                clean_results.append(new_row)
+            results = clean_results
+
         # Clean up results (handle dates etc)
         for row in results:
             for k, v in row.items():
-                if hasattr(v, 'isoformat'): # Handle datetime objects
+                if hasattr(v, 'isoformat'):
                     row[k] = v.isoformat()
-                elif hasattr(v, 'read'): # Handle LOB objects (Oracle CLOB/BLOB)
+                elif hasattr(v, 'read'):
                     try:
                         row[k] = str(v.read())
                     except:
@@ -1732,12 +1784,12 @@ def get_dataset_api(dataset_id):
             'total_rows': len(results),
             'rows': results
         }, ensure_ascii=False)
-        
+
         response = Response(json_str, content_type='application/json; charset=utf-8')
-        
+
         if deprecated_transport:
             response.headers['X-Deprecation-Warning'] = 'Query string API keys are deprecated. Use x-api-key header.'
-            
+
         return response
 
     except Exception as e:
@@ -2881,7 +2933,7 @@ def approve_dataset_request():
         cursor = conn.cursor()
         
         # Get request info
-        sql_req = "SELECT user_id, service_id, request_type FROM dataset_permission_requests WHERE request_id = %s"
+        sql_req = "SELECT user_id, service_id, request_type, fields_json FROM dataset_permission_requests WHERE request_id = %s"
         cursor.execute(sql_req, (request_id,))
         req_row = cursor.fetchone()
         
@@ -2890,7 +2942,7 @@ def approve_dataset_request():
             conn.close()
             return jsonify({'status': 'error', 'message': 'Request not found'}), 404
             
-        target_user_id, service_id, req_type = req_row
+        target_user_id, service_id, req_type, req_fields_raw = req_row
         
         # Get granular permissions from request or defaults
         allow_dictionary = 1
@@ -2919,6 +2971,77 @@ def approve_dataset_request():
         """
         cursor.execute(sql_grant, (service_id, target_user_id, allow_dictionary, allow_dashboard, allow_api))
         
+        # Sync API Credentials and Scopes if API access is approved
+        if allow_api:
+            import secrets
+            import string
+            import hashlib
+            
+            approved_fields = []
+            if req_fields_raw:
+                try:
+                    approved_fields = json.loads(req_fields_raw) if isinstance(req_fields_raw, str) else req_fields_raw
+                except Exception:
+                    approved_fields = []
+            if not isinstance(approved_fields, list):
+                approved_fields = []
+
+            # Find all related services (parent and clones)
+            cursor.execute("SELECT dataset_id FROM service WHERE service_id = %s", (service_id,))
+            ds_row = cursor.fetchone()
+            ds_id = ds_row[0] if ds_row else ''
+            
+            target_services = [service_id]
+            if ds_id:
+                base_ds_id = ds_id
+                if base_ds_id.startswith("API_CLONE_"):
+                    parts = base_ds_id.split('_')
+                    if len(parts) >= 3:
+                        base_ds_id = parts[2]
+                    else:
+                        base_ds_id = base_ds_id.replace("API_CLONE_", "")
+                
+                cursor.execute("""
+                    SELECT service_id FROM service 
+                    WHERE (dataset_id = %s OR dataset_id LIKE %s OR service_id = %s)
+                       OR (dataset_id = %s OR dataset_id LIKE %s)
+                """, (ds_id, f"API_CLONE_{ds_id}_%", service_id, base_ds_id, f"API_CLONE_{base_ds_id}_%"))
+                for s_row in cursor.fetchall():
+                    if s_row[0] not in target_services:
+                        target_services.append(s_row[0])
+
+            scope_data = {
+                "request_fields": approved_fields,
+                "response_fields": approved_fields,
+                "conditions": []
+            }
+            scope_str = json.dumps(scope_data, ensure_ascii=False)
+
+            for target_svc in target_services:
+                cursor.execute("SELECT credential_id FROM api_credentials WHERE service_id = %s AND user_id = %s", (target_svc, target_user_id))
+                cred = cursor.fetchone()
+                if cred:
+                    cred_id = cred[0]
+                    cursor.execute("UPDATE api_credentials SET status = 'active' WHERE credential_id = %s", (cred_id,))
+                else:
+                    alphabet = string.ascii_letters + string.digits
+                    public_key_id = 'datax_' + ''.join(secrets.choice(alphabet) for _ in range(12))
+                    secret_part = secrets.token_hex(16)
+                    full_secret_key = f"{public_key_id}.{secret_part}"
+                    secret_hash = hashlib.sha256(full_secret_key.encode('utf-8')).hexdigest()
+                    key_last_four = full_secret_key[-4:]
+                    
+                    sql_cred_ins = "INSERT INTO api_credentials (service_id, user_id, public_key_id, secret_hash, key_last_four, status) VALUES (%s, %s, %s, %s, %s, 'active')"
+                    cursor.execute(sql_cred_ins, (target_svc, target_user_id, public_key_id, secret_hash, key_last_four))
+                    cred_id = cursor.lastrowid
+                
+                if cred_id and approved_fields:
+                    cursor.execute("SELECT scope_id FROM api_scopes WHERE credential_id = %s", (cred_id,))
+                    if cursor.fetchone():
+                        cursor.execute("UPDATE api_scopes SET scope_json = %s WHERE credential_id = %s", (scope_str, cred_id))
+                    else:
+                        cursor.execute("INSERT INTO api_scopes (credential_id, scope_json) VALUES (%s, %s)", (cred_id, scope_str))
+
         conn.commit()
         
         # Log action
