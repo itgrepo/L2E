@@ -65,13 +65,33 @@ const isSubmittingReq = ref(false);
 const reqError = ref('');
 const reqSuccess = ref('');
 
+const isValidMouFile = (file) => {
+  if (!file) return { valid: false, error: 'กรุณาเลือกไฟล์เอกสารแนบ' };
+  const validExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.gif'];
+  const fileName = file.name.toLowerCase();
+  const fileType = file.type.toLowerCase();
+  
+  const hasValidExt = validExtensions.some(ext => fileName.endsWith(ext));
+  const hasValidMime = fileType.startsWith('image/') || fileType === 'application/pdf' || !fileType;
+  
+  if (!hasValidExt && !hasValidMime) {
+    return { valid: false, error: 'รองรับเฉพาะไฟล์ PDF หรือรูปภาพ (PNG, JPG, JPEG) เท่านั้น' };
+  }
+  
+  if (file.size > 10 * 1024 * 1024) {
+    return { valid: false, error: 'ขนาดไฟล์เอกสารแนบต้องไม่เกิน 10MB' };
+  }
+  
+  return { valid: true };
+};
+
 const submitPermissionRequest = async () => {
   if (!requestForm.value.reason.trim()) {
     reqError.value = 'โปรดระบุวัตถุประสงค์ในการขอเข้าถึง';
     return;
   }
   if (!requestForm.value.mouFile || !requestForm.value.mouFileName) {
-    reqError.value = 'กรุณาแนบเอกสารประกอบคำขอ (ไฟล์ PDF หรือเอกสาร ขนาดไม่เกิน 10MB)';
+    reqError.value = 'กรุณาแนบเอกสารประกอบคำขอ (รองรับไฟล์ PDF หรือรูปภาพ ขนาดไม่เกิน 10MB)';
     return;
   }
   
@@ -115,8 +135,9 @@ const handleMouFileChange = (e) => {
     requestForm.value.mouFileName = '';
     return;
   }
-  if (file.size > 10 * 1024 * 1024) {
-    reqError.value = 'ขนาดไฟล์เอกสารแนบต้องไม่เกิน 10MB';
+  const check = isValidMouFile(file);
+  if (!check.valid) {
+    reqError.value = check.error;
     e.target.value = '';
     requestForm.value.mouFile = null;
     requestForm.value.mouFileName = '';
@@ -821,9 +842,12 @@ onMounted(async () => {
 
                       <!-- MOU File Upload -->
                       <div class="form-group mb-4" style="margin-bottom: 12px;">
-                        <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px;">เอกสารประกอบคำขอ (MOU / Request Letter) <span style="color:#ef4444;">* (จำเป็นต้องแนบ)</span></label>
-                        <p style="font-size:0.75rem; color:#64748b; margin-bottom:4px;">กรุณาอัปโหลดบันทึกข้อความนำส่ง, หนังสือข้อตกลง MOU หรือเอกสารสิทธิ์การใช้ข้อมูล (ไฟล์ PDF หรือรูปภาพ ขนาดไม่เกิน 10MB)</p>
-                        <input type="file" @change="handleMouFileChange" accept=".pdf,application/pdf,image/*" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:0.8rem;background:#f8fafc;cursor:pointer;" required>
+                        <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px; font-weight:600;">เอกสารประกอบคำขอ (MOU / หนังสือขอความอนุเคราะห์ / รูปภาพหลักฐาน) <span style="color:#ef4444;">* (จำเป็นต้องแนบ)</span></label>
+                        <div style="font-size:0.75rem; color:#1e3a8a; margin-bottom:6px; background:#eff6ff; padding:6px 10px; border-radius:6px; border:1px solid #bfdbfe; display:flex; align-items:center; gap:6px;">
+                          <span>📌</span>
+                          <span><strong>เงื่อนไขไฟล์แนบ:</strong> รองรับไฟล์ <strong>PDF หรือรูปภาพ (PNG, JPG, JPEG)</strong> ขนาดไม่เกิน <strong>10 MB</strong></span>
+                        </div>
+                        <input type="file" @change="handleMouFileChange" accept=".pdf,application/pdf,image/png,image/jpeg,image/jpg,image/webp,image/*" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:0.8rem;background:#f8fafc;cursor:pointer;" required>
                         <div v-if="requestForm.mouFileName" style="margin-top:4px; font-size:0.75rem; color:#059669;">
                           📎 ไฟล์ที่เลือก: <strong>{{ requestForm.mouFileName }}</strong>
                         </div>
