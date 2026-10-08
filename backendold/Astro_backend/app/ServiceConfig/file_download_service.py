@@ -169,12 +169,37 @@ def downloadRequestMou(request_id):
         
         if result and result[0]:
             file_name = result[0]
-            if os.path.exists(os.path.join(UPLOAD_FOLDER, file_name)):
-                # If attachment filename is provided, pass download_name / attachment_filename
+            display_name = result[1] or file_name
+            file_path = os.path.join(UPLOAD_FOLDER, file_name)
+            if os.path.exists(file_path):
+                force_download = request.args.get('download', '0') == '1'
+                
+                mimetype = None
+                display_lower = display_name.lower()
+                file_lower = file_name.lower()
+                if display_lower.endswith('.pdf') or file_lower.endswith('.pdf'):
+                    mimetype = 'application/pdf'
+                elif display_lower.endswith(('.jpg', '.jpeg')) or file_lower.endswith(('.jpg', '.jpeg')):
+                    mimetype = 'image/jpeg'
+                elif display_lower.endswith('.png') or file_lower.endswith('.png'):
+                    mimetype = 'image/png'
+                    
                 try:
-                    return send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, download_name=result[1] or file_name)
+                    return send_from_directory(
+                        UPLOAD_FOLDER, 
+                        file_name, 
+                        as_attachment=force_download, 
+                        download_name=display_name,
+                        mimetype=mimetype
+                    )
                 except TypeError:
-                    return send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, attachment_filename=result[1] or file_name)
+                    return send_from_directory(
+                        UPLOAD_FOLDER, 
+                        file_name, 
+                        as_attachment=force_download, 
+                        attachment_filename=display_name,
+                        mimetype=mimetype
+                    )
             else:
                 return jsonify({"status": "File not found on server"}), 404
         else:

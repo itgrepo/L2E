@@ -2688,29 +2688,36 @@ def request_dataset_permission():
         if not reason or not reason.strip():
             return jsonify({'status': 'error', 'message': 'โปรดระบุวัตถุประสงค์ในการขอเข้าถึง'}), 400
 
+        if not mou_file_base64 or not mou_filename:
+            return jsonify({'status': 'error', 'message': 'กรุณาแนบเอกสารประกอบคำขอ (ไฟล์ PDF หรือเอกสาร ขนาดไม่เกิน 10MB)'}), 400
+
         if request_type == 'api' and (not fields or len(fields) == 0):
             return jsonify({'status': 'error', 'message': 'โปรดเลือกอย่างน้อย 1 ฟิลด์ข้อมูลที่ต้องการใช้งาน'}), 400
             
         fields_json = json.dumps(fields) if fields else '[]'
         
         mou_file_path = None
-        if mou_file_base64 and mou_filename:
-            try:
-                import time
-                if ',' in mou_file_base64:
-                    header, base64_data = mou_file_base64.split(',', 1)
-                else:
-                    base64_data = mou_file_base64
-                file_bytes = base64.b64decode(base64_data)
+        try:
+            import time
+            if ',' in mou_file_base64:
+                header, base64_data = mou_file_base64.split(',', 1)
+            else:
+                base64_data = mou_file_base64
+            file_bytes = base64.b64decode(base64_data)
+            
+            # Check 10MB size limit (10 * 1024 * 1024 = 10485760 bytes)
+            if len(file_bytes) > 10 * 1024 * 1024:
+                return jsonify({'status': 'error', 'message': 'ขนาดไฟล์เอกสารแนบเกิน 10MB'}), 400
                 
-                clean_name = safe_unicode_filename(mou_filename) or 'mou_document.pdf'
-                saved_filename = f"mou_req_{user_id}_{service_id}_{int(time.time())}_{clean_name}"
-                saved_filepath = os.path.join(UPLOAD_FOLDER, saved_filename)
-                with open(saved_filepath, 'wb') as f:
-                    f.write(file_bytes)
-                mou_file_path = saved_filename
-            except Exception as fe:
-                current_app.logger.warning(f"Error saving MOU file: {fe}")
+            clean_name = safe_unicode_filename(mou_filename) or 'mou_document.pdf'
+            saved_filename = f"mou_req_{user_id}_{service_id}_{int(time.time())}_{clean_name}"
+            saved_filepath = os.path.join(UPLOAD_FOLDER, saved_filename)
+            with open(saved_filepath, 'wb') as f:
+                f.write(file_bytes)
+            mou_file_path = saved_filename
+        except Exception as fe:
+            current_app.logger.warning(f"Error saving MOU file: {fe}")
+            return jsonify({'status': 'error', 'message': f'ไม่สามารถบันทึกไฟล์เอกสารแนบได้: {str(fe)}'}), 400
         
         conn = mysql.connect()
         cursor = conn.cursor()

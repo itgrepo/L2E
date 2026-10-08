@@ -202,6 +202,14 @@ const fetchDatasetDetail = async () => {
 const handleDashboardMouChange = (event) => {
   const file = event.target.files[0];
   if (file) {
+    if (file.size > 10 * 1024 * 1024) {
+      dashboardRequestForm.value.error = 'ขนาดไฟล์เอกสารแนบต้องไม่เกิน 10MB';
+      event.target.value = '';
+      dashboardRequestForm.value.mouFile = null;
+      dashboardRequestForm.value.mouFileName = '';
+      return;
+    }
+    dashboardRequestForm.value.error = '';
     dashboardRequestForm.value.mouFileName = file.name;
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -217,6 +225,14 @@ const handleDashboardMouChange = (event) => {
 const handleApiMouChange = (event) => {
   const file = event.target.files[0];
   if (file) {
+    if (file.size > 10 * 1024 * 1024) {
+      apiRequestForm.value.error = 'ขนาดไฟล์เอกสารแนบต้องไม่เกิน 10MB';
+      event.target.value = '';
+      apiRequestForm.value.mouFile = null;
+      apiRequestForm.value.mouFileName = '';
+      return;
+    }
+    apiRequestForm.value.error = '';
     apiRequestForm.value.mouFileName = file.name;
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -241,6 +257,10 @@ const toggleAllApiFields = () => {
 const submitDashboardPermissionRequest = async () => {
   if (!dashboardRequestForm.value.reason.trim()) {
     dashboardRequestForm.value.error = 'โปรดระบุวัตถุประสงค์ในการขอเข้าถึงแดชบอร์ด';
+    return;
+  }
+  if (!dashboardRequestForm.value.mouFile || !dashboardRequestForm.value.mouFileName) {
+    dashboardRequestForm.value.error = 'กรุณาแนบเอกสารประกอบคำขอ (ไฟล์ PDF หรือเอกสาร ขนาดไม่เกิน 10MB)';
     return;
   }
   
@@ -284,6 +304,10 @@ const submitApiPermissionRequest = async () => {
   }
   if (!apiRequestForm.value.reason.trim()) {
     apiRequestForm.value.error = 'โปรดระบุวัตถุประสงค์ในการขอเข้าถึง API';
+    return;
+  }
+  if (!apiRequestForm.value.mouFile || !apiRequestForm.value.mouFileName) {
+    apiRequestForm.value.error = 'กรุณาแนบเอกสารประกอบคำขอ (ไฟล์ PDF หรือเอกสาร ขนาดไม่เกิน 10MB)';
     return;
   }
   
@@ -593,9 +617,12 @@ watch(() => route.params.id, (newId) => {
                   </div>
 
                   <div class="form-group mb-4" style="margin-bottom: 20px;">
-                    <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.9rem; display:block; margin-bottom: 4px; font-weight:600;">เอกสารประกอบคำขอ (MOU / Request Letter)</label>
-                    <p style="font-size:0.8rem; color:#64748b; margin:0 0 8px 0;">กรุณาอัปโหลดบันทึกข้อความนำส่ง, หนังสือข้อตกลง MOU หรือเอกสารขอความอนุเคราะห์ (PDF, JPG, PNG)</p>
-                    <input type="file" @change="handleDashboardMouChange" accept=".pdf,image/*" style="width:100%; border:1px solid #cbd5e1; border-radius:8px; padding:8px 12px; font-size:0.85rem; background:white; cursor:pointer;">
+                    <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.9rem; display:block; margin-bottom: 4px; font-weight:600;">เอกสารประกอบคำขอ (MOU / Request Letter) <span style="color:#ef4444;">* (จำเป็นต้องแนบ)</span></label>
+                    <p style="font-size:0.8rem; color:#64748b; margin:0 0 8px 0;">กรุณาอัปโหลดบันทึกข้อความนำส่ง, หนังสือข้อตกลง MOU หรือเอกสารขอความอนุเคราะห์ (ไฟล์ PDF หรือรูปภาพ ขนาดไม่เกิน 10MB)</p>
+                    <input type="file" @change="handleDashboardMouChange" accept=".pdf,application/pdf,image/*" style="width:100%; border:1px solid #cbd5e1; border-radius:8px; padding:8px 12px; font-size:0.85rem; background:white; cursor:pointer;" required>
+                    <div v-if="dashboardRequestForm.mouFileName" style="margin-top:6px; font-size:0.8rem; color:#059669; display:flex; align-items:center; gap:4px;">
+                      <span>📎 ไฟล์ที่เลือก: <strong>{{ dashboardRequestForm.mouFileName }}</strong></span>
+                    </div>
                   </div>
 
                   <div v-if="dashboardRequestForm.error" style="color:#e11d48; font-size:0.85rem; margin-bottom:12px; padding:8px 12px; background:#ffe4e6; border-radius:6px;">{{ dashboardRequestForm.error }}</div>
@@ -690,9 +717,12 @@ watch(() => route.params.id, (newId) => {
                   </div>
 
                   <div class="form-group mb-4" style="margin-bottom: 20px;">
-                    <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.9rem; display:block; margin-bottom: 4px; font-weight:600;">เอกสารประกอบคำขอ (MOU / Request Letter)</label>
-                    <p style="font-size:0.8rem; color:#64748b; margin:0 0 8px 0;">กรุณาอัปโหลดบันทึกข้อความนำส่ง, หนังสือข้อตกลง MOU หรือเอกสารขอความอนุเคราะห์ (PDF, JPG, PNG)</p>
-                    <input type="file" @change="handleApiMouChange" accept=".pdf,image/*" style="width:100%; border:1px solid #cbd5e1; border-radius:8px; padding:8px 12px; font-size:0.85rem; background:white; cursor:pointer;">
+                    <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.9rem; display:block; margin-bottom: 4px; font-weight:600;">เอกสารประกอบคำขอ (MOU / Request Letter) <span style="color:#ef4444;">* (จำเป็นต้องแนบ)</span></label>
+                    <p style="font-size:0.8rem; color:#64748b; margin:0 0 8px 0;">กรุณาอัปโหลดบันทึกข้อความนำส่ง, หนังสือข้อตกลง MOU หรือเอกสารขอความอนุเคราะห์ (ไฟล์ PDF หรือรูปภาพ ขนาดไม่เกิน 10MB)</p>
+                    <input type="file" @change="handleApiMouChange" accept=".pdf,application/pdf,image/*" style="width:100%; border:1px solid #cbd5e1; border-radius:8px; padding:8px 12px; font-size:0.85rem; background:white; cursor:pointer;" required>
+                    <div v-if="apiRequestForm.mouFileName" style="margin-top:6px; font-size:0.8rem; color:#059669; display:flex; align-items:center; gap:4px;">
+                      <span>📎 ไฟล์ที่เลือก: <strong>{{ apiRequestForm.mouFileName }}</strong></span>
+                    </div>
                   </div>
 
                   <div v-if="apiRequestForm.error" style="color:#e11d48; font-size:0.85rem; margin-bottom:12px; padding:8px 12px; background:#ffe4e6; border-radius:6px;">{{ apiRequestForm.error }}</div>

@@ -70,6 +70,10 @@ const submitPermissionRequest = async () => {
     reqError.value = 'โปรดระบุวัตถุประสงค์ในการขอเข้าถึง';
     return;
   }
+  if (!requestForm.value.mouFile || !requestForm.value.mouFileName) {
+    reqError.value = 'กรุณาแนบเอกสารประกอบคำขอ (ไฟล์ PDF หรือเอกสาร ขนาดไม่เกิน 10MB)';
+    return;
+  }
   
   isSubmittingReq.value = true;
   reqError.value = '';
@@ -106,7 +110,19 @@ const submitPermissionRequest = async () => {
 
 const handleMouFileChange = (e) => {
   const file = e.target.files[0];
-  if (!file) return;
+  if (!file) {
+    requestForm.value.mouFile = null;
+    requestForm.value.mouFileName = '';
+    return;
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    reqError.value = 'ขนาดไฟล์เอกสารแนบต้องไม่เกิน 10MB';
+    e.target.value = '';
+    requestForm.value.mouFile = null;
+    requestForm.value.mouFileName = '';
+    return;
+  }
+  reqError.value = '';
   const reader = new FileReader();
   reader.onload = (event) => {
     requestForm.value.mouFile = event.target.result;
@@ -805,9 +821,12 @@ onMounted(async () => {
 
                       <!-- MOU File Upload -->
                       <div class="form-group mb-4" style="margin-bottom: 12px;">
-                        <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px;">เอกสารประกอบคำขอ (MOU / Request Letter)</label>
-                        <p style="font-size:0.75rem; color:#64748b; margin-bottom:4px;">กรุณาอัปโหลดบันทึกข้อความนำส่ง, หนังสือข้อตกลง MOU หรือเอกสารสิทธิ์การใช้ข้อมูล (PDF, JPG, PNG)</p>
-                        <input type="file" @change="handleMouFileChange" accept=".pdf,image/*" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:0.8rem;background:#f8fafc;cursor:pointer;">
+                        <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px;">เอกสารประกอบคำขอ (MOU / Request Letter) <span style="color:#ef4444;">* (จำเป็นต้องแนบ)</span></label>
+                        <p style="font-size:0.75rem; color:#64748b; margin-bottom:4px;">กรุณาอัปโหลดบันทึกข้อความนำส่ง, หนังสือข้อตกลง MOU หรือเอกสารสิทธิ์การใช้ข้อมูล (ไฟล์ PDF หรือรูปภาพ ขนาดไม่เกิน 10MB)</p>
+                        <input type="file" @change="handleMouFileChange" accept=".pdf,application/pdf,image/*" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:0.8rem;background:#f8fafc;cursor:pointer;" required>
+                        <div v-if="requestForm.mouFileName" style="margin-top:4px; font-size:0.75rem; color:#059669;">
+                          📎 ไฟล์ที่เลือก: <strong>{{ requestForm.mouFileName }}</strong>
+                        </div>
                       </div>
 
                       <div v-if="reqError" style="color:#e11d48;font-size:0.75rem;margin-bottom:8px;text-align:left;">{{ reqError }}</div>
