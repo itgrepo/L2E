@@ -754,14 +754,13 @@ curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + api.api_endpoin
                       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
                       Scope API (Granular Access) - {{ api.api_endpoint }}
                     </h3>
-                    <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px; cursor: pointer;" @click="copyToClipboard(selectedDataset.external_api_url || apiBaseUrl + api.api_endpoint + '?apikey=' + userApiKey + '&[column_name]=[value]')">คัดลอกเพื่อใช้งาน API</div>
+                    <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px; cursor: pointer;" @click="copyToClipboard(selectedDataset.external_api_url || apiBaseUrl + api.api_endpoint + '?apikey=' + userApiKey)">คัดลอกเพื่อใช้งาน API</div>
                     <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem;">
-                      {{ selectedDataset.external_api_url || apiBaseUrl + api.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>&[column_name]=[value]
+                      {{ selectedDataset.external_api_url || apiBaseUrl + api.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>
                     </code>
                     <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
                       <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
-curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + api.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>&[column_name]=[value]"
-</pre>
+curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + api.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>"</pre>
                     </div>
                   </div>
                 </div>
