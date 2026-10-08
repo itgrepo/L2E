@@ -17,6 +17,7 @@ Tests 10 Security Vectors:
 import os
 import sys
 import io
+import base64
 import zipfile
 import unittest
 

@@ -135,31 +135,74 @@ def sanitize_filename(filename):
     return (safe_chars, ext)
 
 
+TYPE_DISPLAY_NAMES = {
+    'pdf': 'PDF Document (.pdf)',
+    'png': 'PNG Image (.png)',
+    'jpeg': 'JPEG Image (.jpg/.jpeg)',
+    'webp': 'WebP Image (.webp)',
+    'zip': 'ZIP Archive (.zip)',
+    'xlsx': 'Excel OpenXML (.xlsx)',
+    'xls': 'Excel Binary (.xls)',
+    'csv': 'CSV / Tabular Data (.csv)',
+    'json': 'JSON Document (.json)',
+    'xml': 'XML Document (.xml)',
+    'svg': 'SVG Vector Image (.svg - ไม่อนุญาต)',
+    'php_script': 'PHP Script (ไม่อนุญาต)',
+    'html_script': 'HTML / Web Script (ไม่อนุญาต)',
+    'malicious_script': 'Script / Web Code (ไม่อนุญาต)',
+    'executable': 'Executable / Program Script (ไม่อนุญาต)',
+    'plain_text': 'Plain Text (ข้อความธรรมดา)',
+    'unknown': 'ไม่ทราบชนิดข้อมูล / ข้อมูลเสียหาย (Unknown/Corrupted Binary)'
+}
+
+
+def detect_csv_structure(text_sample):
+    """
+    Checks if text sample looks like structured tabular CSV data.
+    Must have at least 1-2 lines with consistent delimiters (comma, semicolon, tab, pipe).
+    """
+    lines = [line.strip() for line in text_sample.splitlines() if line.strip()]
+    if not lines:
+        return False
+    
+    # Check for common delimiters
+    for delim in [',', ';', '\t', '|']:
+        counts = [line.count(delim) for line in lines[:5]]
+        if counts and counts[0] >= 1:
+            if len(counts) == 1:
+                return True
+            if all(c == counts[0] for c in counts[1:]):
+                return True
+            if sum(1 for c in counts if c > 0) >= len(counts) * 0.7:
+                return True
+    return False
+
+
 def detect_file_signature(file_bytes):
     """
     Reads initial bytes (magic numbers) to accurately detect the true file format.
-    Returns format string: 'pdf', 'png', 'jpeg', 'webp', 'zip', 'csv', 'xlsx', 'xls', 'json', 'xml', or 'unknown'
+    Returns format string: 'pdf', 'png', 'jpeg', 'webp', 'zip', 'csv', 'xlsx', 'xls', 'json', 'xml', 'plain_text', 'svg', 'php_script', 'html_script', 'executable', or 'unknown'
     """
     if not file_bytes or len(file_bytes) < 4:
         return 'unknown'
 
-    # PDF: %PDF- (offset 0)
+    # 1. PDF: %PDF- (offset 0)
     if file_bytes.startswith(b'%PDF-'):
         return 'pdf'
 
-    # PNG: \x89PNG\r\n\x1a\n (offset 0)
+    # 2. PNG: \x89PNG\r\n\x1a\n (offset 0)
     if file_bytes.startswith(b'\x89PNG\r\n\x1a\n'):
         return 'png'
 
-    # JPEG: \xff\xd8\xff (offset 0)
+    # 3. JPEG: \xff\xd8\xff (offset 0)
     if file_bytes.startswith(b'\xff\xd8\xff'):
         return 'jpeg'
 
-    # WEBP: RIFF....WEBP
+    # 4. WEBP: RIFF....WEBP
     if file_bytes.startswith(b'RIFF') and len(file_bytes) >= 12 and file_bytes[8:12] == b'WEBP':
         return 'webp'
 
-    # ZIP / XLSX: PK\x03\x04
+    # 5. ZIP / XLSX: PK\x03\x04
     if file_bytes.startswith(b'PK\x03\x04') or file_bytes.startswith(b'PK\x05\x06') or file_bytes.startswith(b'PK\x07\x08'):
         # Check if it's an OpenXML XLSX
         try:
@@ -171,20 +214,24 @@ def detect_file_signature(file_bytes):
             pass
         return 'zip'
 
-    # Old Excel XLS (Compound Binary File Format): \xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1
+    # 6. Old Excel XLS (Compound Binary File Format): \xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1
     if file_bytes.startswith(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'):
         return 'xls'
 
-    # Executables / Scripts detection (MZ, ELF, Script headers) -> reject immediately
+    # 7. Executables / Scripts detection (MZ, ELF, Script headers) -> reject immediately
     if file_bytes.startswith(b'MZ') or file_bytes.startswith(b'\x7fELF') or file_bytes.startswith(b'#!'):
         return 'executable'
 
-    # HTML / XML / SVG / PHP checks
-    header_sample = file_bytes[:1024].lower()
-    if b'<?php' in header_sample or b'<svg' in header_sample or b'<?xml' in header_sample and b'<svg' in file_bytes[:4096].lower():
-        return 'malicious_script'
+    # 8. HTML / XML / SVG / PHP checks
+    header_sample = file_bytes[:2048].lower()
+    if b'<?php' in header_sample:
+        return 'php_script'
+    if b'<svg' in header_sample or (b'<?xml' in header_sample and b'<svg' in file_bytes[:4096].lower()):
+        return 'svg'
+    if b'<html' in header_sample or b'<!doctype html' in header_sample or b'<script' in header_sample or b'<body' in header_sample:
+        return 'html_script'
 
-    # JSON detection
+    # 9. JSON detection
     stripped = file_bytes.strip()
     if (stripped.startswith(b'{') and stripped.endswith(b'}')) or (stripped.startswith(b'[') and stripped.endswith(b']')):
         try:
@@ -194,23 +241,31 @@ def detect_file_signature(file_bytes):
         except Exception:
             pass
 
-    # XML detection
+    # 10. XML detection
     if stripped.startswith(b'<?xml') or (stripped.startswith(b'<') and stripped.endswith(b'>')):
         if b'<script' not in header_sample and b'<svg' not in header_sample:
             return 'xml'
 
-    # Plain text / CSV detection
+    # 11. Plain text vs CSV detection
     try:
         sample = file_bytes[:8192]
         if b'\x00' not in sample:
-            sample.decode('utf-8')
-            return 'csv'
-    except UnicodeDecodeError:
-        try:
-            sample.decode('cp874')
-            return 'csv'
-        except UnicodeDecodeError:
-            pass
+            decoded = None
+            try:
+                decoded = sample.decode('utf-8')
+            except UnicodeDecodeError:
+                try:
+                    decoded = sample.decode('cp874')
+                except UnicodeDecodeError:
+                    pass
+
+            if decoded:
+                if detect_csv_structure(decoded):
+                    return 'csv'
+                else:
+                    return 'plain_text'
+    except Exception:
+        pass
 
     return 'unknown'
 
@@ -528,10 +583,11 @@ def validate_and_sanitize_upload(file_input, category='mou', max_size_mb=10, use
 
         expected_sig = ext_to_sig_map.get(declared_ext)
         if expected_sig and detected_sig != expected_sig:
-            if declared_ext == 'csv' and detected_sig in ('csv', 'unknown'):
+            if declared_ext == 'csv' and detected_sig in ('csv', 'plain_text', 'unknown'):
                 pass
             else:
-                raise ValueError(f'ชนิดไฟล์จริง ({detected_sig}) ไม่ตรงกับนามสกุลไฟล์ที่ระบุ (.{declared_ext})')
+                detected_label = TYPE_DISPLAY_NAMES.get(detected_sig, detected_sig)
+                raise ValueError(f'ชนิดไฟล์จริง ({detected_label}) ไม่ตรงกับนามสกุลไฟล์ที่ระบุ (.{declared_ext})')
 
         # 5. Deep inspection and Sanitization based on type
         clean_bytes = None
