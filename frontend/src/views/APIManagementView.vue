@@ -323,7 +323,22 @@ const addUserFormExpiry = ref('');
 
 const scopeFormUser = ref('');
 const scopeFormExpiry = ref('');
+const scopeFormRequestFields = ref([]);
+const scopeFormResponseFields = ref([]);
 const scopeConditions = ref([]);
+
+const selectAllScopeRequestFields = () => {
+  scopeFormRequestFields.value = availableColumns.value.map(c => c.name || c.column_name || c.COLUMN_NAME);
+};
+const clearScopeRequestFields = () => {
+  scopeFormRequestFields.value = [];
+};
+const selectAllScopeResponseFields = () => {
+  scopeFormResponseFields.value = availableColumns.value.map(c => c.name || c.column_name || c.COLUMN_NAME);
+};
+const clearScopeResponseFields = () => {
+  scopeFormResponseFields.value = [];
+};
 
 const openScopesForService = async (service) => {
   scopeSelectedService.value = service;
@@ -408,12 +423,19 @@ const openAddScopeForm = async () => {
   editingScopeCredentialId.value = null;
   scopeFormUser.value = '';
   scopeFormExpiry.value = '';
+  scopeFormRequestFields.value = [];
+  scopeFormResponseFields.value = [];
   scopeConditions.value = [{ logic: 'AND', field: '', operator: '=', value: '' }];
   
   await fetchAllUsers();
   showDataPreview.value = false;
   previewData.value = [];
   await fetchColumnsForService(scopeSelectedService.value);
+  
+  // Default response fields to all columns
+  if (availableColumns.value.length > 0) {
+    scopeFormResponseFields.value = availableColumns.value.map(c => c.name || c.column_name || c.COLUMN_NAME);
+  }
   
   showScopeFormModal.value = true;
 };
@@ -433,18 +455,33 @@ const openEditScopeForm = async (scope) => {
     scopeFormExpiry.value = '';
   }
   
-  // Parse existing scope
-  const existingScope = scope.scope_json || [];
-  if (existingScope.length > 0) {
-    scopeConditions.value = JSON.parse(JSON.stringify(existingScope));
-  } else {
-    scopeConditions.value = [{ logic: 'AND', field: '', operator: '=', value: '' }];
-  }
-  
   await fetchAllUsers();
   showDataPreview.value = false;
   previewData.value = [];
   await fetchColumnsForService(scopeSelectedService.value);
+
+  // Parse existing scope (request_fields, response_fields, conditions)
+  const rawScope = scope.scope_json || {};
+  let reqs = scope.request_fields || [];
+  let resps = scope.response_fields || [];
+  let conds = scope.conditions || [];
+
+  if (typeof rawScope === 'object' && !Array.isArray(rawScope) && (rawScope.request_fields || rawScope.response_fields || rawScope.conditions)) {
+    reqs = rawScope.request_fields || reqs;
+    resps = rawScope.response_fields || resps;
+    conds = rawScope.conditions || conds;
+  } else if (Array.isArray(rawScope)) {
+    conds = rawScope;
+  }
+
+  scopeFormRequestFields.value = Array.isArray(reqs) ? [...reqs] : [];
+  scopeFormResponseFields.value = (Array.isArray(resps) && resps.length > 0) ? [...resps] : (availableColumns.value.map(c => c.name || c.column_name || c.COLUMN_NAME));
+  
+  if (Array.isArray(conds) && conds.length > 0) {
+    scopeConditions.value = JSON.parse(JSON.stringify(conds));
+  } else {
+    scopeConditions.value = [{ logic: 'AND', field: '', operator: '=', value: '' }];
+  }
   
   showScopeFormModal.value = true;
 };
@@ -588,16 +625,28 @@ const saveScopeForm = async () => {
     alert('กรุณาเลือก User');
     return;
   }
+  if (!scopeFormResponseFields.value || scopeFormResponseFields.value.length === 0) {
+    alert('กรุณาเลือก Field Response อย่างน้อย 1 ฟิลด์');
+    return;
+  }
   
   try {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     const validConditions = scopeConditions.value.filter(c => c.field && c.value);
     
+    const scopePayload = {
+      request_fields: scopeFormRequestFields.value,
+      response_fields: scopeFormResponseFields.value,
+      conditions: validConditions
+    };
+
     const payload = {
       user: encodeUserData(userData),
       service_id: scopeSelectedService.value.service_id,
       target_user_id: scopeFormUser.value,
-      scope_json: validConditions
+      request_fields: scopeFormRequestFields.value,
+      response_fields: scopeFormResponseFields.value,
+      scope_json: scopePayload
     };
     if (scopeFormExpiry.value) {
       // Convert local datetime back to standard format for backend
@@ -607,19 +656,18 @@ const saveScopeForm = async () => {
     
     const res = await apiClient.post('/saveApiScopeForUser', payload);
     
-    
     if (res.data.status === 'success') {
       if (res.data.secret_key) {
         alert('SUCCESS! Please copy this API Key now, it will not be shown again:\n\n' + res.data.secret_key);
       }
       showScopeFormModal.value = false;
-
       await fetchScopesForService(scopeSelectedService.value.service_id);
     } else {
-      alert('Error saving scope: ' + res.data.status);
+      alert('Error saving scope: ' + (res.data.message || res.data.status));
     }
   } catch (e) {
     console.error(e);
+    alert('เกิดข้อผิดพลาดในการบันทึก Scope');
   }
 };
 
@@ -655,7 +703,9 @@ const saveAddUserForm = async () => {
         alert('SUCCESS! Please copy this API Key now, it will not be shown again:\n\n' + res.data.secret_key);
       }
       showAddUserFormModal.value = false;
-      await fetchCredentialsForService(selectedService.value.service_id);
+      if (selectedService.value) {
+        await fetchCredentials(selectedService.value.service_id);
+      }
       showManageAccessModal.value = true;
     } else {
       alert('Error adding user: ' + res.data.status);
@@ -680,15 +730,19 @@ const deleteScopeEntry = async (scope) => {
 };
 
 const formatScopeJson = (scopeJson) => {
-  if (!scopeJson || !Array.isArray(scopeJson) || scopeJson.length === 0) return '{}';
-  const obj = {};
-  for (const cond of scopeJson) {
-    if (cond.field) {
-      if (!obj[cond.field]) obj[cond.field] = [];
-      obj[cond.field].push(cond.value);
+  if (!scopeJson) return 'All Rows';
+  if (typeof scopeJson === 'object' && !Array.isArray(scopeJson)) {
+    if (scopeJson.conditions && Array.isArray(scopeJson.conditions)) {
+      if (scopeJson.conditions.length === 0) return 'All Rows';
+      return scopeJson.conditions.map(c => `${c.field} ${c.operator || '='} ${c.value}`).join(' & ');
     }
+    return JSON.stringify(scopeJson);
   }
-  return JSON.stringify(obj);
+  if (Array.isArray(scopeJson)) {
+    if (scopeJson.length === 0) return 'All Rows';
+    return scopeJson.map(c => `${c.field} ${c.operator || '='} ${c.value}`).join(' & ');
+  }
+  return String(scopeJson);
 };
 </script>
 
@@ -984,11 +1038,11 @@ const formatScopeJson = (scopeJson) => {
         </div>
       </div>
     
-      <!-- ============ SCOPES List Modal (กนอ. Pattern) ============ -->
+      <!-- ============ SCOPES List Modal (1 User : 1 API) ============ -->
       <div v-if="showScopesListModal" class="modal-overlay" @click.self="showScopesListModal = false">
         <div class="modal-content modal-xl">
           <div class="modal-header">
-            <h3>SCOPES : {{ scopeSelectedService?.dataset_id || scopeSelectedService?.service_id }}</h3>
+            <h3>SCOPES (1 User : 1 API) : {{ scopeSelectedService?.dataset_id || scopeSelectedService?.service_id }}</h3>
             <button @click="showScopesListModal = false" class="modal-close">&times;</button>
           </div>
           <div class="modal-body">
@@ -997,7 +1051,7 @@ const formatScopeJson = (scopeJson) => {
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
                 </svg>
-                ADD SCOPES
+                + ADD SCOPES
               </button>
             </div>
             <div class="table-responsive" style="overflow-x: auto; width: 100%;"><table class="api-table">
@@ -1007,7 +1061,9 @@ const formatScopeJson = (scopeJson) => {
                   <th>PUBLIC KEY ID</th>
                   <th>API KEY (Last 4)</th>
                   <th>API NAME</th>
-                  <th>SCOPES</th>
+                  <th>FIELD REQUEST</th>
+                  <th>FIELD RESPONSE</th>
+                  <th>ROW CONDITIONS</th>
                   <th>EXPIRES AT</th>
                   <th>STATUS</th>
                   <th>ACTIONS</th>
@@ -1015,16 +1071,28 @@ const formatScopeJson = (scopeJson) => {
               </thead>
               <tbody>
                 <tr v-for="sc in scopeCredentials" :key="sc.credential_id">
-                  <td>{{ sc.username }}</td>
+                  <td style="font-weight: 600;">{{ sc.username }}</td>
                   <td>
-                    <div class="mono-cell" style="word-break: break-all; min-width: 120px;">{{ sc.public_key_id }}</div>
+                    <div class="mono-cell" style="word-break: break-all; min-width: 110px;">{{ sc.public_key_id }}</div>
                   </td>
                   <td class="key-cell">
                     <span class="secret-box">••••••••••••{{ sc.key_last_four }}</span>
                   </td>
-                  <td style="word-break: break-all; min-width: 150px;"><strong>{{ sc.dataset_id || sc.service_id }}</strong></td>
+                  <td style="word-break: break-all; min-width: 140px;"><strong>{{ sc.dataset_id || sc.service_id }}</strong></td>
                   <td>
-                    <span class="scope-badge">{{ formatScopeJson(sc.scope_json) }}</span>
+                    <span v-if="sc.request_fields && sc.request_fields.length > 0" class="badge-req" :title="sc.request_fields.join(', ')">
+                      {{ sc.request_fields.length }} ฟิลด์
+                    </span>
+                    <span v-else class="text-muted text-xs">ทั้งหมด / ไม่มี</span>
+                  </td>
+                  <td>
+                    <span v-if="sc.response_fields && sc.response_fields.length > 0" class="badge-res" :title="sc.response_fields.join(', ')">
+                      {{ sc.response_fields.length }} ฟิลด์
+                    </span>
+                    <span v-else class="text-muted text-xs">ทั้งหมด (Default)</span>
+                  </td>
+                  <td>
+                    <span class="scope-badge">{{ formatScopeJson(sc.scope_json || sc.conditions) }}</span>
                   </td>
                   <td>{{ formatDateTime(sc.expires_at) }}</td>
                   <td>
@@ -1054,7 +1122,7 @@ const formatScopeJson = (scopeJson) => {
                   </td>
                 </tr>
                 <tr v-if="scopeCredentials.length === 0">
-                  <td colspan="8" class="text-center text-muted py-4">ไม่มีข้อมูล Scope สำหรับ API นี้</td>
+                  <td colspan="10" class="text-center text-muted py-4">ไม่มีข้อมูล Scope สำหรับ API นี้</td>
                 </tr>
               </tbody>
             </table></div>
@@ -1097,7 +1165,7 @@ const formatScopeJson = (scopeJson) => {
         </div>
       </div>
 
-            <!-- ============ Edit Expiry Form Modal ============ -->
+      <!-- ============ Edit Expiry Form Modal ============ -->
       <div v-if="showEditExpiryModal" class="modal-overlay" @click.self="showEditExpiryModal = false">
         <div class="modal-content modal-md">
           <div class="modal-header">
@@ -1121,23 +1189,23 @@ const formatScopeJson = (scopeJson) => {
         </div>
       </div>
 
-      <!-- ============ Add/Edit Scope Form Modal ============ -->
+      <!-- ============ Add/Edit Scope Form Modal (1 User : 1 API) ============ -->
       <div v-if="showScopeFormModal" class="modal-overlay" @click.self="showScopeFormModal = false">
-        <div class="modal-content modal-lg">
+        <div class="modal-content modal-xl" style="max-height: 90vh; overflow-y: auto;">
           <div class="modal-header">
-            <h3>{{ isEditScope ? 'EDIT SCOPE' : 'ADD SCOPES' }}</h3>
+            <h3>{{ isEditScope ? 'EDIT USER SCOPE (1 User : 1 API)' : 'ADD USER SCOPE (1 User : 1 API)' }}</h3>
             <button @click="showScopeFormModal = false" class="modal-close">&times;</button>
           </div>
           <div class="modal-body form-grid">
             <!-- API Info (read-only) -->
             <div class="form-row">
               <label>API / Dataset</label>
-              <input type="text" :value="(scopeSelectedService?.dataset_id || scopeSelectedService?.service_id) + ' - ' + scopeSelectedService?.service_name" disabled style="background:#f1f5f9; color:#475569;">
+              <input type="text" :value="(scopeSelectedService?.dataset_id || scopeSelectedService?.service_id) + ' - ' + scopeSelectedService?.service_name" disabled style="background:#f1f5f9; color:#475569; font-weight: 600;">
             </div>
 
             <!-- User dropdown -->
             <div class="form-row">
-              <label>User <span class="required">*</span></label>
+              <label>User (ผู้ใช้งาน) <span class="required">*</span></label>
               <select v-model="scopeFormUser" :disabled="isEditScope">
                 <option value="">-- เลือก User --</option>
                 <option v-for="usr in allUsers" :key="usr.user_id" :value="usr.user_id">
@@ -1147,19 +1215,63 @@ const formatScopeJson = (scopeJson) => {
             </div>
 
             <div class="form-row">
-              <label>Expires At</label>
+              <label>Expires At (วันหมดอายุคีย์)</label>
               <input type="datetime-local" v-model="scopeFormExpiry">
             </div>
 
-            <!-- Scope Conditions (WHERE) -->
-            <div class="scope-section">
+            <!-- 1. FIELD REQUEST SECTION -->
+            <div class="scope-box-section" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <div>
+                  <h4 style="font-size: 0.95rem; font-weight: 700; color: #1e293b; margin: 0;">1. Field Request (พารามิเตอร์สำหรับค้นหา)</h4>
+                  <p style="font-size: 0.8rem; color: #64748b; margin: 2px 0 0 0;">เลือกฟิลด์ที่อนุญาตให้ User นี้ใช้ค้นหาผ่าน Query Parameters (เช่น ?COURSE_NAME=...)</p>
+                </div>
+                <div style="display: flex; gap: 6px;">
+                  <button type="button" @click="selectAllScopeRequestFields" class="btn-xs-outline">เลือกทั้งหมด</button>
+                  <button type="button" @click="clearScopeRequestFields" class="btn-xs-outline">ล้างทั้งหมด</button>
+                </div>
+              </div>
+              <div style="max-height: 150px; overflow-y: auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                <label v-for="col in availableColumns" :key="'req_' + (col.name || col.column_name || col.COLUMN_NAME)" class="checkbox-label" style="display: flex; align-items: center; gap: 6px; font-size: 0.825rem; cursor: pointer;">
+                  <input type="checkbox" :value="col.name || col.column_name || col.COLUMN_NAME" v-model="scopeFormRequestFields">
+                  <span>{{ col.name || col.column_name || col.COLUMN_NAME }}</span>
+                </label>
+                <div v-if="availableColumns.length === 0" style="color: #94a3b8; font-size: 0.8rem;">ไม่พบคอลัมน์</div>
+              </div>
+            </div>
+
+            <!-- 2. FIELD RESPONSE SECTION -->
+            <div class="scope-box-section" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <div>
+                  <h4 style="font-size: 0.95rem; font-weight: 700; color: #1e293b; margin: 0;">2. Field Response (ฟิลด์ข้อมูลที่ส่งกลับ) <span class="required">*</span></h4>
+                  <p style="font-size: 0.8rem; color: #64748b; margin: 2px 0 0 0;">เลือกฟิลด์ข้อมูลที่อนุญาตให้ User นี้มองเห็นและได้รับในผลลัพธ์ JSON</p>
+                </div>
+                <div style="display: flex; gap: 6px;">
+                  <button type="button" @click="selectAllScopeResponseFields" class="btn-xs-outline">เลือกทั้งหมด</button>
+                  <button type="button" @click="clearScopeResponseFields" class="btn-xs-outline">ล้างทั้งหมด</button>
+                </div>
+              </div>
+              <div style="max-height: 150px; overflow-y: auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                <label v-for="col in availableColumns" :key="'res_' + (col.name || col.column_name || col.COLUMN_NAME)" class="checkbox-label" style="display: flex; align-items: center; gap: 6px; font-size: 0.825rem; cursor: pointer;">
+                  <input type="checkbox" :value="col.name || col.column_name || col.COLUMN_NAME" v-model="scopeFormResponseFields">
+                  <span>{{ col.name || col.column_name || col.COLUMN_NAME }}</span>
+                </label>
+                <div v-if="availableColumns.length === 0" style="color: #94a3b8; font-size: 0.8rem;">ไม่พบคอลัมน์</div>
+              </div>
+            </div>
+
+            <!-- 3. ROW CONDITIONS (WHERE) -->
+            <div class="scope-box-section" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                <div>
+                  <h4 style="font-size: 0.95rem; font-weight: 700; color: #1e293b; margin: 0;">3. Row Conditions (เงื่อนไขกรองแถวข้อมูล / WHERE)</h4>
+                  <p style="font-size: 0.8rem; color: #64748b; margin: 2px 0 0 0;">กำหนดเงื่อนไขเพื่อจำกัดแถวข้อมูลเฉพาะสำหรับ User นี้ (Row-level filter)</p>
+                </div>
+                <button type="button" @click="toggleDataPreview" class="btn-outline-primary" style="font-size: 0.75rem; padding: 4px 8px;">👀 Data Preview</button>
+              </div>
               
-              <h4 class="scope-section-title" style="display:flex; justify-content:space-between; align-items:center;">
-                Scope Conditions (WHERE)
-                <button @click="toggleDataPreview" class="btn-outline-primary" style="font-size: 0.75rem; padding: 4px 8px;">👀 Data Preview</button>
-              </h4>
-              
-              <div v-if="showDataPreview" class="data-preview-table-container" style="max-height: 200px; overflow-y: auto; margin-bottom: 16px; border: 1px solid #e2e8f0; border-radius: 4px;">
+              <div v-if="showDataPreview" class="data-preview-table-container" style="max-height: 200px; overflow-y: auto; margin-bottom: 16px; border: 1px solid #e2e8f0; border-radius: 4px; background: #fff;">
                 <table class="data-table" v-if="previewData.length > 0" style="font-size: 0.75rem; width: 100%;">
                   <thead>
                     <tr>
@@ -1179,33 +1291,35 @@ const formatScopeJson = (scopeJson) => {
                 <div v-else style="padding: 16px; text-align: center; color: #64748b; font-size: 0.8rem;">Loading preview or no data available.</div>
               </div>
 
-              <div v-for="(cond, index) in scopeConditions" :key="index" class="scope-row">
-                <select v-if="index > 0" v-model="cond.logic" class="scope-logic">
+              <div v-for="(cond, index) in scopeConditions" :key="index" class="scope-row" style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+                <select v-if="index > 0" v-model="cond.logic" class="scope-logic" style="width: 80px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
                   <option value="AND">AND</option>
                   <option value="OR">OR</option>
                 </select>
-                <span v-else class="scope-where-label">WHERE</span>
-                <select v-model="cond.field" class="scope-field">
+                <span v-else class="scope-where-label" style="font-weight: 700; width: 80px; text-align: center; color: #475569;">WHERE</span>
+                <select v-model="cond.field" class="scope-field" style="flex: 2; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
                   <option value="">-- เลือก Field --</option>
                   <option v-for="col in availableColumns" :key="col.name || col.column_name || col.COLUMN_NAME" :value="col.name || col.column_name || col.COLUMN_NAME">{{ col.name || col.column_name || col.COLUMN_NAME }}</option>
                 </select>
-                <select v-model="cond.operator" class="scope-operator">
+                <select v-model="cond.operator" class="scope-operator" style="width: 90px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
                   <option value="=">=</option>
                   <option value="!=">!=</option>
                   <option value=">">&gt;</option>
                   <option value="<">&lt;</option>
+                  <option value=">=">&gt;=</option>
+                  <option value="<=">&lt;=</option>
                   <option value="LIKE">LIKE</option>
                   <option value="IN">IN</option>
                 </select>
-                <input type="text" v-model="cond.value" class="scope-value" placeholder="Value">
-                <button @click="removeScopeCondition(index)" class="scope-remove" title="ลบ">✕</button>
+                <input type="text" v-model="cond.value" class="scope-value" placeholder="Value" style="flex: 2; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                <button type="button" @click="removeScopeCondition(index)" class="scope-remove" title="ลบ" style="background: none; border: none; color: #ef4444; font-size: 1.1rem; cursor: pointer; padding: 4px 8px;">✕</button>
               </div>
-              <button @click="addScopeCondition" class="btn-outline-primary" style="margin-top:8px;">+ Add Condition</button>
+              <button type="button" @click="addScopeCondition" class="btn-outline-primary" style="margin-top:8px; font-size: 0.8rem; padding: 6px 12px;">+ Add Condition</button>
             </div>
           </div>
-          <div class="modal-footer" style="display:flex; justify-content:space-between;">
+          <div class="modal-footer" style="display:flex; justify-content:space-between; margin-top: 16px;">
             <button class="btn-cancel" @click="showScopeFormModal = false">CANCEL</button>
-            <button class="btn-primary" @click="saveScopeForm">SAVE</button>
+            <button class="btn-primary" @click="saveScopeForm">SAVE SCOPE (1 User : 1 API)</button>
           </div>
         </div>
       </div>

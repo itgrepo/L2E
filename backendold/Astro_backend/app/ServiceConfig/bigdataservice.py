@@ -1362,11 +1362,11 @@ def get_dataset_api(dataset_id):
                 if "." in apikey:
                     public_key_id = apikey.split('.')[0]
                     secret_hash = hashlib.sha256(apikey.encode('utf-8')).hexdigest()
-                    sql_user = "SELECT c.user_id, u.previlage_id FROM api_credentials c JOIN user u ON c.user_id = u.user_id WHERE c.public_key_id = %s AND c.secret_hash = %s LIMIT 1"
+                    sql_user = "SELECT c.credential_id, c.user_id, u.previlage_id FROM api_credentials c JOIN user u ON c.user_id = u.user_id WHERE c.public_key_id = %s AND c.secret_hash = %s LIMIT 1"
                     cursor.execute(sql_user, (public_key_id, secret_hash))
                     user_row = cursor.fetchone()
                     if user_row:
-                        user_id, user_role = user_row
+                        credential_id, user_id, user_role = user_row
                 else:
                     sql_user = "SELECT user_id, previlage_id FROM user WHERE apikey = %s "
                     cursor.execute(sql_user, (apikey,))
@@ -1414,50 +1414,90 @@ def get_dataset_api(dataset_id):
                     conn.close()
                     return jsonify({'status': 'error', 'message': f'Error reading data file: {str(fe)}', 'request_id': request_id}), 500
 
-                # Scope conditions filter for file data
-                if api_type == 'scope':
+                # Scope conditions & field filters for file data
+                user_req_fields = []
+                user_res_fields = []
+                user_conditions = []
+                if credential_id:
                     cursor.execute("SELECT scope_json FROM api_scopes WHERE credential_id = %s", (credential_id,))
                     scope_row = cursor.fetchone()
                     if scope_row and scope_row[0]:
                         try:
                             scope_obj = json.loads(scope_row[0]) if isinstance(scope_row[0], str) else scope_row[0]
-                            if isinstance(scope_obj, list):
-                                for cond in scope_obj:
-                                    s_field = cond.get('field')
-                                    s_op = str(cond.get('operator', '=')).upper()
-                                    s_val = cond.get('value')
-                                    if s_field and s_field in df.columns:
-                                        if s_op == '=':
-                                            df = df[df[s_field].astype(str) == str(s_val)]
-                                        elif s_op == '!=':
-                                            df = df[df[s_field].astype(str) != str(s_val)]
-                                        elif s_op == 'LIKE':
-                                            df = df[df[s_field].astype(str).str.contains(str(s_val), case=False, na=False)]
-                                        elif s_op == 'IN' and isinstance(s_val, list):
-                                            df = df[df[s_field].isin(s_val)]
+                            if isinstance(scope_obj, dict) and ('request_fields' in scope_obj or 'response_fields' in scope_obj or 'conditions' in scope_obj):
+                                user_req_fields = scope_obj.get('request_fields', []) or []
+                                user_res_fields = scope_obj.get('response_fields', []) or []
+                                user_conditions = scope_obj.get('conditions', []) or []
+                            elif isinstance(scope_obj, list):
+                                user_conditions = scope_obj
                             elif isinstance(scope_obj, dict):
-                                for s_field, s_vals in scope_obj.items():
-                                    if s_field in df.columns and isinstance(s_vals, list):
-                                        df = df[df[s_field].isin(s_vals)]
+                                user_conditions = scope_obj
                         except Exception as se:
                             current_app.logger.error(f"File scope filter error: {se}")
 
-                # Query filter params
-                for arg in request.args:
-                    if arg != 'apikey' and arg in df.columns:
-                        val = request.args.get(arg)
-                        if val is not None and val != '':
-                            df = df[df[arg].astype(str) == str(val)]
+                    # 1. Apply user row conditions (Row-Level Security)
+                    if isinstance(user_conditions, list):
+                        for cond in user_conditions:
+                            s_field = cond.get('field')
+                            s_op = str(cond.get('operator', '=')).upper()
+                            s_val = cond.get('value')
+                            if s_field and s_field in df.columns:
+                                if s_op == '=':
+                                    df = df[df[s_field].astype(str) == str(s_val)]
+                                elif s_op == '!=':
+                                    df = df[df[s_field].astype(str) != str(s_val)]
+                                elif s_op == '>':
+                                    try: df = df[pd.to_numeric(df[s_field]) > float(s_val)]
+                                    except: df = df[df[s_field].astype(str) > str(s_val)]
+                                elif s_op == '<':
+                                    try: df = df[pd.to_numeric(df[s_field]) < float(s_val)]
+                                    except: df = df[df[s_field].astype(str) < str(s_val)]
+                                elif s_op == '>=':
+                                    try: df = df[pd.to_numeric(df[s_field]) >= float(s_val)]
+                                    except: df = df[df[s_field].astype(str) >= str(s_val)]
+                                elif s_op == '<=':
+                                    try: df = df[pd.to_numeric(df[s_field]) <= float(s_val)]
+                                    except: df = df[df[s_field].astype(str) <= str(s_val)]
+                                elif s_op == 'LIKE':
+                                    df = df[df[s_field].astype(str).str.contains(str(s_val), case=False, na=False)]
+                                elif s_op == 'IN' and isinstance(s_val, list):
+                                    df = df[df[s_field].isin(s_val)]
+                    elif isinstance(user_conditions, dict):
+                        for s_field, s_vals in user_conditions.items():
+                            if s_field in df.columns and isinstance(s_vals, list):
+                                df = df[df[s_field].isin(s_vals)]
 
-                # Response fields filtering
-                if res_fields_raw:
-                    try:
-                        res_fields_list = json.loads(res_fields_raw)
-                        avail_cols = [c for c in res_fields_list if c in df.columns]
-                        if avail_cols:
-                            df = df[avail_cols]
-                    except:
-                        pass
+                # 2. Determine allowed Request Fields (Field Request)
+                allowed_req_fields = user_req_fields if user_req_fields else []
+                if not allowed_req_fields and req_fields_raw:
+                    try: allowed_req_fields = json.loads(req_fields_raw) or []
+                    except: allowed_req_fields = []
+
+                for arg in request.args:
+                    if arg not in ['apikey', 'key'] and allowed_req_fields:
+                        if arg not in allowed_req_fields:
+                            cursor.close()
+                            conn.close()
+                            return jsonify({'status': 'error', 'message': f'Disallowed request field: {arg}', 'request_id': request_id}), 400
+
+                # Apply query filter parameters
+                for arg in request.args:
+                    if arg not in ['apikey', 'key'] and arg in df.columns:
+                        if not allowed_req_fields or arg in allowed_req_fields:
+                            val = request.args.get(arg)
+                            if val is not None and val != '':
+                                df = df[df[arg].astype(str) == str(val)]
+
+                # 3. Response fields filtering (Field Response per user vs global)
+                allowed_res_fields = user_res_fields if user_res_fields else []
+                if not allowed_res_fields and res_fields_raw:
+                    try: allowed_res_fields = json.loads(res_fields_raw) or []
+                    except: allowed_res_fields = []
+
+                if allowed_res_fields:
+                    avail_cols = [c for c in allowed_res_fields if c in df.columns]
+                    if avail_cols:
+                        df = df[avail_cols]
 
                 df = df.fillna("")
                 records = df.to_dict(orient='records')
@@ -1490,28 +1530,31 @@ def get_dataset_api(dataset_id):
         if not re.match(r'^[a-zA-Z0-9_]+$', source_name):
             return jsonify({'status': 'error', 'message': 'Invalid source name', 'request_id': request_id}), 400
             
-        req_fields_list_valid = []
-        for f in req_fields_list:
-            if re.match(r'^[a-zA-Z0-9_]+$', f):
-                req_fields_list_valid.append(f)
-                
-        res_fields_list_valid = []
-        for f in res_fields_list:
-            if re.match(r'^[a-zA-Z0-9_]+$', f):
-                res_fields_list_valid.append(f)
-
-        # 3. Handle Scopes (Row-Level Security)
+        # 3. Handle Scopes (Row-Level Security & Per-User Fields)
         scope_where_clause = " 1=1 "
         scope_params = []
-        if api_type == 'scope':
+        user_req_fields = []
+        user_res_fields = []
+        user_conditions = []
+
+        if credential_id:
             cursor.execute("SELECT scope_json FROM api_scopes WHERE credential_id = %s", (credential_id,))
             scope_row = cursor.fetchone()
             if scope_row and scope_row[0]:
                 try:
                     scope_obj = json.loads(scope_row[0]) if isinstance(scope_row[0], str) else scope_row[0]
+                    if isinstance(scope_obj, dict) and ('request_fields' in scope_obj or 'response_fields' in scope_obj or 'conditions' in scope_obj):
+                        user_req_fields = scope_obj.get('request_fields', []) or []
+                        user_res_fields = scope_obj.get('response_fields', []) or []
+                        user_conditions = scope_obj.get('conditions', []) or []
+                    elif isinstance(scope_obj, list):
+                        user_conditions = scope_obj
+                    elif isinstance(scope_obj, dict):
+                        user_conditions = scope_obj
+
                     allowed_ops = ['=', '!=', '>', '<', '>=', '<=', 'LIKE', 'IN']
-                    if isinstance(scope_obj, list):
-                        for idx, cond in enumerate(scope_obj):
+                    if isinstance(user_conditions, list):
+                        for idx, cond in enumerate(user_conditions):
                             field = cond.get('field')
                             op = str(cond.get('operator', '=')).upper()
                             val = cond.get('value')
@@ -1531,8 +1574,8 @@ def get_dataset_api(dataset_id):
                             else:
                                 if field:
                                     return jsonify({'status': 'error', 'message': f'Invalid scope operator: {op}'}), 400
-                    elif isinstance(scope_obj, dict):
-                        for field, values in scope_obj.items():
+                    elif isinstance(user_conditions, dict):
+                        for field, values in user_conditions.items():
                             if values and isinstance(values, list):
                                 if not re.match(r'^[a-zA-Z0-9_]+$', field): continue
                                 placeholders = ', '.join(['%s'] * len(values))
@@ -1541,16 +1584,23 @@ def get_dataset_api(dataset_id):
                 except Exception as e:
                     current_app.logger.error(f"[{request_id}] Scope parsing error: {e}")
 
-        # 4. Handle User Filters (Request Fields)
+        # 4. Handle User Filters (Request Fields - Per User Scope or Global)
+        effective_req_fields = user_req_fields if user_req_fields else req_fields_list
+        effective_req_fields_valid = [f for f in effective_req_fields if re.match(r'^[a-zA-Z0-9_]+$', f)]
+
+        effective_res_fields = user_res_fields if user_res_fields else res_fields_list
+        effective_res_fields_valid = [f for f in effective_res_fields if re.match(r'^[a-zA-Z0-9_]+$', f)]
+
         filter_where_clause = ""
         filter_params = []
         
         # Deny unallowed request fields
         for arg in request.args:
-            if arg != 'apikey' and arg not in req_fields_list_valid:
-                return jsonify({'status': 'error', 'message': f'Disallowed request field: {arg}'}), 400
+            if arg not in ['apikey', 'key']:
+                if effective_req_fields_valid and arg not in effective_req_fields_valid:
+                    return jsonify({'status': 'error', 'message': f'Disallowed request field: {arg}'}), 400
                 
-        for field in req_fields_list_valid:
+        for field in effective_req_fields_valid:
             val = request.args.get(field)
             if val:
                 filter_where_clause += f" AND `{field}` = %s"
@@ -1559,8 +1609,8 @@ def get_dataset_api(dataset_id):
         # 5. Build Dynamic SQL safely
         # Limit response fields to what was configured
         select_clause = "*"
-        if res_fields_list_valid:
-            select_clause = ", ".join([f"`{f}`" for f in res_fields_list_valid])
+        if effective_res_fields_valid:
+            select_clause = ", ".join([f"`{f}`" for f in effective_res_fields_valid])
 
         # Whitelist databases check again (backend layer)
         if db_name not in ALLOWED_DATABASES:
@@ -1572,27 +1622,20 @@ def get_dataset_api(dataset_id):
         all_params = scope_params + filter_params
         
         if db_name in ['STG_DATAEXCHAGE', 'DWH_DATAEXCHAGE']:
-            # Replace %s with :N
-            def replacer(match, counter=[0]):
-                counter[0] += 1
-                return f":{counter[0]}"
             import re
-            
-            # Use regex to find %s exactly. 
-            # Note: since this runs per request, we compile regex pattern.
-            scope_where_clause_ora = re.sub(r'%s', replacer, scope_where_clause)
-            
-            # Reset counter for filter_where_clause_ora using the count from scope
-            c_val = scope_where_clause.count('%s')
-            def replacer_filter(match, counter=[c_val]):
-                counter[0] += 1
-                return f":{counter[0]}"
-            filter_where_clause_ora = re.sub(r'%s', replacer_filter, filter_where_clause)
+            bind_counter = 0
+            def replace_bind(match):
+                nonlocal bind_counter
+                bind_counter += 1
+                return f":{bind_counter}"
+
+            scope_where_clause_ora = re.sub(r'%s', replace_bind, scope_where_clause)
+            filter_where_clause_ora = re.sub(r'%s', replace_bind, filter_where_clause)
             
             # Oracle identifiers might be uppercase. Safest is double quotes if it was unquoted, or just uppercase.
             select_clause_ora = "*"
-            if res_fields_list_valid:
-                select_clause_ora = ", ".join([f'"{f}"' for f in res_fields_list_valid])
+            if effective_res_fields_valid:
+                select_clause_ora = ", ".join([f'"{f}"' for f in effective_res_fields_valid])
             
             # Replace backticks in where clauses
             scope_where_clause_ora = scope_where_clause_ora.replace('`', '"')
@@ -2091,8 +2134,22 @@ def addApiCredential():
         credential_id = cursor.lastrowid
 
         # Insert scope if provided
-        if scope_json:
-            scope_str = json.dumps(scope_json) if isinstance(scope_json, (dict, list)) else scope_json
+        request_fields = dataInput.get('request_fields', [])
+        response_fields = dataInput.get('response_fields', [])
+        if scope_json or request_fields or response_fields:
+            if isinstance(scope_json, dict) and ('request_fields' in scope_json or 'response_fields' in scope_json or 'conditions' in scope_json):
+                standard_scope_obj = {
+                    'request_fields': scope_json.get('request_fields', request_fields or []),
+                    'response_fields': scope_json.get('response_fields', response_fields or []),
+                    'conditions': scope_json.get('conditions', [])
+                }
+            else:
+                standard_scope_obj = {
+                    'request_fields': request_fields or [],
+                    'response_fields': response_fields or [],
+                    'conditions': scope_json if isinstance(scope_json, (list, dict)) else []
+                }
+            scope_str = json.dumps(standard_scope_obj)
             sql_scope = "INSERT INTO api_scopes (credential_id, scope_json) VALUES (%s, %s)"
             cursor.execute(sql_scope, (credential_id, scope_str))
 
@@ -2263,8 +2320,23 @@ def updateApiScope():
         # Admin check handled by decorator
 
         credential_id = dataInput['credential_id']
-        scope_json = dataInput['scope_json']
-        scope_str = json.dumps(scope_json) if isinstance(scope_json, dict) else scope_json
+        scope_json = dataInput.get('scope_json')
+        request_fields = dataInput.get('request_fields', [])
+        response_fields = dataInput.get('response_fields', [])
+
+        if isinstance(scope_json, dict) and ('request_fields' in scope_json or 'response_fields' in scope_json or 'conditions' in scope_json):
+            standard_scope_obj = {
+                'request_fields': scope_json.get('request_fields', request_fields or []),
+                'response_fields': scope_json.get('response_fields', response_fields or []),
+                'conditions': scope_json.get('conditions', [])
+            }
+        else:
+            standard_scope_obj = {
+                'request_fields': request_fields or [],
+                'response_fields': response_fields or [],
+                'conditions': scope_json if isinstance(scope_json, (list, dict)) else []
+            }
+        scope_str = json.dumps(standard_scope_obj)
 
         conn = mysql.connect()
         cursor = conn.cursor()
@@ -2880,7 +2952,7 @@ def reject_dataset_request():
 @app.route('/getAllApiScopes', methods=['POST'])
 @require_admin
 def getAllApiScopes():
-    """Get all scopes across all services."""
+    """Get all scopes across all services with parsed request_fields, response_fields, and conditions."""
     try:
         dataInput = request.json
         user_data = getattr(request, 'current_user', {})
@@ -2892,7 +2964,9 @@ def getAllApiScopes():
         sql = """SELECT c.credential_id, c.service_id, c.user_id, c.status, c.public_key_id, c.key_last_four, c.expires_at,
                         u.username, u.firstname, u.lastname,
                         s.scope_json, s.scope_id,
-                        srv.service_name, srv.dataset_id, srv.api_db_name, srv.api_source_name
+                        srv.service_name, srv.dataset_id, srv.api_db_name, srv.api_source_name,
+                        srv.api_request_fields AS global_request_fields,
+                        srv.api_response_fields AS global_response_fields
                  FROM api_credentials c
                  JOIN user u ON c.user_id = u.user_id
                  JOIN api_scopes s ON s.credential_id = c.credential_id
@@ -2904,11 +2978,27 @@ def getAllApiScopes():
         result = toJson(data, columns)
         
         for row in result:
-            if row.get('scope_json'):
+            raw_scope = row.get('scope_json')
+            req_f = []
+            res_f = []
+            conds = []
+            if raw_scope:
                 try:
-                    row['scope_json'] = json.loads(row['scope_json']) if isinstance(row['scope_json'], str) else row['scope_json']
+                    scope_obj = json.loads(raw_scope) if isinstance(raw_scope, str) else raw_scope
+                    if isinstance(scope_obj, dict) and ('request_fields' in scope_obj or 'response_fields' in scope_obj or 'conditions' in scope_obj):
+                        req_f = scope_obj.get('request_fields', []) or []
+                        res_f = scope_obj.get('response_fields', []) or []
+                        conds = scope_obj.get('conditions', []) or []
+                    elif isinstance(scope_obj, list):
+                        conds = scope_obj
+                    elif isinstance(scope_obj, dict):
+                        conds = scope_obj
+                    row['scope_json'] = scope_obj
                 except:
                     pass
+            row['request_fields'] = req_f
+            row['response_fields'] = res_f
+            row['conditions'] = conds
 
         cursor.close()
         conn.close()
@@ -2920,7 +3010,7 @@ def getAllApiScopes():
 @app.route('/saveApiScopeForUser', methods=['POST'])
 @require_admin
 def saveApiScopeForUser():
-    """Upsert a credential and save its scope."""
+    """Upsert a credential and save its scope (request_fields, response_fields, conditions)."""
     try:
         dataInput = request.json
         user_data = getattr(request, 'current_user', {})
@@ -2929,16 +3019,42 @@ def saveApiScopeForUser():
 
         service_id = dataInput['service_id']
         target_user_id = dataInput['target_user_id']
-        scope_json = dataInput['scope_json']
-        
+        scope_json = dataInput.get('scope_json')
+        request_fields = dataInput.get('request_fields', [])
+        response_fields = dataInput.get('response_fields', [])
+        expires_at = dataInput.get('expires_at')
+
+        # Structure standardized scope object (1 User : 1 API)
+        if isinstance(scope_json, dict) and ('request_fields' in scope_json or 'response_fields' in scope_json or 'conditions' in scope_json):
+            standard_scope_obj = {
+                'request_fields': scope_json.get('request_fields', request_fields or []),
+                'response_fields': scope_json.get('response_fields', response_fields or []),
+                'conditions': scope_json.get('conditions', [])
+            }
+        else:
+            standard_scope_obj = {
+                'request_fields': request_fields or [],
+                'response_fields': response_fields or [],
+                'conditions': scope_json if isinstance(scope_json, (list, dict)) else []
+            }
+        scope_str = json.dumps(standard_scope_obj)
+
         conn = mysql.connect()
         cursor = conn.cursor()
         
         cursor.execute("SELECT credential_id FROM api_credentials WHERE service_id=%s AND user_id=%s", (service_id, target_user_id))
         cred = cursor.fetchone()
         
+        full_secret_key = None
         if cred:
             credential_id = cred[0]
+            if expires_at:
+                try:
+                    import dateutil.parser
+                    exp_dt = dateutil.parser.parse(expires_at).strftime("%Y-%m-%d %H:%M:%S")
+                    cursor.execute("UPDATE api_credentials SET expires_at=%s WHERE credential_id=%s", (exp_dt, credential_id))
+                except Exception:
+                    pass
         else:
             import secrets
             import string
@@ -2951,12 +3067,20 @@ def saveApiScopeForUser():
             secret_hash = hashlib.sha256(full_secret_key.encode('utf-8')).hexdigest()
             key_last_four = full_secret_key[-4:]
             
-            sql_insert = "INSERT INTO api_credentials (service_id, user_id, public_key_id, secret_hash, key_last_four, status) VALUES (%s, %s, %s, %s, %s, 'active')"
-            cursor.execute(sql_insert, (service_id, target_user_id, public_key_id, secret_hash, key_last_four))
+            if expires_at:
+                try:
+                    import dateutil.parser
+                    exp_dt = dateutil.parser.parse(expires_at).strftime("%Y-%m-%d %H:%M:%S")
+                    sql_insert = "INSERT INTO api_credentials (service_id, user_id, public_key_id, secret_hash, key_last_four, status, expires_at) VALUES (%s, %s, %s, %s, %s, 'active', %s)"
+                    cursor.execute(sql_insert, (service_id, target_user_id, public_key_id, secret_hash, key_last_four, exp_dt))
+                except Exception:
+                    sql_insert = "INSERT INTO api_credentials (service_id, user_id, public_key_id, secret_hash, key_last_four, status) VALUES (%s, %s, %s, %s, %s, 'active')"
+                    cursor.execute(sql_insert, (service_id, target_user_id, public_key_id, secret_hash, key_last_four))
+            else:
+                sql_insert = "INSERT INTO api_credentials (service_id, user_id, public_key_id, secret_hash, key_last_four, status) VALUES (%s, %s, %s, %s, %s, 'active')"
+                cursor.execute(sql_insert, (service_id, target_user_id, public_key_id, secret_hash, key_last_four))
             credential_id = cursor.lastrowid
             
-        scope_str = json.dumps(scope_json) if isinstance(scope_json, (dict, list)) else scope_json
-        
         cursor.execute("SELECT scope_id FROM api_scopes WHERE credential_id=%s", (credential_id,))
         if cursor.fetchone():
             cursor.execute("UPDATE api_scopes SET scope_json=%s WHERE credential_id=%s", (scope_str, credential_id))
@@ -2966,7 +3090,11 @@ def saveApiScopeForUser():
         conn.commit()
         cursor.close()
         conn.close()
-        return jsonify({'status': 'success'})
+        
+        resp = {'status': 'success'}
+        if full_secret_key:
+            resp['secret_key'] = full_secret_key
+        return jsonify(resp)
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
