@@ -83,6 +83,8 @@ const fetchPendingRequests = async () => {
   }
 };
 
+const isApproving = ref(false);
+
 const openApprovalModal = (req) => {
   selectedRequest.value = req;
   const isDashboardOnly = req.request_type === 'dashboard';
@@ -99,10 +101,12 @@ const openApprovalModal = (req) => {
 const closeApprovalModal = () => {
   showModal.value = false;
   selectedRequest.value = null;
+  isApproving.value = false;
 };
 
 const submitApproval = async () => {
-  if (!selectedRequest.value) return;
+  if (!selectedRequest.value || isApproving.value) return;
+  isApproving.value = true;
   try {
     const userData = localStorage.getItem('user');
     await apiClient.post('/approveDatasetRequest', {
@@ -115,6 +119,8 @@ const submitApproval = async () => {
     fetchPendingRequests();
   } catch (error) {
     alert('เกิดข้อผิดพลาดในการอนุมัติ: ' + (error.response?.data?.message || error.message));
+  } finally {
+    isApproving.value = false;
   }
 };
 
@@ -346,63 +352,119 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Modal อนุมัติสิทธิ์ -->
-    <div v-if="showModal" class="modal-backdrop">
-      <div class="modal-card">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <h3 style="margin:0;">อนุมัติสิทธิ์การเข้าถึงข้อมูล</h3>
-          <span v-if="selectedRequest?.request_type === 'dashboard'" class="badge-type badge-dashboard">📊 ขอสิทธิ์แดชบอร์ด</span>
-          <span v-else-if="selectedRequest?.request_type === 'api'" class="badge-type badge-api">⚡ ขอสิทธิ์ข้อมูล API</span>
-          <span v-else class="badge-type badge-all">🌐 ขอสิทธิ์ทั้งหมด</span>
+    <!-- Modal ตรวจสอบและอนุมัติสิทธิ์ (Approval Modal) -->
+    <div v-if="showModal" class="modal-backdrop" @click.self="closeApprovalModal">
+      <div class="modal-card approval-modal-card">
+        <div class="approval-modal-header">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem;">
+              <span v-if="selectedRequest?.request_type === 'dashboard'">📊</span>
+              <span v-else-if="selectedRequest?.request_type === 'api'">⚡</span>
+              <span v-else>🌐</span>
+            </div>
+            <div>
+              <h3 style="margin: 0; font-size: 1.15rem; color: #1e293b;">อนุมัติคำขอเข้าถึงข้อมูล</h3>
+              <p style="margin: 2px 0 0 0; font-size: 0.8rem; color: #64748b;">
+                คำขอ #{{ selectedRequest?.request_id }} โดย {{ selectedRequest?.firstname }} {{ selectedRequest?.lastname }}
+              </p>
+            </div>
+          </div>
+          <button class="btn-close-modal" @click="closeApprovalModal" title="ปิดหน้าต่าง">✕</button>
         </div>
-        <p class="mb-4 text-sm text-slate-500">เลือกกำหนดระดับการเข้าถึงข้อมูลให้กับ <strong>{{ selectedRequest?.firstname }} {{ selectedRequest?.lastname }} ({{ selectedRequest?.username }})</strong> สำหรับชุดข้อมูล <strong>{{ selectedRequest?.service_name || selectedRequest?.service_id }}</strong></p>
-        
-        <!-- Requested fields info for API -->
-        <div v-if="selectedRequest?.request_type === 'api' && selectedRequest?.fields && selectedRequest?.fields.length > 0" style="margin-bottom: 16px; padding: 10px 14px; background: #ecfdf5; border-radius: 8px; border: 1px solid #a7f3d0; font-size: 0.85rem;">
-          <strong style="color: #065f46; display:block; margin-bottom:6px;">⚡ ฟิลด์ข้อมูลที่ผู้ใช้ขอเข้าถึง ({{ selectedRequest.fields.length }} ฟิลด์):</strong>
-          <div style="display: flex; flex-wrap: wrap; gap: 4px; max-height: 80px; overflow-y: auto;">
-            <span v-for="f in selectedRequest.fields" :key="f" style="background: white; border: 1px solid #6ee7b7; color: #047857; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem;">
-              {{ f }}
+
+        <div class="approval-modal-body">
+          <!-- Request Meta Summary -->
+          <div class="approval-meta-grid">
+            <div class="meta-item">
+              <span class="meta-label">ชุดข้อมูล</span>
+              <strong class="meta-value">{{ selectedRequest?.service_name || selectedRequest?.service_id }}</strong>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">ประเภทสิทธิ์ที่ขอ</span>
+              <div>
+                <span v-if="selectedRequest?.request_type === 'dashboard'" class="badge-type badge-dashboard">📊 คำขอแดชบอร์ด</span>
+                <span v-else-if="selectedRequest?.request_type === 'api'" class="badge-type badge-api">⚡ คำขอข้อมูล API</span>
+                <span v-else class="badge-type badge-all">🌐 คำขอทั้งหมด</span>
+              </div>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">ผู้ขอเข้าถึง</span>
+              <span class="meta-value">{{ selectedRequest?.firstname }} {{ selectedRequest?.lastname }} ({{ selectedRequest?.email }})</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">หน่วยงาน</span>
+              <span class="meta-value">{{ selectedRequest?.organization || '-' }}</span>
+            </div>
+          </div>
+
+          <!-- Purpose / Reason -->
+          <div v-if="selectedRequest?.reason" class="approval-section-card">
+            <div class="section-card-title">📝 วัตถุประสงค์ในการขอเข้าถึง:</div>
+            <div class="section-card-content">{{ selectedRequest.reason }}</div>
+          </div>
+
+          <!-- Document Attachment (เอกสารแนบประกอบคำขอ) -->
+          <div v-if="selectedRequest?.mou_file_path" class="approval-doc-card">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 1.5rem;">📄</span>
+              <div>
+                <div style="font-weight: 600; font-size: 0.85rem; color: #1e293b;">เอกสารประกอบคำขอ</div>
+                <div style="font-size: 0.75rem; color: #64748b;">{{ selectedRequest?.mou_filename || 'เอกสารแนบประกอบคำขอ' }}</div>
+              </div>
+            </div>
+            <a :href="`/api/downloadRequestMou/${selectedRequest?.request_id}`" target="_blank" class="btn-view-doc" title="คลิกเพื่อเปิดดูเอกสารแนบในแท็บใหม่">
+              📄 เปิดดูเอกสาร
+            </a>
+          </div>
+
+          <!-- Requested Fields for API (ถ้าเป็น API แสดงฟิลด์ที่ขอ) -->
+          <div v-if="selectedRequest?.request_type === 'api' || (selectedRequest?.fields && selectedRequest?.fields.length > 0)" class="approval-fields-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <strong style="color: #065f46; font-size: 0.85rem;">
+                ⚡ ฟิลด์ข้อมูลที่ขอใช้งาน ({{ selectedRequest.fields?.length || 0 }} ฟิลด์):
+              </strong>
+              <button 
+                v-if="selectedRequest.fields && selectedRequest.fields.length > 0"
+                class="btn-copy-sm"
+                @click="copyFieldsToClipboard(selectedRequest.fields)"
+                title="คัดลอกรายชื่อฟิลด์"
+              >
+                <span v-if="copiedFields">✅ คัดลอกแล้ว</span>
+                <span v-else>📋 คัดลอก</span>
+              </button>
+            </div>
+            <div v-if="selectedRequest.fields && selectedRequest.fields.length > 0" class="approval-fields-grid">
+              <span v-for="(f, i) in selectedRequest.fields" :key="f" class="approval-field-chip">
+                <span class="chip-num">{{ i + 1 }}</span>
+                <span class="chip-name">{{ f }}</span>
+              </span>
+            </div>
+            <div v-else style="font-size: 0.8rem; color: #64748b; font-style: italic;">
+              คำขอนี้ขอสิทธิ์ทุกฟิลด์ในชุดข้อมูล
+            </div>
+          </div>
+
+          <!-- Direct Grant Notice -->
+          <div class="approval-notice-banner">
+            <span style="font-size: 1.1rem;">💡</span>
+            <span v-if="selectedRequest?.request_type === 'dashboard'">
+              การอนุมัติจะให้สิทธิ์ผู้ใช้เข้าถึงหน้าแดชบอร์ดของชุดข้อมูลนี้ทันที
+            </span>
+            <span v-else-if="selectedRequest?.request_type === 'api'">
+              การอนุมัติจะให้สิทธิ์ผู้ใช้เรียกใช้งาน API สำหรับฟิลด์ข้อมูลที่เลือกทันที
+            </span>
+            <span v-else>
+              การอนุมัติจะให้สิทธิ์ผู้ใช้เข้าถึงทั้งแดชบอร์ดและ API ของชุดข้อมูลนี้ทันที
             </span>
           </div>
         </div>
 
-        <div v-if="selectedRequest?.mou_file_path" style="margin-bottom: 16px; padding: 12px 14px; background: #f1f5f9; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #e2e8f0;">
-          <div>
-            <div style="font-weight: 600; font-size: 0.85rem; color: #1e293b;">📄 เอกสารแนบคำขอ:</div>
-            <div style="font-size: 0.8rem; color: #64748b;">{{ selectedRequest?.mou_filename || 'เอกสารประกอบคำขอ' }}</div>
-          </div>
-          <a :href="`/api/downloadRequestMou/${selectedRequest?.request_id}`" target="_blank" style="display: inline-block; padding: 6px 14px; background: #008236; color: white; border-radius: 6px; font-size: 0.85rem; text-decoration: none; font-weight: 600;">
-            เปิดดูไฟล์
-          </a>
-        </div>
-
-        <div v-if="selectedRequest?.reason" style="margin-bottom: 16px; padding: 10px 14px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 0.85rem;">
-          <strong style="color: #334155;">วัตถุประสงค์:</strong> <span style="color: #475569;">{{ selectedRequest.reason }}</span>
-        </div>
-
-        <div class="form-group checkbox-group">
-          <label>
-            <input type="checkbox" v-model="granularForm.allow_dictionary">
-            สิทธิ์ดูพจนานุกรมและข้อมูลตัวอย่าง (Data Dictionary & Preview)
-          </label>
-        </div>
-        <div class="form-group checkbox-group">
-          <label>
-            <input type="checkbox" v-model="granularForm.allow_dashboard">
-            สิทธิ์ดู Dashboard (Visualizations)
-          </label>
-        </div>
-        <div class="form-group checkbox-group">
-          <label>
-            <input type="checkbox" v-model="granularForm.allow_api">
-            สิทธิ์เรียกใช้ API และดาวน์โหลด (API Access & Download)
-          </label>
-        </div>
-
-        <div class="modal-actions">
-          <button class="btn-cancel" @click="closeApprovalModal">ยกเลิก</button>
-          <button class="btn-confirm" @click="submitApproval">ยืนยันการอนุมัติ</button>
+        <div class="approval-modal-footer">
+          <button class="btn-cancel" @click="closeApprovalModal" :disabled="isApproving">ยกเลิก</button>
+          <button class="btn-confirm-approve" @click="submitApproval" :disabled="isApproving">
+            <span v-if="isApproving">กำลังอนุมัติ...</span>
+            <span v-else>✓ อนุมัติคำขอ</span>
+          </button>
         </div>
       </div>
     </div>
@@ -827,5 +889,220 @@ onMounted(() => {
 }
 .btn-copy-fields:hover {
   background: #065f46;
+}
+
+/* Approval Modal Styles */
+.approval-modal-card {
+  width: 600px;
+  max-width: 95vw;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.approval-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.approval-modal-body {
+  padding: 16px 0;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.approval-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 14px;
+  border-radius: 8px;
+}
+
+.meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.meta-label {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.meta-value {
+  font-size: 0.9rem;
+  color: #1e293b;
+  word-break: break-word;
+}
+
+.approval-section-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  padding: 12px 14px;
+  border-radius: 8px;
+}
+
+.section-card-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+.section-card-content {
+  font-size: 0.85rem;
+  color: #334155;
+  line-height: 1.4;
+  white-space: pre-line;
+}
+
+.approval-doc-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  padding: 12px 14px;
+  border-radius: 8px;
+}
+
+.btn-view-doc {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: #008236;
+  color: white;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s;
+  box-shadow: 0 1px 2px rgba(0, 130, 54, 0.2);
+}
+
+.btn-view-doc:hover {
+  background: #00662a;
+}
+
+.approval-fields-card {
+  background: #f0fdf4;
+  border: 1px solid #a7f3d0;
+  padding: 12px 14px;
+  border-radius: 8px;
+}
+
+.btn-copy-sm {
+  background: white;
+  border: 1px solid #a7f3d0;
+  color: #047857;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-copy-sm:hover {
+  background: #ecfdf5;
+  border-color: #059669;
+}
+
+.approval-fields-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+  padding-top: 4px;
+}
+
+.approval-field-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: white;
+  border: 1px solid #bbf7d0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.chip-num {
+  background: #dcfce7;
+  color: #166534;
+  font-size: 0.65rem;
+  font-weight: 700;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.chip-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 600;
+  color: #0f766e;
+}
+
+.approval-notice-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 0.825rem;
+  line-height: 1.4;
+}
+
+.approval-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.btn-confirm-approve {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 9px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.25);
+  transition: all 0.2s;
+}
+
+.btn-confirm-approve:hover:not(:disabled) {
+  background: #059669;
+  box-shadow: 0 4px 6px rgba(16, 185, 129, 0.35);
+}
+
+.btn-confirm-approve:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>
