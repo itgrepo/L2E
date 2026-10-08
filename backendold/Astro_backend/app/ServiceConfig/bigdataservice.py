@@ -2771,7 +2771,7 @@ def get_pending_dataset_requests():
             user_data = safe_json_loads(decoded_user)
             
         # Verify admin status
-        if not checkUserIsAdmin(user_data) and str(user_data.get('previlage_id')) != '1':
+        if not checkUserIsAdmin(user_data) and str(user_data.get('previlage_id')) not in ['1', '3', '4', '5']:
             return jsonify({'status': 'error', 'message': 'Permission Denied'}), 403
             
         filter_status = dataInput.get('status', 'Pending')
@@ -2781,20 +2781,22 @@ def get_pending_dataset_requests():
         if filter_status == 'All':
             sql = """SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
                             r.mou_file_path, r.mou_filename, r.request_type,
-                            u.username, u.firstname, u.lastname, u.email, u.organization,
+                            u.username, u.firstname, u.lastname, u.email, COALESCE(org.org_name, '') AS organization,
                             s.service_name, s.dataset_id, s.organization as dataset_org
                      FROM dataset_permission_requests r
                      JOIN user u ON r.user_id = u.user_id
+                     LEFT JOIN organization org ON u.org_id = org.org_id
                      JOIN service s ON r.service_id = s.service_id
                      ORDER BY r.created_at DESC"""
             cursor.execute(sql)
         else:
             sql = """SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
                             r.mou_file_path, r.mou_filename, r.request_type,
-                            u.username, u.firstname, u.lastname, u.email, u.organization,
+                            u.username, u.firstname, u.lastname, u.email, COALESCE(org.org_name, '') AS organization,
                             s.service_name, s.dataset_id, s.organization as dataset_org
                      FROM dataset_permission_requests r
                      JOIN user u ON r.user_id = u.user_id
+                     LEFT JOIN organization org ON u.org_id = org.org_id
                      JOIN service s ON r.service_id = s.service_id
                      WHERE r.status = %s
                      ORDER BY r.created_at DESC"""
@@ -2831,7 +2833,7 @@ def approve_dataset_request():
             
         request_id = dataInput.get('request_id')
         
-        if not checkUserIsAdmin(user_data) and str(user_data.get('previlage_id')) != '1':
+        if not checkUserIsAdmin(user_data) and str(user_data.get('previlage_id')) not in ['1', '3', '4', '5']:
             return jsonify({'status': 'error', 'message': 'Permission Denied'}), 403
             
         conn = mysql.connect()
@@ -2915,7 +2917,7 @@ def reject_dataset_request():
             
         request_id = dataInput.get('request_id')
         
-        if not checkUserIsAdmin(user_data) and str(user_data.get('previlage_id')) != '1':
+        if not checkUserIsAdmin(user_data) and str(user_data.get('previlage_id')) not in ['1', '3', '4', '5']:
             return jsonify({'status': 'error', 'message': 'Permission Denied'}), 403
             
         conn = mysql.connect()

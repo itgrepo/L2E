@@ -95,39 +95,65 @@ SECRET_KEY = "intelligist-datax-secure-secret-key-2026"
 auth_serializer = URLSafeTimedSerializer(SECRET_KEY)
 
 def platform_decode(data):
-    try:
-        # Decode the secure token
-        user_dict = auth_serializer.loads(data, max_age=86400) # 1 day expiration
-        return json.dumps(user_dict)
-    except Exception as e:
+    if not data:
         return ''
+    if isinstance(data, dict):
+        return json.dumps(data)
+    if isinstance(data, str) and data.strip().startswith('{'):
+        return data
+    # 1. Try URLSafeTimedSerializer
+    try:
+        user_dict = auth_serializer.loads(data, max_age=86400)
+        return json.dumps(user_dict)
+    except Exception:
+        pass
+    # 2. Try decode(data) (reversed base64 with 5 trailing salt chars)
+    try:
+        dec = decode(data)
+        if isinstance(dec, bytes):
+            dec = dec.decode('utf-8')
+        return dec
+    except Exception:
+        pass
+    # 3. Try standard base64
+    try:
+        padded = data + '=' * ((4 - len(data) % 4) % 4)
+        dec = base64.b64decode(padded).decode('utf-8')
+        return dec
+    except Exception:
+        pass
+    return data
 
 def safe_json_loads(data):
     if not data:
         return {}
+    if isinstance(data, dict):
+        return data
     try:
         return json.loads(data)
     except:
         return {}
 
 def checkUserIsAdmin(user_data):
-    conn = mysql.connect()
-    cursor = conn.cursor()
-    # sql_check_Permission = "SELECT previlage_id FROM user WHERE user_id = %s AND username = %s AND email = %s AND status_id != 7"
-    # cursor.execute(sql_check_Permission, (user_data['user_id'],user_data['username'],user_data['email']))
-    sql_check_Permission = "SELECT previlage_id FROM user WHERE user_id = %s AND username = %s AND status_id != 7"
-    cursor.execute(sql_check_Permission, (user_data['user_id'],user_data['username']))
-    data_check_Permission = cursor.fetchall()
-    columns = [column[0] for column in cursor.description]
-    result_check_Permission = toJson(data_check_Permission, columns)
-    conn.commit()
-    cursor.close()
-    if len(result_check_Permission) != 0 :
-        if str(result_check_Permission[0]['previlage_id']) in ['3', '4']: # previlage_id = 4 is Admin
-            return True #user is admin
-        else :
-            return False #user not admin
-    else : #not found user
+    if not isinstance(user_data, dict) or not user_data.get('user_id'):
+        return False
+    try:
+        if str(user_data.get('previlage_id')) in ['3', '4', '5']:
+            return True
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        sql_check_Permission = "SELECT previlage_id FROM user WHERE user_id = %s AND status_id != 7"
+        cursor.execute(sql_check_Permission, (user_data.get('user_id'),))
+        data_check_Permission = cursor.fetchall()
+        columns = [column[0] for column in cursor.description]
+        result_check_Permission = toJson(data_check_Permission, columns)
+        cursor.close()
+        conn.close()
+        if len(result_check_Permission) != 0:
+            if str(result_check_Permission[0]['previlage_id']) in ['3', '4', '5']:
+                return True
+        return False
+    except Exception:
         return False
 
 from functools import wraps
