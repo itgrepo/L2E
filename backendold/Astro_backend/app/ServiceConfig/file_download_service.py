@@ -183,17 +183,8 @@ def downloadRequestMou(request_id):
                     mimetype = 'image/jpeg'
                 elif display_lower.endswith('.png') or file_lower.endswith('.png'):
                     mimetype = 'image/png'
-                elif display_lower.endswith('.webp') or file_lower.endswith('.webp'):
-                    mimetype = 'image/webp'
-                elif display_lower.endswith('.gif') or file_lower.endswith('.gif'):
-                    mimetype = 'image/gif'
-                elif display_lower.endswith('.bmp') or file_lower.endswith('.bmp'):
-                    mimetype = 'image/bmp'
                 else:
-                    import mimetypes
-                    guessed = mimetypes.guess_type(display_name)[0]
-                    if guessed:
-                        mimetype = guessed
+                    return jsonify({"status": "error", "message": "File format not supported or restricted"}), 403
                     
                 try:
                     return send_from_directory(

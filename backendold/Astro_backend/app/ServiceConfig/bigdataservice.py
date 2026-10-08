@@ -2691,11 +2691,11 @@ def request_dataset_permission():
         if not mou_file_base64 or not mou_filename:
             return jsonify({'status': 'error', 'message': 'กรุณาแนบเอกสารประกอบคำขอ (รองรับไฟล์ PDF หรือรูปภาพ ขนาดไม่เกิน 10MB)'}), 400
 
-        # Validate file extension (PDF or Images)
-        allowed_extensions = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']
+        # Validate file extension (Strict: PDF or PNG/JPG/JPEG only, NO SVG)
+        allowed_extensions = ['.pdf', '.jpg', '.jpeg', '.png']
         file_ext = os.path.splitext(mou_filename.lower())[1]
-        if file_ext not in allowed_extensions:
-            return jsonify({'status': 'error', 'message': 'รองรับเฉพาะไฟล์ PDF หรือรูปภาพ (PNG, JPG, JPEG) ขนาดไม่เกิน 10MB เท่านั้น'}), 400
+        if file_ext not in allowed_extensions or file_ext == '.svg':
+            return jsonify({'status': 'error', 'message': 'รองรับเฉพาะไฟล์ PDF หรือรูปภาพ (PNG, JPG, JPEG) ขนาดไม่เกิน 10MB เท่านั้น (ไม่อนุญาตไฟล์ SVG)'}), 400
 
         if request_type == 'api' and (not fields or len(fields) == 0):
             return jsonify({'status': 'error', 'message': 'โปรดเลือกอย่างน้อย 1 ฟิลด์ข้อมูลที่ต้องการใช้งาน'}), 400
@@ -2715,6 +2715,11 @@ def request_dataset_permission():
             if len(file_bytes) > 10 * 1024 * 1024:
                 return jsonify({'status': 'error', 'message': 'ขนาดไฟล์เอกสารแนบเกิน 10MB (รองรับสูงสุด 10MB)'}), 400
                 
+            # Disallow SVG content disguised under other extensions
+            header_sample = file_bytes[:1024].lower()
+            if b'<svg' in header_sample or b'<?xml' in header_sample or b'<script' in header_sample:
+                return jsonify({'status': 'error', 'message': 'ไม่อนุญาตให้อัปโหลดไฟล์ SVG หรือสคริปต์ รองรับเฉพาะ PDF, PNG, JPG, JPEG เท่านั้น'}), 400
+
             clean_name = safe_unicode_filename(mou_filename) or f'mou_document{file_ext or ".pdf"}'
             saved_filename = f"mou_req_{user_id}_{service_id}_{int(time.time())}_{clean_name}"
             saved_filepath = os.path.join(UPLOAD_FOLDER, saved_filename)

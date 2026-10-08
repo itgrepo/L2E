@@ -67,15 +67,23 @@ const reqSuccess = ref('');
 
 const isValidMouFile = (file) => {
   if (!file) return { valid: false, error: 'กรุณาเลือกไฟล์เอกสารแนบ' };
-  const validExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.gif'];
+  
   const fileName = file.name.toLowerCase();
-  const fileType = file.type.toLowerCase();
+  const fileType = (file.type || '').toLowerCase();
   
-  const hasValidExt = validExtensions.some(ext => fileName.endsWith(ext));
-  const hasValidMime = fileType.startsWith('image/') || fileType === 'application/pdf' || !fileType;
+  // Explicitly block SVG
+  if (fileName.endsWith('.svg') || fileType.includes('svg')) {
+    return { valid: false, error: 'ไม่อนุญาตให้อัปโหลดไฟล์ SVG รองรับเฉพาะ PDF หรือรูปภาพ (PNG, JPG, JPEG) เท่านั้น' };
+  }
   
-  if (!hasValidExt && !hasValidMime) {
-    return { valid: false, error: 'รองรับเฉพาะไฟล์ PDF หรือรูปภาพ (PNG, JPG, JPEG) เท่านั้น' };
+  const allowedExtensions = ['.pdf', '.jpg', '.jpeg', '.png'];
+  const allowedMimeTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/pjpeg'];
+  
+  const hasValidExt = allowedExtensions.some(ext => fileName.endsWith(ext));
+  const hasValidMime = allowedMimeTypes.includes(fileType) || (!fileType && hasValidExt);
+  
+  if (!hasValidExt || !hasValidMime) {
+    return { valid: false, error: 'รองรับเฉพาะไฟล์ PDF หรือรูปภาพ (PNG, JPG, JPEG) ขนาดไม่เกิน 10MB เท่านั้น' };
   }
   
   if (file.size > 10 * 1024 * 1024) {
@@ -845,9 +853,9 @@ onMounted(async () => {
                         <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px; font-weight:600;">เอกสารประกอบคำขอ (MOU / หนังสือขอความอนุเคราะห์ / รูปภาพหลักฐาน) <span style="color:#ef4444;">* (จำเป็นต้องแนบ)</span></label>
                         <div style="font-size:0.75rem; color:#1e3a8a; margin-bottom:6px; background:#eff6ff; padding:6px 10px; border-radius:6px; border:1px solid #bfdbfe; display:flex; align-items:center; gap:6px;">
                           <span>📌</span>
-                          <span><strong>เงื่อนไขไฟล์แนบ:</strong> รองรับไฟล์ <strong>PDF หรือรูปภาพ (PNG, JPG, JPEG)</strong> ขนาดไม่เกิน <strong>10 MB</strong></span>
+                          <span><strong>เงื่อนไขไฟล์แนบ:</strong> รองรับไฟล์ <strong>PDF หรือรูปภาพ (PNG, JPG, JPEG)</strong> ขนาดไม่เกิน <strong>10 MB</strong> (ไม่อนุญาตไฟล์ SVG)</span>
                         </div>
-                        <input type="file" @change="handleMouFileChange" accept=".pdf,application/pdf,image/png,image/jpeg,image/jpg,image/webp,image/*" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:0.8rem;background:#f8fafc;cursor:pointer;" required>
+                        <input type="file" @change="handleMouFileChange" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:0.8rem;background:#f8fafc;cursor:pointer;" required>
                         <div v-if="requestForm.mouFileName" style="margin-top:4px; font-size:0.75rem; color:#059669;">
                           📎 ไฟล์ที่เลือก: <strong>{{ requestForm.mouFileName }}</strong>
                         </div>
