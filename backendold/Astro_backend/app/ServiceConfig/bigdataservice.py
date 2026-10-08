@@ -434,7 +434,12 @@ def addService():
                             conn.close()
                             return jsonify({"status": "นามสกุลไฟล์ไม่ได้รับอนุญาต"}), 400
                             
-                        filename = secure_filename(f"ds_{service_id}_{data_file.filename}")
+                        orig_name = data_file.filename.rsplit('.', 1)[0] if '.' in data_file.filename else data_file.filename
+                        clean_orig = re.sub(r'[^a-zA-Z0-9_-]', '_', orig_name)
+                        if not clean_orig or clean_orig.strip('_') == '':
+                            clean_orig = 'data'
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        filename = f"ds_{service_id}_{file_type}_{timestamp}_{clean_orig}.{ext}"
                         save_path = os.path.join(UPLOAD_FOLDER, filename)
                         data_file.save(save_path)
 
