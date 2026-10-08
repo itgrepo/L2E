@@ -85,14 +85,35 @@ def toJson(data,columns):
         results.append(dict(zip(columns, row)))
     return results
 
-def decode(data):
-    return base64.b64decode(data[:-5][::-1])
-
 from itsdangerous import URLSafeTimedSerializer
 import json
 
 SECRET_KEY = "intelligist-datax-secure-secret-key-2026"
 auth_serializer = URLSafeTimedSerializer(SECRET_KEY)
+
+def decode(data):
+    if not data:
+        return b''
+    # 1. Try URLSafeTimedSerializer
+    try:
+        user_dict = auth_serializer.loads(data, max_age=86400)
+        return json.dumps(user_dict).encode('utf-8')
+    except Exception:
+        pass
+    # 2. Try legacy reversed base64 with 5 trailing salt characters
+    try:
+        return base64.b64decode(data[:-5][::-1])
+    except Exception:
+        pass
+    # 3. Try standard base64
+    try:
+        padded = data + '=' * ((4 - len(data) % 4) % 4)
+        return base64.b64decode(padded)
+    except Exception:
+        pass
+    if isinstance(data, str):
+        return data.encode('utf-8')
+    return data
 
 def platform_decode(data):
     if not data:
@@ -107,19 +128,16 @@ def platform_decode(data):
         return json.dumps(user_dict)
     except Exception:
         pass
-    # 2. Try decode(data) (reversed base64 with 5 trailing salt chars)
+    # 2. Try legacy reversed base64
     try:
-        dec = decode(data)
-        if isinstance(dec, bytes):
-            dec = dec.decode('utf-8')
-        return dec
+        dec = base64.b64decode(data[:-5][::-1])
+        return dec.decode('utf-8')
     except Exception:
         pass
     # 3. Try standard base64
     try:
         padded = data + '=' * ((4 - len(data) % 4) % 4)
-        dec = base64.b64decode(padded).decode('utf-8')
-        return dec
+        return base64.b64decode(padded).decode('utf-8')
     except Exception:
         pass
     return data
