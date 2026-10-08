@@ -915,7 +915,7 @@ def getDatasetApiEndpoints():
         
         # Match API_CLONE_[dataset_id]_[api_endpoint]
         pattern = f"API\_CLONE\_{dataset_id}\_%"
-        sql = "SELECT service_name, api_endpoint, description, api_type, status FROM service WHERE dataset_id LIKE %s AND status = 'Active'"
+        sql = "SELECT service_id, dataset_id, service_name, api_endpoint, description, api_type, status, api_response_fields, api_request_fields FROM service WHERE dataset_id LIKE %s AND status = 'Active'"
         cursor.execute(sql, (pattern,))
         data = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
@@ -1047,6 +1047,7 @@ import io
 
 
 @app.route('/dataapi/api/v1/<dataset_id>/file', methods=['GET'])
+@app.route('/dataapi/api/v1/file/<dataset_id>', methods=['GET'])
 def get_dataset_file_api(dataset_id):
     import os
     import pandas as pd
@@ -1258,6 +1259,8 @@ def exportData(dataset_id):
 
 
 @app.route('/dataapi/api/v1/<dataset_id>', methods=['GET'])
+@app.route('/dataapi/api/v1/general/<dataset_id>', methods=['GET'])
+@app.route('/dataapi/api/v1/scope/<dataset_id>', methods=['GET'])
 def get_dataset_api(dataset_id):
     import json
     from flask import Response

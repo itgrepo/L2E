@@ -43,16 +43,24 @@ const combinedApis = computed(() => {
     apis.push({
       api_type: selectedDataset.value.api_type || 'general',
       api_endpoint: selectedDataset.value.api_endpoint || selectedDataset.value.dataset_id,
-      service_name: selectedDataset.value.title
+      service_name: selectedDataset.value.title,
+      api_response_fields: selectedDataset.value.api_response_fields || []
     });
   }
   if (apiClones.value && apiClones.value.length > 0) {
     apiClones.value.forEach(clone => {
       if (clone.api_enabled === 1 || clone.api_enabled === true || clone.api_enabled === '1' || clone.api_enabled === undefined || clone.status === 'Active') {
+        let respFields = [];
+        if (clone.api_response_fields) {
+          try {
+            respFields = typeof clone.api_response_fields === 'string' ? JSON.parse(clone.api_response_fields) : clone.api_response_fields;
+          } catch(e) { respFields = []; }
+        }
         apis.push({
           api_type: clone.api_type || 'general',
-          api_endpoint: clone.api_endpoint,
-          service_name: clone.service_name || clone.description
+          api_endpoint: clone.api_endpoint || (selectedDataset.value ? (selectedDataset.value.api_endpoint || selectedDataset.value.dataset_id) : ''),
+          service_name: clone.service_name || clone.description,
+          api_response_fields: respFields
         });
       }
     });
@@ -781,13 +789,18 @@ watch(() => route.params.id, (newId) => {
               <div v-else class="api-cards" style="display: flex; flex-direction: column; gap: 1rem;">
                 
                 <!-- Card 1: File for API -->
-                <div v-if="selectedDataset.file_path" class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
-                  <h3 style="margin: 0 0 16px 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                    File for API
-                  </h3>
-                  <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px; cursor: pointer;" @click="copyToClipboard(selectedDataset.external_api_url || apiBaseUrl + (selectedDataset.api_endpoint || selectedDataset.dataset_id) + '/file?apikey=' + userApiKey)">คัดลอกเพื่อใช้งาน API</div>
-                  <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem;">
+                <div v-if="selectedDataset.file_path" class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white; border: 1px solid #334155;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <h3 style="margin: 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                      File API (ดาวน์โหลดไฟล์ข้อมูลดิบ)
+                    </h3>
+                    <span style="background: rgba(148, 163, 184, 0.2); color: #cbd5e1; font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(148, 163, 184, 0.3);">
+                      RAW FILE (/file)
+                    </span>
+                  </div>
+                  <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px; cursor: pointer;" @click="copyToClipboard(selectedDataset.external_api_url || apiBaseUrl + (selectedDataset.api_endpoint || selectedDataset.dataset_id) + '/file?apikey=' + userApiKey)">คัดลอกเพื่อใช้งาน API</div>
+                  <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem; word-break: break-all;">
                     {{ selectedDataset.external_api_url || apiBaseUrl + (selectedDataset.api_endpoint || selectedDataset.dataset_id) + '/file?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>
                   </code>
                   <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
@@ -799,13 +812,18 @@ curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + (selectedDatase
                 <!-- Loop through all configured APIs (Original + Clones) -->
                 <div v-for="(api, index) in combinedApis" :key="index">
                   <!-- General API -->
-                  <div v-if="api.api_type === 'general' || api.api_type === 'public' || api.api_type === 'private' || !api.api_type" class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
-                    <h3 style="margin: 0 0 16px 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
-                      Public API (General) - {{ api.api_endpoint }}
-                    </h3>
-                    <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px; cursor: pointer;" @click="copyToClipboard(selectedDataset.external_api_url || apiBaseUrl + api.api_endpoint + '?apikey=' + userApiKey)">คัดลอกเพื่อใช้งาน API</div>
-                    <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem;">
+                  <div v-if="api.api_type === 'general' || api.api_type === 'public' || api.api_type === 'private' || !api.api_type" class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white; border: 1px solid #334155;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                      <h3 style="margin: 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
+                        General API (ข้อมูลทั่วไปครบทุกฟิลด์) - {{ api.api_endpoint }}
+                      </h3>
+                      <span style="background: rgba(16, 185, 129, 0.2); color: #34d399; font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.3);">
+                        GENERAL API
+                      </span>
+                    </div>
+                    <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px; cursor: pointer;" @click="copyToClipboard(selectedDataset.external_api_url || apiBaseUrl + api.api_endpoint + '?apikey=' + userApiKey)">คัดลอกเพื่อใช้งาน API</div>
+                    <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem; word-break: break-all;">
                       {{ selectedDataset.external_api_url || apiBaseUrl + api.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>
                     </code>
                     <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
@@ -815,18 +833,32 @@ curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + api.api_endpoin
                   </div>
 
                   <!-- Scope API -->
-                  <div v-if="api.api_type === 'scope'" class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
-                    <h3 style="margin: 0 0 16px 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
-                      Scope API (Granular Access) - {{ api.api_endpoint }}
-                    </h3>
-                    <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px; cursor: pointer;" @click="copyToClipboard(selectedDataset.external_api_url || apiBaseUrl + api.api_endpoint + '?apikey=' + userApiKey)">คัดลอกเพื่อใช้งาน API</div>
-                    <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem;">
-                      {{ selectedDataset.external_api_url || apiBaseUrl + api.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>
+                  <div v-if="api.api_type === 'scope'" class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white; border: 1px solid #0284c7;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                      <h3 style="margin: 0; color: #38bdf8; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                        Scope API (ข้อมูลเฉพาะฟิลด์/เงื่อนไขที่กำหนด) - {{ api.api_endpoint }}
+                      </h3>
+                      <span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.4);">
+                        SCOPE API (/scope/)
+                      </span>
+                    </div>
+
+                    <!-- Scoped Fields Tag List -->
+                    <div v-if="api.api_response_fields && api.api_response_fields.length > 0" style="margin-bottom: 14px; font-size: 0.82rem; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; background: rgba(56, 189, 248, 0.08); padding: 8px 12px; border-radius: 8px; border: 1px dashed rgba(56, 189, 248, 0.3);">
+                      <span style="color: #38bdf8; font-weight: 600;">🎯 ฟิลด์ใน Scope ({{ api.api_response_fields.length }} ฟิลด์):</span>
+                      <span v-for="field in api.api_response_fields" :key="field" style="background: rgba(56, 189, 248, 0.2); color: #e0f2fe; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem;">
+                        {{ field }}
+                      </span>
+                    </div>
+
+                    <div class="method-badge" style="display: inline-block; background: #0284c7; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px; cursor: pointer;" @click="copyToClipboard(selectedDataset.external_api_url || apiBaseUrl + 'scope/' + api.api_endpoint + '?apikey=' + userApiKey)">คัดลอกเพื่อใช้งาน API</div>
+                    <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem; word-break: break-all;">
+                      {{ selectedDataset.external_api_url || apiBaseUrl + 'scope/' + api.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>
                     </code>
                     <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
                       <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
-curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + api.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>"</pre>
+curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + 'scope/' + api.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>"</pre>
                     </div>
                   </div>
                 </div>
