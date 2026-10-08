@@ -36,6 +36,35 @@ const granularForm = ref({
   allow_api: true
 });
 
+const showFieldsModal = ref(false);
+const fieldsModalRequest = ref(null);
+const copiedFields = ref(false);
+
+const openFieldsModal = (req) => {
+  fieldsModalRequest.value = req;
+  showFieldsModal.value = true;
+  copiedFields.value = false;
+};
+
+const closeFieldsModal = () => {
+  showFieldsModal.value = false;
+  fieldsModalRequest.value = null;
+  copiedFields.value = false;
+};
+
+const copyFieldsToClipboard = async (fields) => {
+  if (!fields || fields.length === 0) return;
+  try {
+    await navigator.clipboard.writeText(fields.join(', '));
+    copiedFields.value = true;
+    setTimeout(() => {
+      copiedFields.value = false;
+    }, 2500);
+  } catch (err) {
+    console.error('Failed to copy fields:', err);
+  }
+};
+
 const fetchPendingRequests = async () => {
   isLoading.value = true;
   try {
@@ -201,7 +230,7 @@ onMounted(() => {
               <th>ชื่อหน่วยงาน</th>
               <th>ชุดข้อมูลที่ขอ</th>
               <th>เหตุผลที่ขอ</th>
-              <th>เอกสารแนบ</th>
+              <th>เอกสารแนบ / ฟิลด์ข้อมูล</th>
               <th>วันที่ขอ</th>
               <th>จัดการ</th>
             </tr>
@@ -223,10 +252,20 @@ onMounted(() => {
               <td>{{ req.service_name || req.service_id }}</td>
               <td style="max-width: 180px; white-space: normal; font-size: 0.85rem;">{{ req.reason || '-' }}</td>
               <td>
-                <a v-if="req.mou_file_path" :href="`/api/downloadRequestMou/${req.request_id}`" target="_blank" class="btn-mou-download" title="คลิกเพื่อดูหรือดาวน์โหลดเอกสารแนบ">
-                  📄 ดูไฟล์แนบ
-                </a>
-                <span v-else style="color: #94a3b8; font-size: 0.85rem;">-</span>
+                <div style="display: flex; flex-direction: column; gap: 6px; align-items: flex-start;">
+                  <a v-if="req.mou_file_path" :href="`/api/downloadRequestMou/${req.request_id}`" target="_blank" class="btn-mou-download" title="คลิกเพื่อดูหรือดาวน์โหลดเอกสารแนบ">
+                    📄 ดูไฟล์แนบ
+                  </a>
+                  <button 
+                    v-if="req.request_type === 'api' || (req.fields && req.fields.length > 0)" 
+                    class="btn-fields-popup" 
+                    @click="openFieldsModal(req)" 
+                    title="คลิกเพื่อดูรายการฟิลด์ที่ขอทั้งหมด"
+                  >
+                    ⚡ ดูฟิลด์ที่ขอ ({{ req.fields?.length || 0 }})
+                  </button>
+                  <span v-if="!req.mou_file_path && !(req.request_type === 'api' || (req.fields && req.fields.length > 0))" style="color: #94a3b8; font-size: 0.85rem;">-</span>
+                </div>
               </td>
               <td>{{ req.created_at }}</td>
               <td>
@@ -245,6 +284,67 @@ onMounted(() => {
         </table>
       </div>
     </main>
+
+    <!-- Modal แสดงรายการฟิลด์ที่ขอ (API Fields Popup) -->
+    <div v-if="showFieldsModal" class="modal-backdrop" @click.self="closeFieldsModal">
+      <div class="modal-card fields-modal-card">
+        <div class="fields-modal-header">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">⚡</div>
+            <div>
+              <h3 style="margin: 0; font-size: 1.15rem; color: #1e293b;">รายการฟิลด์ที่ขอเข้าถึง (API Fields)</h3>
+              <p style="margin: 2px 0 0 0; font-size: 0.8rem; color: #64748b;">
+                คำขอ #{{ fieldsModalRequest?.request_id }} โดย {{ fieldsModalRequest?.firstname }} {{ fieldsModalRequest?.lastname }} ({{ fieldsModalRequest?.organization || fieldsModalRequest?.email }})
+              </p>
+            </div>
+          </div>
+          <button class="btn-close-modal" @click="closeFieldsModal" title="ปิดหน้าต่าง">✕</button>
+        </div>
+
+        <div class="fields-modal-body">
+          <div class="fields-summary-bar">
+            <div>
+              <span style="font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 600;">ชุดข้อมูลเป้าหมาย</span>
+              <strong style="color: #1e293b; display: block; font-size: 0.95rem;">{{ fieldsModalRequest?.service_name || fieldsModalRequest?.service_id }}</strong>
+            </div>
+            <div style="text-align: right;">
+              <span style="font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 600;">จำนวนฟิลด์</span>
+              <div>
+                <span class="fields-count-badge">{{ fieldsModalRequest?.fields?.length || 0 }} ฟิลด์</span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="fieldsModalRequest?.fields && fieldsModalRequest.fields.length > 0" class="fields-list-container">
+            <div class="fields-tags-grid">
+              <div 
+                v-for="(field, index) in fieldsModalRequest.fields" 
+                :key="field"
+                class="field-tag-card"
+              >
+                <span class="field-num">{{ index + 1 }}</span>
+                <span class="field-name">{{ field }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-fields-notice">
+            <p style="margin: 0; font-size: 0.9rem; color: #64748b;">ไม่ได้ระบุฟิลด์เฉพาะเจาะจง (คำขอนี้ขอสิทธิ์ทุกฟิลด์ในชุดข้อมูล)</p>
+          </div>
+        </div>
+
+        <div class="fields-modal-footer">
+          <button 
+            v-if="fieldsModalRequest?.fields && fieldsModalRequest.fields.length > 0"
+            class="btn-copy-fields"
+            @click="copyFieldsToClipboard(fieldsModalRequest.fields)"
+          >
+            <span v-if="copiedFields">✅ คัดลอกสำเร็จ!</span>
+            <span v-else>📋 คัดลอกรายชื่อฟิลด์</span>
+          </button>
+          <button class="btn-cancel" @click="closeFieldsModal">ปิดหน้าต่าง</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Modal อนุมัติสิทธิ์ -->
     <div v-if="showModal" class="modal-backdrop">
@@ -563,5 +663,169 @@ onMounted(() => {
   background: #f1f5f9;
   color: #475569;
   border: 1px solid #cbd5e1;
+}
+
+/* API Fields Popup Styles */
+.btn-fields-popup {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #047857;
+  font-weight: 600;
+  font-size: 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.btn-fields-popup:hover {
+  background: #d1fae5;
+  border-color: #059669;
+  color: #065f46;
+}
+
+.fields-modal-card {
+  width: 580px;
+  max-width: 92vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.fields-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.btn-close-modal {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.btn-close-modal:hover {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.fields-modal-body {
+  padding: 16px 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.fields-summary-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.fields-count-badge {
+  display: inline-block;
+  background: #008236;
+  color: white;
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 2px 8px;
+  border-radius: 12px;
+  margin-top: 2px;
+}
+
+.fields-list-container {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.fields-tags-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.field-tag-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+.field-tag-card:hover {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+
+.field-num {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #64748b;
+  background: #e2e8f0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.field-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #0f766e;
+  word-break: break-all;
+}
+
+.empty-fields-notice {
+  text-align: center;
+  padding: 24px;
+  color: #64748b;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.fields-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.btn-copy-fields {
+  background: #047857;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.2s;
+}
+.btn-copy-fields:hover {
+  background: #065f46;
 }
 </style>
