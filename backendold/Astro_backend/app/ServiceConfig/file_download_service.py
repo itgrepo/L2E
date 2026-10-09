@@ -31,16 +31,59 @@ def add_security_headers(response):
 @app.route('/downloadFile/<int:service_id>', methods=['GET'])
 def downloadFile(service_id):
     try:
-        # Default to main data file
         file_type = request.args.get('type', 'data')
+        user_param = request.args.get('user') or request.headers.get('x-user')
         
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        sql = "SELECT file_path, excel_file_path, data_dictionary_path, data_sampling_path FROM service WHERE service_id = %s"
+        sql = "SELECT file_path, excel_file_path, data_dictionary_path, data_sampling_path, access_type, organization FROM service WHERE service_id = %s"
         cursor.execute(sql, (service_id,))
         result = cursor.fetchone()
         
+        if not result:
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "Dataset not found"}), 404
+            
+        file_path_val, excel_path_val, dict_path_val, samp_path_val, access_type, org_name = result
+        access_type_lower = (access_type or 'public').lower()
+        
+        # Dictionary is always public
+        if file_type != 'dictionary' and access_type_lower in ['internal', 'restricted', 'pii']:
+            from ServiceConfig import platform_decode, safe_json_loads
+            user_data = safe_json_loads(platform_decode(user_param)) if user_param else {}
+            user_id = user_data.get('user_id')
+            previlage_id = str(user_data.get('previlage_id', '2'))
+            user_org_id = user_data.get('org_id')
+            user_org_name = ''
+            if user_org_id:
+                cursor.execute("SELECT org_name FROM organization WHERE org_id = %s", (user_org_id,))
+                orow = cursor.fetchone()
+                if orow:
+                    user_org_name = orow[0]
+                    
+            has_perm = False
+            if previlage_id == '4':
+                has_perm = True
+            elif access_type_lower == 'internal' and previlage_id in ['3', '5'] and user_org_name and user_org_name == org_name:
+                has_perm = True
+            elif previlage_id == '3' and user_org_name and user_org_name == org_name:
+                has_perm = True
+            elif user_id:
+                cursor.execute("SELECT 1 FROM service_user_access WHERE service_id = %s AND user_id = %s", (service_id, user_id))
+                if cursor.fetchone():
+                    has_perm = True
+                else:
+                    cursor.execute("SELECT 1 FROM service_group_access sga JOIN group_user_detail gud ON sga.group_id = gud.group_id WHERE sga.service_id = %s AND gud.user_id = %s", (service_id, user_id))
+                    if cursor.fetchone():
+                        has_perm = True
+                        
+            if not has_perm:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Permission denied: access required for this internal/restricted dataset"}), 403
+
         cursor.close()
         conn.close()
         

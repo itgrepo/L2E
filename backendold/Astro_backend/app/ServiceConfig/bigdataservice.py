@@ -1004,8 +1004,8 @@ def retrieveService():
         user_id = None
         user_data = {}
         # Try to get user info if provided
-        dataInput = request.json if request.is_json else request.form
-        user_str = dataInput.get('user')
+        dataInput = request.json if request.is_json and request.json else (request.form if request.form else request.args)
+        user_str = (dataInput.get('user') if dataInput else None) or request.args.get('user') or request.headers.get('x-user')
         if user_str:
             decoded_user = platform_decode(user_str)
             user_data = safe_json_loads(decoded_user)
@@ -1033,12 +1033,12 @@ def retrieveService():
                 SELECT s.*,
                        (CASE 
                            WHEN s.access_type = 'public' THEN 1
-                           WHEN s.access_type = 'internal' AND %s IN ('1', '3', '4', '5') THEN 1
-                           WHEN %s = '3' AND s.organization = %s THEN 1
+                           WHEN s.access_type = 'internal' AND %s IN ('3', '5') AND %s != '' AND s.organization = %s THEN 1
+                           WHEN %s = '3' AND %s != '' AND s.organization = %s THEN 1
                            WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s AND (sua.allow_dashboard = 1 OR sua.allow_dashboard IS NULL)
                            ) THEN 1
-                           WHEN s.access_type IN ('restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
+                           WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_group_access sga
                                JOIN group_user_detail gud ON sga.group_id = gud.group_id
                                WHERE sga.service_id = s.service_id AND gud.user_id = %s
@@ -1047,12 +1047,12 @@ def retrieveService():
                        END) AS has_dashboard_access,
                        (CASE 
                            WHEN s.access_type = 'public' THEN 1
-                           WHEN s.access_type = 'internal' AND %s IN ('1', '3', '4', '5') THEN 1
-                           WHEN %s = '3' AND s.organization = %s THEN 1
+                           WHEN s.access_type = 'internal' AND %s IN ('3', '5') AND %s != '' AND s.organization = %s THEN 1
+                           WHEN %s = '3' AND %s != '' AND s.organization = %s THEN 1
                            WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s AND (sua.allow_api = 1 OR sua.allow_api IS NULL)
                            ) THEN 1
-                           WHEN s.access_type IN ('restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
+                           WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_group_access sga
                                JOIN group_user_detail gud ON sga.group_id = gud.group_id
                                WHERE sga.service_id = s.service_id AND gud.user_id = %s
@@ -1069,12 +1069,12 @@ def retrieveService():
                         ORDER BY r.created_at DESC LIMIT 1) AS api_permission_status,
                        (CASE 
                            WHEN s.access_type = 'public' THEN 1
-                           WHEN s.access_type = 'internal' AND %s IN ('1', '3', '4', '5') THEN 1
-                           WHEN %s = '3' AND s.organization = %s THEN 1
+                           WHEN s.access_type = 'internal' AND %s IN ('3', '5') AND %s != '' AND s.organization = %s THEN 1
+                           WHEN %s = '3' AND %s != '' AND s.organization = %s THEN 1
                            WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s
                            ) THEN 1
-                           WHEN s.access_type IN ('restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
+                           WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_group_access sga
                                JOIN group_user_detail gud ON sga.group_id = gud.group_id
                                WHERE sga.service_id = s.service_id AND gud.user_id = %s
@@ -1089,11 +1089,11 @@ def retrieveService():
             """
             previlage_id = str(user_data.get('previlage_id', '2'))
             cursor.execute(sql, (
-                previlage_id, previlage_id, user_org_name, user_id, user_id, user_id, user_id, # has_dashboard_access (7)
-                previlage_id, previlage_id, user_org_name, user_id, user_id, user_id, user_id, # has_api_access (7)
+                previlage_id, user_org_name, user_org_name, previlage_id, user_org_name, user_org_name, user_id, user_id, user_id, user_id, # has_dashboard_access (10)
+                previlage_id, user_org_name, user_org_name, previlage_id, user_org_name, user_org_name, user_id, user_id, user_id, user_id, # has_api_access (10)
                 user_id, # dashboard_permission_status (1)
                 user_id, # api_permission_status (1)
-                previlage_id, previlage_id, user_org_name, user_id, user_id, user_id, user_id, # has_access (7)
+                previlage_id, user_org_name, user_org_name, previlage_id, user_org_name, user_org_name, user_id, user_id, user_id, user_id, # has_access (10)
                 user_id # permission_status (1)
             ))
             
