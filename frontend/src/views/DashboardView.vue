@@ -444,9 +444,6 @@ onMounted(() => {
               </div>
 
               <div class="mock-chart-container">
-                <div class="chart-y-axis">
-                  <span v-for="tick in yAxisTicks" :key="tick">{{ tick }}</span>
-                </div>
                 <div class="chart-bars-horizontal">
                   <template v-if="chartData.length > 0">
                     <div v-for="day in chartData" :key="day.date" class="bar-group">
@@ -893,49 +890,40 @@ onMounted(() => {
 }
 
 .mock-chart-container {
-  height: 220px;
-  display: flex;
-  gap: 16px;
-}
-
-.chart-y-axis {
+  min-height: 200px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  color: #94a3b8;
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 4px 0;
-  width: 32px;
-  text-align: right;
+  justify-content: center;
+  padding: 8px 0;
 }
 
 .chart-bars-horizontal {
-  flex: 1;
+  width: 100%;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  gap: 14px;
 }
 
 .bar-group {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .bar-label {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: #64748b;
-  width: 44px;
+  width: 48px;
   text-align: right;
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 .bar-track {
   flex: 1;
-  height: 14px;
+  height: 16px;
   background-color: #f1f5f9;
-  border-radius: 7px;
+  border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
 }
@@ -943,15 +931,17 @@ onMounted(() => {
 .bar-progress {
   height: 100%;
   background-color: var(--mso-accent, #22c55e);
-  border-radius: 7px;
+  border-radius: 8px;
   transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .bar-value {
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: #334155;
-  width: 36px;
+  width: 44px;
+  text-align: right;
+  flex-shrink: 0;
 }
 
 .recent-datasets-section {
