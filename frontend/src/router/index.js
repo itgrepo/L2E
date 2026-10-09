@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
-import MonitorView from '../views/MonitorView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -157,8 +156,8 @@ const router = createRouter({
     {
       path: '/monitor',
       name: 'monitor',
-      component: MonitorView,
-      meta: { requiresAuth: true }
+      component: () => import('../views/ApiMonitorView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
     }
   ],
   scrollBehavior() {
