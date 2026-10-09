@@ -1401,7 +1401,7 @@ onMounted(async () => {
 }
 
 .filter-checkbox input {
-  display: none;
+  display: none !important;
 }
 
 .checkbox-custom {

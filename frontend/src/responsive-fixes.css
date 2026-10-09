@@ -155,13 +155,18 @@ textarea,
 /* Checkbox & Radio Alignment */
 input[type="checkbox"],
 input[type="radio"] {
-  width: 16px !important;
-  height: 16px !important;
-  max-width: none !important;
-  flex-shrink: 0 !important;
+  width: 16px;
+  height: 16px;
+  max-width: none;
+  flex-shrink: 0;
   cursor: pointer;
-  margin: 0 !important;
-  display: inline-block !important;
+  margin: 0;
+}
+
+/* Ensure custom checkbox hidden inputs stay hidden */
+.filter-checkbox input,
+.filter-checkbox input[type="checkbox"] {
+  display: none !important;
 }
 
 .radio-label,
