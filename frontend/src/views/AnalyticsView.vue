@@ -607,8 +607,8 @@ onMounted(() => {
 .analytics-layout {
   display: flex;
   background-color: #f8fafc;
-  min-height: 100vh;
-  font-family: var(--font-family, 'IBM Plex Sans Thai', sans-serif);
+  min-height: 100%;
+  font-family: 'Prompt', sans-serif;
 }
 
 .analytics-content {
