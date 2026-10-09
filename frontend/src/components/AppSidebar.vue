@@ -300,6 +300,7 @@ const settingItems = [
   flex-shrink: 0;
   display: flex;
   min-height: 100%;
+  background-color: var(--sidebar-bg, var(--primary-hover));
 }
 
 .app-sidebar {
@@ -308,8 +309,8 @@ const settingItems = [
   background-color: var(--sidebar-bg, var(--primary-hover));
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 100px);
-  height: calc(100vh - 100px);
+  min-height: 100%;
+  max-height: calc(100vh - 100px);
   position: sticky;
   top: 100px;
   color: #e2e8f0;

@@ -1,6 +1,6 @@
 <script setup>
-import { onMounted, onUnmounted, computed } from 'vue';
-import { RouterView, useRouter, useRoute } from 'vue-router';
+import { onMounted, onUnmounted } from 'vue';
+import { RouterView, useRouter } from 'vue-router';
 import AppNavbar from './components/AppNavbar.vue';
 import AppFooter from './components/AppFooter.vue';
 import ThemeWidget from './components/ThemeWidget.vue';
@@ -8,32 +8,9 @@ import { applyTheme, loadThemeFromServer } from './utils/theme';
 import { loadLayoutFromServer } from './utils/pageBuilder';
 
 const router = useRouter();
-const route = useRoute();
 const IDLE_TIME_LIMIT = 30 * 60 * 1000; // 30 minutes in milliseconds
 let checkInterval = null;
 let isThrottled = false;
-
-// Sidebar routes that have their own full-height management canvas and should not render the portal footer
-const sidebarRoutes = [
-  '/dashboard',
-  '/analytics',
-  '/monitor',
-  '/api-monitor',
-  '/api-management',
-  '/dataset-management',
-  '/dataset-approval',
-  '/group-user-management',
-  '/group-dataset-management',
-  '/permission-management',
-  '/user-management',
-  '/organization-management',
-  '/category-management',
-  '/dataset-permission-monitor'
-];
-
-const showFooter = computed(() => {
-  return !sidebarRoutes.includes(route.path);
-});
 
 const handleSessionTimeout = () => {
   if (localStorage.getItem('user')) {
@@ -115,7 +92,7 @@ onUnmounted(() => {
       <router-view :key="$route.fullPath" />
     </main>
 
-    <AppFooter v-if="showFooter" />
+    <AppFooter />
     <ThemeWidget />
   </div>
 </template>
@@ -129,7 +106,7 @@ onUnmounted(() => {
 }
 
 .app-main-content {
-  flex: 1;
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
   min-width: 0;
