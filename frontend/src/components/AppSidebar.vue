@@ -137,9 +137,6 @@ onMounted(async () => {
 
 const toggleSettings = () => {
   isSettingsExpanded.value = !isSettingsExpanded.value;
-  if (isSettingsExpanded.value) {
-    router.push('/permission-management');
-  }
 };
 
 const handleLogout = () => {
