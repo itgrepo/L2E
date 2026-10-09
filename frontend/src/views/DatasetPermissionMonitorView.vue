@@ -47,10 +47,19 @@ const fetchBaseData = async () => {
             groups.value = groupRes.data.data;
         }
 
-        // Fetch Datasets (Mocking datasets list or fetching from catalog if we can, but we'll extract from group dataset calls if needed. For now, fetch all catalogs)
-        const catalogRes = await apiClient.post('/getCatalog', { user: tokenUser });
-        if (catalogRes.data?.status === 'success') {
-            datasets.value = catalogRes.data.data;
+        // Fetch Datasets
+        try {
+            const datasetRes = await apiClient.post('/retrieveService', { user: tokenUser });
+            if (datasetRes.data?.status === 'success' && Array.isArray(datasetRes.data.data)) {
+                datasets.value = datasetRes.data.data;
+            } else {
+                const getServiceRes = await apiClient.post('/getService', { user: tokenUser });
+                if (getServiceRes.data?.status === 'success' && Array.isArray(getServiceRes.data.data)) {
+                    datasets.value = getServiceRes.data.data;
+                }
+            }
+        } catch (err) {
+            console.error('Error fetching datasets in monitor:', err);
         }
 
     } catch (e) {
