@@ -92,9 +92,16 @@ const toggleFavorite = (ds) => {
   } else {
     favorites.value.push({
       id: ds.id,
+      dataset_id: ds.dataset_id,
+      title: ds.title,
       name: ds.title,
+      description: ds.description,
+      accessibility: ds.accessibility,
+      accessClass: ds.accessClass,
       agency: ds.agency,
-      formats: ds.formats
+      api_enabled: ds.api_enabled,
+      api_type: ds.api_type,
+      formats: ds.formats || ['CSV', 'API']
     });
   }
   localStorage.setItem('user_favorites', JSON.stringify(favorites.value));
