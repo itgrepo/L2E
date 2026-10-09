@@ -296,15 +296,24 @@ const settingItems = [
 </template>
 
 <style scoped>
+.sidebar-container {
+  flex-shrink: 0;
+  display: flex;
+  min-height: 100%;
+}
+
 .app-sidebar {
   width: 260px;
+  min-width: 260px;
   background-color: var(--sidebar-bg, var(--primary-hover));
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  min-height: calc(100vh - 100px);
+  height: calc(100vh - 100px);
   position: sticky;
-  top: 0;
+  top: 100px;
   color: #e2e8f0;
+  z-index: 40;
 }
 
 .sidebar-logo {
