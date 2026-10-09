@@ -1,10 +1,9 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import AppSidebar from '../components/AppSidebar.vue';
 import { postWithUser } from '../utils/api';
 
 const isLoading = ref(true);
-const isLogsLoading = ref(false);
 const stats = ref({
   total_requests: 0,
   success_count: 0,
@@ -14,7 +13,7 @@ const stats = ref({
 const trend = ref([]);
 const recentLogs = ref([]);
 const systemLogs = ref([]);
-const activeTab = ref('system'); // Default to 'system' so users see who did what immediately
+const activeTab = ref('system'); // Default to 'system' (ประวัติกิจกรรมการใช้งานระบบ)
 
 const message = ref({ text: '', type: '' });
 const searchQuery = ref('');
@@ -23,12 +22,13 @@ const searchQuery = ref('');
 const filterRange = ref('7d'); // 'today', '7d', '30d', '2y', 'custom'
 const startDate = ref('');
 const endDate = ref('');
-const logsOffset = ref(0);
-const hasMoreLogs = ref(true);
-const systemLogsOffset = ref(0);
-const hasMoreSystemLogs = ref(true);
-const isSystemLogsLoading = ref(false);
-const PAGE_SIZE = 50;
+const FETCH_LIMIT = 1000;
+
+// Numbered Pagination
+const itemsPerPage = ref(10);
+const itemsPerPageOptions = [10, 20, 50, 100];
+const currentSystemPage = ref(1);
+const currentApiPage = ref(1);
 
 const setRange = (range) => {
   filterRange.value = range;
@@ -53,12 +53,8 @@ const setRange = (range) => {
 };
 
 const handleFilterChange = () => {
-  logsOffset.value = 0;
-  recentLogs.value = [];
-  hasMoreLogs.value = true;
-  systemLogsOffset.value = 0;
-  systemLogs.value = [];
-  hasMoreSystemLogs.value = true;
+  currentSystemPage.value = 1;
+  currentApiPage.value = 1;
   fetchMonitorData();
 };
 
@@ -68,7 +64,9 @@ const fetchMonitorData = async () => {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     const payload = {
       start_date: startDate.value,
-      end_date: endDate.value
+      end_date: endDate.value,
+      limit: FETCH_LIMIT,
+      offset: 0
     };
     
     // Fetch Summary & Trend
@@ -78,82 +76,23 @@ const fetchMonitorData = async () => {
       trend.value = statsRes.data.trend || [];
     }
 
-    // Fetch initial Logs
-    await fetchMoreLogs(true);
-    await fetchMoreSystemLogs(true);
+    // Fetch Logs
+    const [apiLogsRes, sysLogsRes] = await Promise.all([
+      postWithUser('/getApiMonitorLogs', userData, payload),
+      postWithUser('/getSystemActivityLogs', userData, payload)
+    ]);
+
+    if (apiLogsRes.data.status === 'success') {
+      recentLogs.value = apiLogsRes.data.data || [];
+    }
+    if (sysLogsRes.data.status === 'success') {
+      systemLogs.value = sysLogsRes.data.data || [];
+    }
   } catch (error) {
     console.error('Error fetching monitor data:', error);
     message.value = { text: 'ไม่สามารถโหลดข้อมูล Monitor ได้', type: 'error' };
   } finally {
     isLoading.value = false;
-  }
-};
-
-const fetchMoreLogs = async (reset = false) => {
-  if (isLogsLoading.value) return;
-  isLogsLoading.value = true;
-  try {
-    const userData = JSON.parse(localStorage.getItem('user') || '{}');
-    const payload = {
-      start_date: startDate.value,
-      end_date: endDate.value,
-      limit: PAGE_SIZE,
-      offset: reset ? 0 : logsOffset.value
-    };
-
-    const logsRes = await postWithUser('/getApiMonitorLogs', userData, payload);
-    if (logsRes.data.status === 'success') {
-      const newLogs = logsRes.data.data;
-      if (reset) {
-        recentLogs.value = newLogs;
-        logsOffset.value = newLogs.length;
-      } else {
-        recentLogs.value = [...recentLogs.value, ...newLogs];
-        logsOffset.value += newLogs.length;
-      }
-      
-      if (newLogs.length < PAGE_SIZE) {
-        hasMoreLogs.value = false;
-      }
-    }
-  } catch (error) {
-    console.error('Error fetching logs:', error);
-  } finally {
-    isLogsLoading.value = false;
-  }
-};
-
-const fetchMoreSystemLogs = async (reset = false) => {
-  if (isSystemLogsLoading.value) return;
-  isSystemLogsLoading.value = true;
-  try {
-    const userData = JSON.parse(localStorage.getItem('user') || '{}');
-    const payload = {
-      start_date: startDate.value,
-      end_date: endDate.value,
-      limit: PAGE_SIZE,
-      offset: reset ? 0 : systemLogsOffset.value
-    };
-
-    const logsRes = await postWithUser('/getSystemActivityLogs', userData, payload);
-    if (logsRes.data.status === 'success') {
-      const newLogs = logsRes.data.data;
-      if (reset) {
-        systemLogs.value = newLogs;
-        systemLogsOffset.value = newLogs.length;
-      } else {
-        systemLogs.value = [...systemLogs.value, ...newLogs];
-        systemLogsOffset.value += newLogs.length;
-      }
-      
-      if (newLogs.length < PAGE_SIZE) {
-        hasMoreSystemLogs.value = false;
-      }
-    }
-  } catch (error) {
-    console.error('Error fetching system logs:', error);
-  } finally {
-    isSystemLogsLoading.value = false;
   }
 };
 
@@ -200,6 +139,7 @@ const formatThaiTime = (utcString) => {
   }
 };
 
+// Filtered Lists
 const filteredSystemLogs = computed(() => {
   if (!searchQuery.value.trim()) return systemLogs.value;
   const q = searchQuery.value.trim().toLowerCase();
@@ -222,6 +162,71 @@ const filteredApiLogs = computed(() => {
     (l.ip && l.ip.toLowerCase().includes(q))
   );
 });
+
+// Watch search query to reset pagination
+watch(searchQuery, () => {
+  currentSystemPage.value = 1;
+  currentApiPage.value = 1;
+});
+
+// Pagination Computeds
+const totalSystemPages = computed(() => {
+  return Math.ceil(filteredSystemLogs.value.length / itemsPerPage.value) || 1;
+});
+
+const totalApiPages = computed(() => {
+  return Math.ceil(filteredApiLogs.value.length / itemsPerPage.value) || 1;
+});
+
+const paginatedSystemLogs = computed(() => {
+  const start = (currentSystemPage.value - 1) * itemsPerPage.value;
+  return filteredSystemLogs.value.slice(start, start + itemsPerPage.value);
+});
+
+const paginatedApiLogs = computed(() => {
+  const start = (currentApiPage.value - 1) * itemsPerPage.value;
+  return filteredApiLogs.value.slice(start, start + itemsPerPage.value);
+});
+
+const goToSystemPage = (page) => {
+  if (page < 1 || page > totalSystemPages.value) return;
+  currentSystemPage.value = page;
+};
+
+const goToApiPage = (page) => {
+  if (page < 1 || page > totalApiPages.value) return;
+  currentApiPage.value = page;
+};
+
+const getPaginationRange = (currentPage, totalPages) => {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const delta = 2;
+  const range = [];
+  const rangeWithDots = [];
+  let l;
+
+  for (let i = 1; i <= totalPages; i++) {
+    if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+      range.push(i);
+    }
+  }
+
+  for (let i of range) {
+    if (l) {
+      if (i - l === 2) {
+        rangeWithDots.push(l + 1);
+      } else if (i - l !== 1) {
+        rangeWithDots.push('...');
+      }
+    }
+    rangeWithDots.push(i);
+    l = i;
+  }
+
+  return rangeWithDots;
+};
 
 onMounted(() => {
   setRange('7d');
@@ -363,11 +368,11 @@ onMounted(() => {
             <div class="tabs-container">
               <button :class="['tab-button', { active: activeTab === 'system' }]" @click="activeTab = 'system'">
                 📋 ประวัติกิจกรรมการใช้งานระบบ (System Activity Logs)
-                <span class="tab-badge" v-if="systemLogs.length > 0">{{ systemLogs.length }}</span>
+                <span class="tab-badge" v-if="filteredSystemLogs.length > 0">{{ filteredSystemLogs.length }}</span>
               </button>
               <button :class="['tab-button', { active: activeTab === 'api' }]" @click="activeTab = 'api'">
                 ⚡ บันทึกการเรียกใช้งาน API (API Logs)
-                <span class="tab-badge" v-if="recentLogs.length > 0">{{ recentLogs.length }}</span>
+                <span class="tab-badge" v-if="filteredApiLogs.length > 0">{{ filteredApiLogs.length }}</span>
               </button>
             </div>
             
@@ -401,8 +406,8 @@ onMounted(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(log, index) in filteredSystemLogs" :key="log.log_id">
-                <td class="text-center font-mono text-muted">{{ index + 1 }}</td>
+              <tr v-for="(log, index) in paginatedSystemLogs" :key="log.log_id">
+                <td class="text-center font-mono text-muted">{{ (currentSystemPage - 1) * itemsPerPage + index + 1 }}</td>
                 <td class="time-cell">{{ formatThaiTime(log.create_at) }}</td>
                 <td>
                   <div class="user-badge">
@@ -420,7 +425,7 @@ onMounted(() => {
                 <td class="ip-cell font-mono">{{ log.ip }}</td>
                 <td class="device-cell">{{ log.device || '-' }}</td>
               </tr>
-              <tr v-if="filteredSystemLogs.length === 0 && !isLoading && !isSystemLogsLoading">
+              <tr v-if="filteredSystemLogs.length === 0 && !isLoading">
                 <td colspan="8" class="no-data-table">
                   {{ searchQuery ? 'ไม่พบข้อมูลที่ตรงกับการค้นหา' : 'ไม่พบข้อมูลประวัติการใช้งานในช่วงเวลานี้' }}
                 </td>
@@ -428,11 +433,64 @@ onMounted(() => {
             </tbody>
           </table>
           
-          <div v-if="hasMoreSystemLogs" class="load-more">
-            <button @click="fetchMoreSystemLogs(false)" :disabled="isSystemLogsLoading" class="btn-load-more">
-              <span v-if="isSystemLogsLoading" class="spinner-small"></span>
-              {{ isSystemLogsLoading ? 'กำลังโหลดข้อมูล...' : 'โหลดประวัติเพิ่มเติม (Load More)' }}
-            </button>
+          <!-- Numbered Pagination Footer for System Logs -->
+          <div class="pagination-container" v-if="filteredSystemLogs.length > 0">
+            <div class="pagination-info">
+              <span>แสดง {{ (currentSystemPage - 1) * itemsPerPage + 1 }} - {{ Math.min(currentSystemPage * itemsPerPage, filteredSystemLogs.length) }} จากทั้งหมด {{ filteredSystemLogs.length }} รายการ</span>
+              <div class="per-page-selector">
+                <label>แสดง:</label>
+                <select v-model="itemsPerPage" @change="currentSystemPage = 1; currentApiPage = 1;">
+                  <option v-for="opt in itemsPerPageOptions" :key="opt" :value="opt">{{ opt }} / หน้า</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="pagination-controls" v-if="totalSystemPages > 1">
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentSystemPage === 1" 
+                @click="goToSystemPage(1)"
+                title="หน้าแรก"
+              >
+                «
+              </button>
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentSystemPage === 1" 
+                @click="goToSystemPage(currentSystemPage - 1)"
+                title="ก่อนหน้า"
+              >
+                ‹
+              </button>
+
+              <template v-for="(p, idx) in getPaginationRange(currentSystemPage, totalSystemPages)" :key="idx">
+                <span v-if="p === '...'" class="page-dots">...</span>
+                <button 
+                  v-else 
+                  :class="['page-number-btn', { active: currentSystemPage === p }]"
+                  @click="goToSystemPage(p)"
+                >
+                  {{ p }}
+                </button>
+              </template>
+
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentSystemPage === totalSystemPages" 
+                @click="goToSystemPage(currentSystemPage + 1)"
+                title="ถัดไป"
+              >
+                ›
+              </button>
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentSystemPage === totalSystemPages" 
+                @click="goToSystemPage(totalSystemPages)"
+                title="หน้าสุดท้าย"
+              >
+                »
+              </button>
+            </div>
           </div>
         </div>
 
@@ -452,8 +510,8 @@ onMounted(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(log, index) in filteredApiLogs" :key="log.log_id">
-                <td class="text-center font-mono text-muted">{{ index + 1 }}</td>
+              <tr v-for="(log, index) in paginatedApiLogs" :key="log.log_id">
+                <td class="text-center font-mono text-muted">{{ (currentApiPage - 1) * itemsPerPage + index + 1 }}</td>
                 <td class="time-cell">{{ formatThaiTime(log.create_at) }}</td>
                 <td>
                   <div class="user-badge">
@@ -471,18 +529,72 @@ onMounted(() => {
                 <td class="ip-cell font-mono">{{ log.ip }}</td>
                 <td><span class="country-cell">{{ log.country === 'None' || !log.country ? 'Thailand' : log.country }}</span></td>
               </tr>
-              <tr v-if="filteredApiLogs.length === 0 && !isLoading && !isLogsLoading">
+              <tr v-if="filteredApiLogs.length === 0 && !isLoading">
                 <td colspan="8" class="no-data-table">
                   {{ searchQuery ? 'ไม่พบข้อมูลที่ตรงกับการค้นหา' : 'ไม่พบข้อมูลการเรียกใช้งานในช่วงเวลานี้' }}
                 </td>
               </tr>
             </tbody>
           </table>
-          <div v-if="hasMoreLogs" class="load-more">
-            <button @click="fetchMoreLogs(false)" :disabled="isLogsLoading" class="btn-load-more">
-              <span v-if="isLogsLoading" class="spinner-small"></span>
-              {{ isLogsLoading ? 'กำลังโหลดข้อมูล...' : 'โหลดประวัติเพิ่มเติม (Load More)' }}
-            </button>
+
+          <!-- Numbered Pagination Footer for API Logs -->
+          <div class="pagination-container" v-if="filteredApiLogs.length > 0">
+            <div class="pagination-info">
+              <span>แสดง {{ (currentApiPage - 1) * itemsPerPage + 1 }} - {{ Math.min(currentApiPage * itemsPerPage, filteredApiLogs.length) }} จากทั้งหมด {{ filteredApiLogs.length }} รายการ</span>
+              <div class="per-page-selector">
+                <label>แสดง:</label>
+                <select v-model="itemsPerPage" @change="currentSystemPage = 1; currentApiPage = 1;">
+                  <option v-for="opt in itemsPerPageOptions" :key="opt" :value="opt">{{ opt }} / หน้า</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="pagination-controls" v-if="totalApiPages > 1">
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentApiPage === 1" 
+                @click="goToApiPage(1)"
+                title="หน้าแรก"
+              >
+                «
+              </button>
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentApiPage === 1" 
+                @click="goToApiPage(currentApiPage - 1)"
+                title="ก่อนหน้า"
+              >
+                ‹
+              </button>
+
+              <template v-for="(p, idx) in getPaginationRange(currentApiPage, totalApiPages)" :key="idx">
+                <span v-if="p === '...'" class="page-dots">...</span>
+                <button 
+                  v-else 
+                  :class="['page-number-btn', { active: currentApiPage === p }]"
+                  @click="goToApiPage(p)"
+                >
+                  {{ p }}
+                </button>
+              </template>
+
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentApiPage === totalApiPages" 
+                @click="goToApiPage(currentApiPage + 1)"
+                title="ถัดไป"
+              >
+                ›
+              </button>
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentApiPage === totalApiPages" 
+                @click="goToApiPage(totalApiPages)"
+                title="หน้าสุดท้าย"
+              >
+                »
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -581,14 +693,98 @@ onMounted(() => {
 .country-cell { font-weight: 600; color: #0f172a; font-size: 0.8125rem; }
 .device-cell { font-size: 0.78rem; color: #64748b; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.load-more { padding: 24px; text-align: center; }
-.btn-load-more { background: white; border: 1.5px solid #e2e8f0; padding: 10px 24px; border-radius: 12px; color: #0f172a; font-weight: 600; font-size: 0.875rem; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 8px; }
-.btn-load-more:hover:not(:disabled) { border-color: var(--primary); background: #f8fafc; color: var(--primary); }
-.btn-load-more:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Numbered Pagination Styles */
+.pagination-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 8px 8px;
+  margin-top: 16px;
+  border-top: 1px solid #f1f5f9;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.pagination-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 0.875rem;
+  color: #64748b;
+  flex-wrap: wrap;
+}
+
+.per-page-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.per-page-selector select {
+  padding: 4px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background-color: white;
+  font-size: 0.8125rem;
+  color: #334155;
+  outline: none;
+  cursor: pointer;
+}
+
+.per-page-selector select:focus {
+  border-color: var(--primary);
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.page-nav-btn, .page-number-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: white;
+  color: #334155;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.page-nav-btn:hover:not(:disabled), .page-number-btn:hover:not(.active) {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.page-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: #f1f5f9;
+}
+
+.page-number-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+}
+
+.page-dots {
+  padding: 0 6px;
+  color: #94a3b8;
+  font-weight: bold;
+}
 
 .spinning { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.spinner-small { width: 14px; height: 14px; border: 2px solid #e2e8f0; border-top-color: #0f172a; border-radius: 50%; animation: spin 1s linear infinite; }
 
 .no-data-table { text-align: center; padding: 48px !important; color: #94a3b8; font-style: italic; }
 
@@ -604,5 +800,7 @@ onMounted(() => {
   .header-filters { flex-direction: column; width: 100%; align-items: stretch; }
   .table-toolbar { flex-direction: column; align-items: stretch; }
   .search-input-box { width: 100%; min-width: 0; }
+  .pagination-container { flex-direction: column; align-items: stretch; }
+  .pagination-controls { justify-content: center; }
 }
 </style>
