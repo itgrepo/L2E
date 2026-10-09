@@ -320,7 +320,7 @@ const getAccessInfo = (item) => {
       cssClass: 'access-internal'
     };
   }
-  if (raw === 'restricted' || raw === 'จำกัดสิทธิ์' || raw === 'private' || raw === 'confidential') {
+  if (raw === 'restricted' || raw === 'จำกัดสิทธิ์' || raw === 'confidential') {
     return {
       key: 'restricted',
       label: 'จำกัดสิทธิ์ (Restricted)',
@@ -328,11 +328,11 @@ const getAccessInfo = (item) => {
       cssClass: 'access-restricted'
     };
   }
-  if (raw === 'pii' || raw === 'ข้อมูลส่วนบุคคล') {
+  if (raw === 'pii' || raw === 'ข้อมูลส่วนบุคคล' || raw === 'private' || raw === 'เฉพาะเจ้าของ') {
     return {
       key: 'pii',
-      label: 'ข้อมูลส่วนบุคคล (PII)',
-      shortLabel: 'PII',
+      label: 'เฉพาะเจ้าของ (Private)',
+      shortLabel: 'Private',
       cssClass: 'access-pii'
     };
   }
@@ -348,7 +348,7 @@ const accessLevels = ref([
   { name: 'สาธารณะ (Public)', key: 'public', count: 0, active: false },
   { name: 'ภายในหน่วยงาน (Internal)', key: 'internal', count: 0, active: false },
   { name: 'จำกัดสิทธิ์ (Restricted)', key: 'restricted', count: 0, active: false },
-  { name: 'ข้อมูลส่วนบุคคล (PII)', key: 'pii', count: 0, active: false }
+  { name: 'เฉพาะเจ้าของ (Private)', key: 'pii', count: 0, active: false }
 ]);
 
 const formats = ['CSV', 'XLS', 'API', 'JSON', 'XML'];

@@ -59,7 +59,7 @@ const govConflictMessage = computed(() => {
     'public': 'สาธารณะ (Public)',
     'internal': 'ภายในหน่วยงาน (Internal)',
     'restricted': 'จำกัดสิทธิ์ (Restricted)',
-    'pii': 'ข้อมูลส่วนบุคคล (PII)'
+    'pii': 'เฉพาะเจ้าของ (Private)'
   };
 
   if (access === 'public' && ['ข้อมูลส่วนบุคคล', 'ข้อมูลลับ', 'ข้อมูลความมั่นคง'].includes(gov)) {
@@ -829,7 +829,7 @@ const updateDatasetPrefix = () => {
                     <option value="public">สาธารณะ (Public)</option>
                     <option value="internal">ภายในหน่วยงาน (Internal)</option>
                     <option value="restricted">จำกัดสิทธิ์ (Restricted)</option>
-                    <option value="pii">ข้อมูลส่วนบุคคล (PII)</option>
+                    <option value="pii">เฉพาะเจ้าของ (Private)</option>
                   </select>
                   <small class="text-gray-500 mt-1 block">ระบุระดับความอ่อนไหวของข้อมูลเพื่อใช้บังคับสิทธิ์การเข้าถึง</small>
                 </div>
