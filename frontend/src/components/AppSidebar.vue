@@ -35,7 +35,55 @@ watch(route, (newRoute) => {
 
 const userPermissions = ref(null);
 
-onMounted(async () => {
+const menuMapping = {
+    '/dashboard': 'dashboard',
+    '/catalog': 'data catalog',
+    '/favorites': 'data catalog',
+    '/api-management': 'api management',
+    '/api-monitor': 'api monitor',
+    '/dataset-approval': 'dataset approval',
+    '/analytics': 'analytics',
+    '/group-user-management': 'group user management',
+    '/dataset-management': 'dataset management',
+    '/group-dataset-management': 'group dataset management',
+    '/permission-management': 'permission management',
+    '/user-management': 'user management',
+    '/organization-management': 'settings',
+    '/category-management': 'settings',
+    '/monitor': 'api monitor',
+    '/dataset-permission-monitor': 'dataset management'
+};
+
+const hasMenuAccess = (path) => {
+  const role = userRoleId.value;
+  
+  // Always allow Root Admin to access Permission Management so they cannot lock themselves out
+  if (path === '/permission-management' && (role === '4' || isAdmin.value)) {
+    return true;
+  }
+
+  // If dynamic permissions loaded from DB
+  if (userPermissions.value && Array.isArray(userPermissions.value)) {
+    const mappedName = menuMapping[path];
+    if (mappedName) {
+      if (mappedName === 'data catalog' || mappedName === 'catalog') {
+        return userPermissions.value.includes('data catalog') || userPermissions.value.includes('catalog');
+      }
+      return userPermissions.value.includes(mappedName);
+    }
+    return true;
+  }
+  
+  // Fallback while loading
+  if (role === '4') return true;
+  if (role === '1') return ['/catalog'].includes(path);
+  if (role === '2') return ['/dashboard', '/catalog', '/favorites'].includes(path);
+  if (role === '3') return ['/dashboard', '/catalog', '/favorites', '/api-management', '/api-monitor', '/dataset-approval', '/dataset-management', '/analytics', '/group-dataset-management'].includes(path);
+  if (role === '5') return ['/dashboard', '/catalog', '/favorites', '/api-management'].includes(path);
+  return false;
+};
+
+const loadPermissions = async () => {
   const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
   if (savedUser.username) {
     userName.value = `${savedUser.firstname || savedUser.username} ${savedUser.lastname || ''}`;
@@ -45,8 +93,8 @@ onMounted(async () => {
 
     try {
       const res = await postWithUser('/getMenuByPermission', savedUser);
-      if (res.data && res.data.status === 'Success') {
-        userPermissions.value = res.data.data.map(m => m.menu_name.toLowerCase());
+      if (res.data && (res.data.status === 'Success' || res.data.status === 'success')) {
+        userPermissions.value = res.data.data.map(m => m.menu_name.toLowerCase().trim());
         
         // Update session if backend role has changed (e.g. admin downgraded user)
         if (res.data.current_role && String(res.data.current_role) !== String(savedUser.previlage_id)) {
@@ -78,63 +126,13 @@ onMounted(async () => {
       console.error('Failed to load dynamic permissions', e);
     }
   }
+};
+
+onMounted(async () => {
+  window.addEventListener('permissions-updated', loadPermissions);
+  await loadPermissions();
   checkSettingsExpanded(route.path);
 });
-
-
-const menuMapping = {
-    '/dashboard': 'dashboard',
-    '/catalog': 'catalog',
-    '/api-management': 'api management',
-    '/api-monitor': 'api monitor',
-    '/dataset-approval': 'dataset approval',
-    '/analytics': 'analytics',
-    '/group-user-management': 'group user management',
-    '/dataset-management': 'dataset management',
-    '/group-dataset-management': 'group dataset management',
-    '/permission-management': 'permission management',
-    '/user-management': 'user management'
-};
-
-const hasMenuAccess = (path) => {
-  if (isAdmin.value) return true;
-  
-  const role = userRoleId.value;
-  
-  // If we have dynamic permissions loaded from DB
-  if (userPermissions.value) {
-      const mappedName = menuMapping[path];
-      if (mappedName) {
-          if (mappedName === 'catalog') {
-              return userPermissions.value.includes('catalog') || userPermissions.value.includes('data catalog');
-          }
-          return userPermissions.value.includes(mappedName);
-      }
-      
-      // Fallback for paths not in DB menu_name table
-      if (path === '/favorites') return userPermissions.value.includes('catalog') || userPermissions.value.includes('data catalog');
-      if (path === '/dataset-permission-monitor') return role === '3';
-      if (path === '/organization-management') return role === '3';
-      if (path === '/category-management') return role === '3';
-      if (path === '/monitor') return role === '3';
-      return false;
-  }
-  
-  // Fallback to legacy hardcoded logic while loading or if API fails
-  if (role === '1') {
-    return ['/catalog'].includes(path);
-  }
-  if (role === '2') {
-    return ['/dashboard', '/catalog', '/favorites'].includes(path);
-  }
-  if (role === '3') {
-    return ['/dashboard', '/catalog', '/favorites', '/api-management', '/api-monitor', '/dataset-approval', '/dataset-management', '/analytics', '/group-dataset-management'].includes(path);
-  }
-  if (role === '5') {
-    return ['/dashboard', '/catalog', '/favorites', '/api-management'].includes(path);
-  }
-  return false;
-};
 
 
 const toggleSettings = () => {

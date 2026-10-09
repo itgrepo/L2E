@@ -15,49 +15,57 @@ def getMenu():
 
         conn = mysql.connect()
         cursor = conn.cursor()
+
+        # Canonical menus list
+        canonical_menus = [
+            {'menu_name_id': 1, 'menu_name': 'Dashboard'},
+            {'menu_name_id': 2, 'menu_name': 'Data Catalog'},
+            {'menu_name_id': 3, 'menu_name': 'API Management'},
+            {'menu_name_id': 4, 'menu_name': 'API Monitor'},
+            {'menu_name_id': 5, 'menu_name': 'Dataset Approval'},
+            {'menu_name_id': 6, 'menu_name': 'Analytics'},
+            {'menu_name_id': 8, 'menu_name': 'Group User Management'},
+            {'menu_name_id': 9, 'menu_name': 'Dataset Management'},
+            {'menu_name_id': 10, 'menu_name': 'Group Dataset Management'},
+            {'menu_name_id': 16, 'menu_name': 'User Management'},
+            {'menu_name_id': 7, 'menu_name': 'Permission Management'},
+            {'menu_name_id': 17, 'menu_name': 'Settings'}
+        ]
+
+        cursor.execute("SELECT previlage_id, previlage_name FROM codename_previlage")
+        roles = toJson(cursor.fetchall(), [col[0] for col in cursor.description])
+
+        cursor.execute("""
+            SELECT mp.previlage_id, mn.menu_name, mp.value 
+            FROM menu_permission mp 
+            JOIN menu_name mn ON mp.menu_name_id = mn.menu_name_id
+        """)
+        existing_perms = toJson(cursor.fetchall(), [col[0] for col in cursor.description])
+        
+        # Build map: (previlage_id, lower_menu_name) -> value
+        perm_map = {}
+        for ep in existing_perms:
+            m_name = ep['menu_name'].lower().strip()
+            if m_name == 'catalog':
+                m_name = 'data catalog'
+            p_id = ep['previlage_id']
+            # If any duplicate record for this role is 'Yes', treat as 'Yes'
+            if (p_id, m_name) not in perm_map or ep['value'] == 'Yes':
+                perm_map[(p_id, m_name)] = ep['value']
+
         data_previlage = []
-        # sql = "SELECT * FROM `menu_name`"
-        ##-Filter some menu_name-##
-        sql = "SELECT * FROM `menu_name` WHERE menu_name NOT IN ('User Management','Permission Management','Service Configuration')"
-        cursor.execute(sql,)
-        data = cursor.fetchall()
-        columns = [column[0] for column in cursor.description]
-        result = toJson(data, columns)
+        for role in roles:
+            for menu in canonical_menus:
+                m_name = menu['menu_name'].lower().strip()
+                val = perm_map.get((role['previlage_id'], m_name), 'No')
+                data_previlage.append({
+                    "menu_name": menu['menu_name'],
+                    "menu_name_id": menu['menu_name_id'],
+                    "previlage_id": role['previlage_id'],
+                    "key": role['previlage_name'],
+                    "value": val
+                })
 
-        sql = "SELECT * FROM `codename_previlage`"
-        cursor.execute(sql,)
-        data = cursor.fetchall()
-        columns = [column[0] for column in cursor.description]
-        result_previlage = toJson(data, columns)
-
-        sql = "SELECT * FROM menu_permission"
-        cursor.execute(sql,)
-        data = cursor.fetchall()
-        columns = [column[0] for column in cursor.description]
-        result_menu = toJson(data, columns)
-
-        for i in range(len(result)):
-            for j in range(len(result_previlage)):
-                data = {
-                        "menu_name": result[i]['menu_name'],
-                        "menu_name_id": result[i]['menu_name_id'],
-                        "previlage_id": result_previlage[j]["previlage_id"],
-                        "key": result_previlage[j]["previlage_name"],
-                        "value": "No"
-                        }
-                data_previlage.append(data)
-        for k in range(len(result_menu)):
-            for m in range(len(data_previlage)):
-                if data_previlage[m]['previlage_id'] == result_menu[k]['previlage_id'] and data_previlage[m]['menu_name_id'] == result_menu[k]['menu_name_id']:
-                    data = {
-                            "menu_name": data_previlage[m]['menu_name'],
-                            "menu_name_id": data_previlage[m]['menu_name_id'],
-                            "previlage_id": data_previlage[m]['previlage_id'],
-                            "key": data_previlage[m]['key'],
-                            "value": result_menu[k]['value']
-                            }
-                    data_previlage[m] = data
-        conn.commit()
         cursor.close()
         conn.close()
         return json.dumps({'data': data_previlage})
@@ -74,29 +82,16 @@ def getRoles():
         
         if user_data and checkUserIsAdmin(user_data) :
             previlage_id = int(user_data.get('previlage_id', 0))
-            # In this DB: 1=RootAdmin, 2=Admin, 3=User
-            if(previlage_id == 4):
-                conn = mysql.connect()
-                cursor = conn.cursor()
-                sql = "SELECT * FROM codename_previlage"
-                cursor.execute(sql,)
-                data = cursor.fetchall()
-                columns = [column[0] for column in cursor.description]
-                result = toJson(data, columns)
-                conn.commit()
-                cursor.close()
-                return jsonify(result)
-            else:
-                conn = mysql.connect()
-                cursor = conn.cursor()
-                sql = "SELECT * FROM codename_previlage WHERE previlage_id != 4"
-                cursor.execute(sql,)
-                data = cursor.fetchall()
-                columns = [column[0] for column in cursor.description]
-                result = toJson(data, columns)
-                conn.commit()
-                cursor.close()
-                return jsonify(result)
+            conn = mysql.connect()
+            cursor = conn.cursor()
+            sql = "SELECT * FROM codename_previlage ORDER BY previlage_id ASC"
+            cursor.execute(sql)
+            data = cursor.fetchall()
+            columns = [column[0] for column in cursor.description]
+            result = toJson(data, columns)
+            cursor.close()
+            conn.close()
+            return jsonify(result)
     except Exception as e:
         exception_type, exception_object, exception_traceback = sys.exc_info()
         line_number = exception_traceback.tb_lineno
@@ -130,37 +125,46 @@ def getPermission():
 
 @app.route('/mgmt/savePermission', methods=['POST'])
 def savePermission():
-    try : 
+    try: 
         dataInput = request.json
-        previlage_name = dataInput['data']['key']
-        previlage_id = dataInput['data']['previlage_id']
-        menu_name_id = dataInput['data']['menu_name_id']
-        menu_name = dataInput['data']['menu_name']
-        value = dataInput['data']['value']
+        data = dataInput.get('data', {})
+        previlage_id = data.get('previlage_id')
+        menu_name_id = data.get('menu_name_id')
+        menu_name = data.get('menu_name', '')
+        value = data.get('value', 'No')
         user_data = safe_json_loads(platform_decode(dataInput.get('user', '')))
         
-        if user_data and checkUserIsAdmin(user_data) :
+        if user_data and checkUserIsAdmin(user_data):
             conn = mysql.connect()
             cursor = conn.cursor()
-            sql = "SELECT * FROM menu_permission WHERE previlage_id = %s AND menu_name_id = %s"
-            cursor.execute(sql, (previlage_id, menu_name_id))
-            data = cursor.fetchall()
-            columns = [column[0] for column in cursor.description]
-            result = toJson(data, columns)
-            # print(result)
-            if len(result) > 0:
-                sql = "UPDATE menu_permission SET value = %s WHERE previlage_id = %s AND menu_name_id = %s"
-                cursor.execute(sql, (value, previlage_id, menu_name_id))
-                logAction( user_id =user_data['user_id'] , path = "/mgmt/savePermission" , log = "Updatemenu_permission : value= "+str(value)+" ,previlage_id= "+str(previlage_id)+" ,menu_name_id= "+str(menu_name_id)+" success" , type = "info" )
-            else:
-                sql = "INSERT INTO menu_permission VALUES (NULL, %s, %s, %s, CURRENT_TIMESTAMP)"
-                cursor.execute(sql, (previlage_id, menu_name_id, value))
-                logAction( user_id =user_data['user_id'] , path = "/mgmt/savePermission" , log = "Add menu_permission : value= "+str(value)+" ,previlage_id= "+str(previlage_id)+" ,menu_name_id= "+str(menu_name_id)+" success" , type = "info" )
+            
+            # Find all menu_name_ids with matching menu_name (case-insensitive and aliases)
+            names_to_match = [menu_name.lower().strip()]
+            if menu_name.lower().strip() in ['catalog', 'data catalog']:
+                names_to_match = ['catalog', 'data catalog']
+            elif menu_name.lower().strip() == 'settings':
+                names_to_match = ['settings', 'organization management', 'category management']
+                
+            format_strings = ','.join(['%s'] * len(names_to_match))
+            cursor.execute(f"SELECT menu_name_id FROM menu_name WHERE LOWER(TRIM(menu_name)) IN ({format_strings})", tuple(names_to_match))
+            matching_rows = cursor.fetchall()
+            matching_ids = [row[0] for row in matching_rows]
+            if menu_name_id and menu_name_id not in matching_ids:
+                matching_ids.append(menu_name_id)
+                
+            for m_id in matching_ids:
+                cursor.execute("SELECT menu_permission_id FROM menu_permission WHERE previlage_id = %s AND menu_name_id = %s", (previlage_id, m_id))
+                exists = cursor.fetchone()
+                if exists:
+                    cursor.execute("UPDATE menu_permission SET value = %s WHERE previlage_id = %s AND menu_name_id = %s", (value, previlage_id, m_id))
+                else:
+                    cursor.execute("INSERT INTO menu_permission (previlage_id, menu_name_id, value, create_at) VALUES (%s, %s, %s, CURRENT_TIMESTAMP)", (previlage_id, m_id, value))
+            
             conn.commit()
             cursor.close()
+            conn.close()
             return 'success'
         else :
-            logAction( user_id =user_data['user_id'] , path = "/mgmt/savePermission" , log = "Permission denied" , type = "warning" )
             return 'Permission denied'
     except Exception as e:
         exception_type, exception_object, exception_traceback = sys.exc_info()
@@ -168,4 +172,3 @@ def savePermission():
         print("Line number: ", line_number)
         print("Error: " + str(e))
         return jsonify({"status": "Error: " + str(e),"Line number": line_number})
-        # return "Error"

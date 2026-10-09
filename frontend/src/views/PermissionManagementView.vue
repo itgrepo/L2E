@@ -86,8 +86,9 @@ const togglePermission = async (perm) => {
       }
     });
     
-    if (response.data === 'success') {
+    if (response.data === 'success' || response.data?.status === 'success') {
       saveStatus.value = 'Settings saved';
+      window.dispatchEvent(new Event('permissions-updated'));
       setTimeout(() => { if (saveStatus.value === 'Settings saved') saveStatus.value = ''; }, 2000);
     } else {
       perm.value = originalValue;
