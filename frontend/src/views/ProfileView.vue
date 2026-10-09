@@ -198,13 +198,40 @@ const generateApiKey = async () => {
   }
 };
 
-onMounted(() => {
-  const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
-  if (savedUser) {
-    let calculatedRole = 'User';
+onMounted(async () => {
+  let savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+  if (savedUser.username) {
+    try {
+      const res = await postWithUser('/getMenuByPermission', savedUser);
+      if (res.data && res.data.current_role) {
+        savedUser.previlage_id = res.data.current_role;
+        if (String(res.data.current_role) === '4') {
+          savedUser.isAdmin = 'true';
+          savedUser.role = 'System Administrator';
+        } else if (String(res.data.current_role) === '3') {
+          savedUser.isAdmin = 'false';
+          savedUser.role = 'Department Admin';
+        } else if (String(res.data.current_role) === '5') {
+          savedUser.isAdmin = 'false';
+          savedUser.role = 'ผู้ใช้งานภายใน (มีสิทธิ์ Dataset)';
+        } else if (String(res.data.current_role) === '2') {
+          savedUser.isAdmin = 'false';
+          savedUser.role = 'General User';
+        } else {
+          savedUser.isAdmin = 'false';
+          savedUser.role = 'External User';
+        }
+        localStorage.setItem('user', JSON.stringify(savedUser));
+      }
+    } catch (e) {
+      console.error('Failed to sync role in profile', e);
+    }
+
+    let calculatedRole = savedUser.role || 'User';
     const privId = String(savedUser.previlage_id);
     if (privId === '4') calculatedRole = 'System Administrator';
     else if (privId === '3') calculatedRole = 'Department Admin';
+    else if (privId === '5') calculatedRole = 'ผู้ใช้งานภายใน (มีสิทธิ์ Dataset)';
     else if (privId === '2') calculatedRole = 'General User';
     else if (privId === '1') calculatedRole = 'External User';
 

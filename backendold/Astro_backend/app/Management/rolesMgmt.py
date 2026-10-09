@@ -94,13 +94,22 @@ def updateUserById():
             conn = mysql.connect()
             cursor = conn.cursor()
             
-            if target_user_id and previlage_id:
-                sql = """UPDATE user SET previlage_id = %s, org_id = %s WHERE user_id = %s"""
-                cursor.execute(sql, (previlage_id, org_id, target_user_id))
-                logAction( user_id =user_data['user_id'] , path = "/mgmt/updateUserById" , log = "Update user: "+str(target_user_id)+" To previlage_id: "+str(previlage_id)+" success" , type = "info" )
+            if target_user_id:
+                if previlage_id is not None and org_id is not None:
+                    sql = "UPDATE user SET previlage_id = %s, org_id = %s WHERE user_id = %s"
+                    cursor.execute(sql, (previlage_id, org_id, target_user_id))
+                elif previlage_id is not None:
+                    sql = "UPDATE user SET previlage_id = %s WHERE user_id = %s"
+                    cursor.execute(sql, (previlage_id, target_user_id))
+                elif org_id is not None:
+                    sql = "UPDATE user SET org_id = %s WHERE user_id = %s"
+                    cursor.execute(sql, (org_id, target_user_id))
+
+                logAction( user_id =user_data.get('user_id') , path = "/mgmt/updateUserById" , log = f"Update user: {target_user_id} previlage_id: {previlage_id} org_id: {org_id} success" , type = "info" )
 
             conn.commit()
             cursor.close()
+            conn.close()
             return jsonify({"status": "success"})
         else :
             logAction( user_id =user_data.get('user_id') , path = "/mgmt/updateUserById" , log = "Permission denied" , type = "warning" )
