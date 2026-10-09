@@ -584,6 +584,19 @@ const saveAddApi = async () => {
     alert('กรุณากรอก API Endpoint');
     return;
   }
+
+  // Strict Validation: Scope API must have at least 1 Request Field and 1 Response Field
+  if (apiForm.value.api_type === 'scope') {
+    if (!apiForm.value.request_fields || apiForm.value.request_fields.length === 0) {
+      alert('การสร้าง Scope API จำเป็นต้องเลือก Field Request อย่างน้อย 1 ฟิลด์');
+      return;
+    }
+    if (!apiForm.value.response_fields || apiForm.value.response_fields.length === 0) {
+      alert('การสร้าง Scope API จำเป็นต้องเลือก Field Response อย่างน้อย 1 ฟิลด์');
+      return;
+    }
+  }
+
   try {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     const payload = {
@@ -610,7 +623,7 @@ const saveAddApi = async () => {
       alert('สร้าง API Endpoint สำเร็จ!');
       showAddApiModal.value = false;
       fetchServices();
-  fetchDatabases();
+      fetchDatabases();
     } else {
       alert('Error: ' + res.data.message);
     }
@@ -625,14 +638,28 @@ const saveScopeForm = async () => {
     alert('กรุณาเลือก User');
     return;
   }
+  
+  // Strict Validation: API Scope assignment must have at least 1 Request Field and 1 Response Field
+  if (!scopeFormRequestFields.value || scopeFormRequestFields.value.length === 0) {
+    alert('การกำหนดสิทธิ์ Scope จำเป็นต้องเลือก Field Request อย่างน้อย 1 ฟิลด์');
+    return;
+  }
   if (!scopeFormResponseFields.value || scopeFormResponseFields.value.length === 0) {
-    alert('กรุณาเลือก Field Response อย่างน้อย 1 ฟิลด์');
+    alert('การกำหนดสิทธิ์ Scope จำเป็นต้องเลือก Field Response อย่างน้อย 1 ฟิลด์');
     return;
   }
   
   try {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     const validConditions = scopeConditions.value.filter(c => c.field && c.value);
+    
+    // Validate that condition fields must be within scopeFormRequestFields
+    for (const c of validConditions) {
+      if (!scopeFormRequestFields.value.includes(c.field)) {
+        alert(`ฟิลด์ "${c.field}" ในเงื่อนไข WHERE ต้องเป็นฟิลด์ที่ถูกเลือกใน Field Request (ข้อ 1) เท่านั้น`);
+        return;
+      }
+    }
     
     const scopePayload = {
       request_fields: scopeFormRequestFields.value,
@@ -1298,8 +1325,8 @@ const formatScopeJson = (scopeJson) => {
                 </select>
                 <span v-else class="scope-where-label" style="font-weight: 700; width: 80px; text-align: center; color: #475569;">WHERE</span>
                 <select v-model="cond.field" class="scope-field" style="flex: 2; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
-                  <option value="">-- เลือก Field --</option>
-                  <option v-for="col in availableColumns" :key="col.name || col.column_name || col.COLUMN_NAME" :value="col.name || col.column_name || col.COLUMN_NAME">{{ col.name || col.column_name || col.COLUMN_NAME }}</option>
+                  <option value="">{{ scopeFormRequestFields.length === 0 ? '-- กรุณาเลือก Field Request ด้านบนก่อน --' : '-- เลือก Field Request --' }}</option>
+                  <option v-for="fieldName in scopeFormRequestFields" :key="fieldName" :value="fieldName">{{ fieldName }}</option>
                 </select>
                 <select v-model="cond.operator" class="scope-operator" style="width: 90px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
                   <option value="=">=</option>
@@ -1314,7 +1341,12 @@ const formatScopeJson = (scopeJson) => {
                 <input type="text" v-model="cond.value" class="scope-value" placeholder="Value" style="flex: 2; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
                 <button type="button" @click="removeScopeCondition(index)" class="scope-remove" title="ลบ" style="background: none; border: none; color: #ef4444; font-size: 1.1rem; cursor: pointer; padding: 4px 8px;">✕</button>
               </div>
-              <button type="button" @click="addScopeCondition" class="btn-outline-primary" style="margin-top:8px; font-size: 0.8rem; padding: 6px 12px;">+ Add Condition</button>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+                <button type="button" @click="addScopeCondition" class="btn-outline-primary" style="font-size: 0.8rem; padding: 6px 12px;">+ Add Condition</button>
+                <span v-if="scopeFormRequestFields.length === 0" style="color: #ef4444; font-size: 0.78rem;">
+                  ⚠️ กรุณาเลือก Field Request ในข้อ 1 ด้านบนก่อน จึงจะสามารถเลือกฟิลด์สำหรับเงื่อนไข WHERE ได้
+                </span>
+              </div>
             </div>
           </div>
           <div class="modal-footer" style="display:flex; justify-content:space-between; margin-top: 16px;">

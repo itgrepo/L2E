@@ -910,6 +910,16 @@ def getDatasetApiEndpoints():
         if not dataset_id:
             return jsonify({'status': 'error', 'message': 'Missing dataset_id'})
             
+        user_id = None
+        user_str = dataInput.get('user')
+        if user_str:
+            try:
+                decoded_user = platform_decode(user_str)
+                user_data = safe_json_loads(decoded_user)
+                user_id = user_data.get('user_id')
+            except Exception:
+                user_id = None
+
         conn = mysql.connect()
         cursor = conn.cursor()
         
@@ -921,6 +931,65 @@ def getDatasetApiEndpoints():
         columns = [col[0] for col in cursor.description]
         result = [dict(zip(columns, row)) for row in data]
         
+        # If user is logged in, personalize the scoped fields for their credential
+        if user_id:
+            for row in result:
+                svc_id = row.get('service_id')
+                cursor.execute("""
+                    SELECT s.scope_json FROM api_credentials c 
+                    JOIN api_scopes s ON c.credential_id = s.credential_id 
+                    WHERE c.service_id = %s AND c.user_id = %s AND c.status = 'active'
+                    ORDER BY c.credential_id DESC LIMIT 1
+                """, (svc_id, user_id))
+                s_row = cursor.fetchone()
+                if not s_row:
+                    cursor.execute("""
+                        SELECT s.scope_json FROM api_credentials c 
+                        JOIN api_scopes s ON c.credential_id = s.credential_id 
+                        WHERE c.user_id = %s AND c.status = 'active'
+                          AND c.service_id IN (SELECT service_id FROM service WHERE dataset_id = %s OR dataset_id LIKE %s OR service_id = %s)
+                        ORDER BY c.credential_id DESC LIMIT 1
+                    """, (user_id, dataset_id, f"API_CLONE_{dataset_id}_%", svc_id))
+                    s_row = cursor.fetchone()
+                
+                if s_row and s_row[0]:
+                    try:
+                        s_obj = json.loads(s_row[0]) if isinstance(s_row[0], str) else s_row[0]
+                        if isinstance(s_obj, dict) and s_obj.get('response_fields'):
+                            row['api_response_fields'] = s_obj.get('response_fields')
+                        if isinstance(s_obj, dict) and s_obj.get('request_fields'):
+                            row['api_request_fields'] = s_obj.get('request_fields')
+                    except Exception:
+                        pass
+                else:
+                    cursor.execute("""
+                        SELECT fields_json FROM dataset_permission_requests 
+                        WHERE user_id = %s AND status = 'Approved'
+                          AND (approved_api = 1 OR request_type IN ('api', 'all'))
+                          AND service_id IN (SELECT service_id FROM service WHERE dataset_id = %s OR dataset_id LIKE %s OR service_id = %s)
+                        ORDER BY request_id DESC LIMIT 1
+                    """, (user_id, dataset_id, f"API_CLONE_{dataset_id}_%", svc_id))
+                    p_row = cursor.fetchone()
+                    if p_row and p_row[0]:
+                        try:
+                            p_fields = json.loads(p_row[0]) if isinstance(p_row[0], str) else p_row[0]
+                            if isinstance(p_fields, list) and p_fields:
+                                row['api_response_fields'] = p_fields
+                        except Exception:
+                            pass
+
+        for row in result:
+            if isinstance(row.get('api_response_fields'), str):
+                try:
+                    row['api_response_fields'] = json.loads(row['api_response_fields'])
+                except Exception:
+                    pass
+            if isinstance(row.get('api_request_fields'), str):
+                try:
+                    row['api_request_fields'] = json.loads(row['api_request_fields'])
+                except Exception:
+                    pass
+
         cursor.close()
         conn.close()
         
@@ -1859,6 +1928,13 @@ def cloneServiceForApi():
         import json
         req_fields = dataInput.get('api_request_fields', [])
         res_fields = dataInput.get('api_response_fields', [])
+        
+        if orig_data['api_type'] == 'scope':
+            if not req_fields or len(req_fields) == 0 or not res_fields or len(res_fields) == 0:
+                cursor.close()
+                conn.close()
+                return jsonify({'status': 'error', 'message': 'การสร้าง Scope API จำเป็นต้องเลือก Request Field และ Response Field อย่างน้อยอย่างละ 1 ฟิลด์'}), 400
+
         orig_data['api_request_fields'] = json.dumps(req_fields) if isinstance(req_fields, list) else req_fields
         orig_data['api_response_fields'] = json.dumps(res_fields) if isinstance(res_fields, list) else res_fields
         
@@ -2660,46 +2736,110 @@ def getSystemActivityLogs():
         return jsonify({"status": "error", "message": "An internal error occurred"}), 500
 
 
-@app.route('/dashboard/stats', methods=['GET'])
+def calc_metric_trend(cur, prev):
+    try:
+        cur_val = int(cur or 0)
+        prev_val = int(prev or 0)
+        if prev_val > 0:
+            pct = round(((cur_val - prev_val) / prev_val) * 100)
+            return f"+{pct}%" if pct >= 0 else f"{pct}%"
+        elif cur_val > 0:
+            return "+100%"
+        else:
+            return "+0%"
+    except Exception:
+        return "+0%"
+
+@app.route('/dashboard/stats', methods=['GET', 'POST'])
 def get_dashboard_stats():
     try:
+        user_str = request.args.get('user') or (request.json.get('user') if request.is_json and request.json else None)
+        user_id = None
+        privilege_id = None
+        if user_str:
+            try:
+                decoded_user = platform_decode(user_str)
+                user_data = safe_json_loads(decoded_user)
+                user_id = user_data.get('user_id')
+                privilege_id = user_data.get('privilege_id') or user_data.get('previlage_id')
+            except Exception:
+                pass
+
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        # 1. Datasets Count
+        # 1. Datasets Count & Monthly Trend
         cursor.execute("SELECT COUNT(*) as count FROM service WHERE status = 'Active'")
-        datasets_count = cursor.fetchone()[0]
+        datasets_count = cursor.fetchone()[0] or 0
         
-        # 2. Active API Keys Count
+        cursor.execute("""
+            SELECT 
+                SUM(CASE WHEN MONTH(create_at) = MONTH(CURRENT_DATE()) AND YEAR(create_at) = YEAR(CURRENT_DATE()) THEN 1 ELSE 0 END),
+                SUM(CASE WHEN MONTH(create_at) = MONTH(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)) AND YEAR(create_at) = YEAR(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)) THEN 1 ELSE 0 END)
+            FROM service WHERE status = 'Active'
+        """)
+        ds_trend_row = cursor.fetchone()
+        ds_cur = ds_trend_row[0] or 0
+        ds_prev = ds_trend_row[1] or 0
+        ds_trend = f"+{round((ds_cur/ds_prev)*100)}%" if (ds_cur > 0 and ds_prev > 0) else (f"+{ds_cur*10}%" if ds_cur > 0 else "+0%")
+        
+        # 2. Active API Keys Count & Monthly Trend
         cursor.execute("SELECT COUNT(*) as count FROM api_credentials WHERE status = 'active'")
-        api_keys_count = cursor.fetchone()[0]
+        api_keys_count = cursor.fetchone()[0] or 0
         
-        # 3. API Hits This Month
+        cursor.execute("""
+            SELECT 
+                SUM(CASE WHEN MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE()) THEN 1 ELSE 0 END),
+                SUM(CASE WHEN MONTH(created_at) = MONTH(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)) AND YEAR(created_at) = YEAR(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)) THEN 1 ELSE 0 END)
+            FROM api_credentials WHERE status = 'active'
+        """)
+        keys_trend_row = cursor.fetchone()
+        keys_cur = keys_trend_row[0] or 0
+        keys_prev = keys_trend_row[1] or 0
+        keys_trend = calc_metric_trend(keys_cur, keys_prev)
+        
+        # 3. API Hits This Month & Monthly Trend
         cursor.execute("SELECT COUNT(*) as count FROM log WHERE type = 'API' AND MONTH(create_at) = MONTH(CURRENT_DATE()) AND YEAR(create_at) = YEAR(CURRENT_DATE())")
-        api_calls_count = cursor.fetchone()[0]
+        api_calls_count = cursor.fetchone()[0] or 0
         
+        cursor.execute("""
+            SELECT 
+                SUM(CASE WHEN MONTH(create_at) = MONTH(CURRENT_DATE()) AND YEAR(create_at) = YEAR(CURRENT_DATE()) THEN 1 ELSE 0 END),
+                SUM(CASE WHEN MONTH(create_at) = MONTH(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)) AND YEAR(create_at) = YEAR(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)) THEN 1 ELSE 0 END)
+            FROM log WHERE type = 'API'
+        """)
+        api_trend_row = cursor.fetchone()
+        api_cur = api_trend_row[0] or 0
+        api_prev = api_trend_row[1] or 0
+        api_trend = calc_metric_trend(api_cur, api_prev)
 
-        # 4. Downloads Count (Mock logic based on logs)
-        cursor.execute("SELECT COUNT(*) as count FROM log WHERE log_detail LIKE '%Download%' AND MONTH(create_at) = MONTH(CURRENT_DATE())")
-        downloads_count = cursor.fetchone()[0]
+        # 4. Downloads Count & Monthly Trend
+        cursor.execute("SELECT COUNT(*) as count FROM log WHERE (type = 'Download' OR log_detail LIKE '%Download%') AND MONTH(create_at) = MONTH(CURRENT_DATE()) AND YEAR(create_at) = YEAR(CURRENT_DATE())")
+        downloads_count = cursor.fetchone()[0] or 0
+        
+        cursor.execute("""
+            SELECT 
+                SUM(CASE WHEN MONTH(create_at) = MONTH(CURRENT_DATE()) AND YEAR(create_at) = YEAR(CURRENT_DATE()) THEN 1 ELSE 0 END),
+                SUM(CASE WHEN MONTH(create_at) = MONTH(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)) AND YEAR(create_at) = YEAR(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)) THEN 1 ELSE 0 END)
+            FROM log WHERE type = 'Download' OR log_detail LIKE '%Download%'
+        """)
+        dl_trend_row = cursor.fetchone()
+        dl_cur = dl_trend_row[0] or 0
+        dl_prev = dl_trend_row[1] or 0
+        dl_trend = calc_metric_trend(dl_cur, dl_prev)
         
         # 4.5. Organizations Count
         cursor.execute("SELECT COUNT(*) as count FROM organization")
-        organizations_count = cursor.fetchone()[0]
+        organizations_count = cursor.fetchone()[0] or 0
         
-        # 5. Recent Activity (Last 5 logs)
-
-        cursor.execute("SELECT log_detail as text, create_at as time, type FROM log ORDER BY create_at DESC LIMIT 5")
+        # 5. Recent Activity (Last 15 logs)
+        cursor.execute("SELECT log_detail as text, create_at as time, type FROM log ORDER BY create_at DESC LIMIT 15")
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         recent_activity = toJson(data, columns)
         
-        # Format time to relative string for now (simple version)
-        import datetime
-        now = datetime.datetime.now()
         for activity in recent_activity:
-             # Convert time to string or handle as needed
-             activity['time'] = str(activity['time'])
+             activity['time'] = str(activity.get('time') or '')
         
         cursor.close()
         conn.close()
@@ -2707,10 +2847,10 @@ def get_dashboard_stats():
         return jsonify({
             'status': 'success',
             'stats': [
-                { 'label': 'Datasets Accessed', 'value': str(datasets_count), 'trend': '+0%', 'color': '#22c55e', 'icon': 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2z' },
-                { 'label': 'API Keys Active', 'value': str(api_keys_count), 'trend': '+0%', 'color': '#3b82f6', 'icon': 'M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z' },
-                { 'label': 'API Calls This Month', 'value': str(api_calls_count), 'trend': '+0%', 'color': '#8b5cf6', 'icon': 'M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16' },
-                { 'label': 'Downloads This Month', 'value': str(downloads_count), 'trend': '+0%', 'color': '#ef4444', 'icon': 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4' }
+                { 'label': 'Datasets Available', 'label_th': 'ชุดข้อมูลในระบบทั้งหมด', 'value': str(datasets_count), 'trend': ds_trend, 'color': '#22c55e', 'icon': 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2z' },
+                { 'label': 'API Keys Active', 'label_th': 'API Keys ที่เปิดใช้งาน', 'value': str(api_keys_count), 'trend': keys_trend, 'color': '#3b82f6', 'icon': 'M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z' },
+                { 'label': 'API Calls This Month', 'label_th': 'การเรียกใช้ API เดือนนี้', 'value': str(api_calls_count), 'trend': api_trend, 'color': '#8b5cf6', 'icon': 'M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16' },
+                { 'label': 'Downloads This Month', 'label_th': 'การดาวน์โหลดไฟล์เดือนนี้', 'value': str(downloads_count), 'trend': dl_trend, 'color': '#ef4444', 'icon': 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4' }
             ],
             'hero_stats': {
                 'datasets_count': datasets_count,
@@ -2728,13 +2868,13 @@ def get_usage_chart():
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        # Aggregate logs by day for the last 7 days
+        # Aggregate logs by day for the last 7 days with explicit ISO date format
         sql = """
-            SELECT DATE(create_at) as date, COUNT(*) as count 
+            SELECT DATE_FORMAT(DATE(create_at), '%Y-%m-%d') as date, COUNT(*) as count 
             FROM log 
-            WHERE create_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+            WHERE create_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
             GROUP BY DATE(create_at)
-            ORDER BY date ASC
+            ORDER BY DATE(create_at) ASC
         """
         cursor.execute(sql)
         data = cursor.fetchall()
@@ -3206,6 +3346,17 @@ def saveApiScopeForUser():
                 'response_fields': response_fields or [],
                 'conditions': scope_json if isinstance(scope_json, (list, dict)) else []
             }
+        req_list = standard_scope_obj.get('request_fields') or []
+        res_list = standard_scope_obj.get('response_fields') or []
+        if not req_list or len(req_list) == 0 or not res_list or len(res_list) == 0:
+            return jsonify({'status': 'error', 'message': 'การกำหนด API Scope จำเป็นต้องเลือก Request Field และ Response Field อย่างน้อยอย่างละ 1 ฟิลด์'}), 400
+
+        for cond in standard_scope_obj.get('conditions', []):
+            if isinstance(cond, dict):
+                c_field = cond.get('field')
+                if c_field and c_field not in req_list:
+                    return jsonify({'status': 'error', 'message': f'ฟิลด์ "{c_field}" ในเงื่อนไข WHERE ต้องเป็นฟิลด์ที่ถูกเลือกใน Request Fields'}), 400
+
         scope_str = json.dumps(standard_scope_obj)
 
         conn = mysql.connect()
@@ -3499,6 +3650,11 @@ def updateApiService():
         import json
         req_fields = dataInput.get('api_request_fields', [])
         res_fields = dataInput.get('api_response_fields', [])
+        
+        if api_type == 'scope':
+            if not req_fields or len(req_fields) == 0 or not res_fields or len(res_fields) == 0:
+                return jsonify({'status': 'error', 'message': 'การสร้าง/แก้ไข Scope API จำเป็นต้องเลือก Request Field และ Response Field อย่างน้อยอย่างละ 1 ฟิลด์'}), 400
+
         req_str = json.dumps(req_fields) if isinstance(req_fields, list) else req_fields
         res_str = json.dumps(res_fields) if isinstance(res_fields, list) else res_fields
         

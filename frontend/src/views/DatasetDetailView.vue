@@ -155,9 +155,21 @@ const fetchDatasetDetail = async () => {
 
         // Fetch clones for API tab
         try {
-          const cloneRes = await apiClient.post('/getDatasetApiEndpoints', { dataset_id: found.dataset_id || found.service_id });
+          const cloneRes = await apiClient.post('/getDatasetApiEndpoints', { 
+            dataset_id: found.dataset_id || found.service_id,
+            user: localStorage.getItem('user')
+          });
           if (cloneRes.data && cloneRes.data.data) {
-             apiClones.value = cloneRes.data.data;
+             apiClones.value = cloneRes.data.data.map(clone => {
+               let respFields = clone.api_response_fields;
+               if (typeof respFields === 'string') {
+                 try { respFields = JSON.parse(respFields); } catch(e) { respFields = []; }
+               }
+               return {
+                 ...clone,
+                 api_response_fields: Array.isArray(respFields) ? respFields : []
+               };
+             });
           }
         } catch (e) {
           console.error('Failed to fetch clones', e);
