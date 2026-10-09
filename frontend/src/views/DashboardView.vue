@@ -446,9 +446,14 @@ onMounted(() => {
               <div class="mock-chart-container">
                 <div class="chart-bars-horizontal">
                   <template v-if="chartData.length > 0">
-                    <div v-for="day in chartData" :key="day.date" class="bar-group">
+                    <div 
+                      v-for="day in chartData" 
+                      :key="day.date" 
+                      class="bar-group custom-tooltip"
+                      :data-tooltip="`วันที่ ${day.date}: เรียกใช้งาน ${day.count} ครั้ง`"
+                    >
                       <div class="bar-label">{{ formatDateLabel(day.date) }}</div>
-                      <div :data-tooltip="`วันที่ ${day.date}: เรียกใช้งาน ${day.count} ครั้ง`" class="bar-track custom-tooltip">
+                      <div class="bar-track">
                         <div 
                           class="bar-progress" 
                           :style="{ 
@@ -1054,11 +1059,11 @@ onMounted(() => {
 .custom-tooltip::after {
   content: attr(data-tooltip);
   position: absolute;
-  bottom: 100%;
+  bottom: calc(100% + 8px);
   left: 50%;
-  transform: translateX(-50%) translateY(-6px);
-  background: rgba(15, 23, 42, 0.95);
-  color: white;
+  transform: translateX(-50%) translateY(4px);
+  background: #0f172a;
+  color: #ffffff;
   padding: 6px 12px;
   border-radius: 6px;
   font-size: 12px;
@@ -1066,13 +1071,30 @@ onMounted(() => {
   white-space: nowrap;
   opacity: 0;
   visibility: hidden;
-  transition: all 0.2s ease;
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
   pointer-events: none;
   z-index: 9999;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
 }
 
-.custom-tooltip:hover::after {
+.custom-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  border-width: 5px 5px 0 5px;
+  border-style: solid;
+  border-color: #0f172a transparent transparent transparent;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.custom-tooltip:hover::after,
+.custom-tooltip:hover::before {
   opacity: 1;
   visibility: visible;
   transform: translateX(-50%) translateY(0);
@@ -1087,7 +1109,18 @@ onMounted(() => {
   transform: translateY(-4px);
 }
 
-.custom-tooltip.tooltip-bottom-right:hover::after {
+.custom-tooltip.tooltip-bottom-right::before {
+  bottom: auto;
+  top: calc(100% + 3px);
+  left: auto;
+  right: 12px;
+  border-width: 0 5px 5px 5px;
+  border-color: transparent transparent #0f172a transparent;
+  transform: translateY(-4px);
+}
+
+.custom-tooltip.tooltip-bottom-right:hover::after,
+.custom-tooltip.tooltip-bottom-right:hover::before {
   transform: translateY(0);
 }
 
