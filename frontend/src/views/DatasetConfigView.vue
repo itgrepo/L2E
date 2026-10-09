@@ -793,12 +793,12 @@ const updateDatasetPrefix = () => {
                   </div>
                   <div class="form-group">
                     <label>หมวดหมู่ย่อย *</label>
-                    <div style="display: flex; gap: 8px;">
-                      <select v-model="formData.sub_category" class="form-select-custom" required style="flex: 1;">
+                    <div style="display: flex; gap: 8px; width: 100%; min-width: 0;">
+                      <select v-model="formData.sub_category" class="form-select-custom" required style="flex: 1 1 0; min-width: 0; width: 100%;">
                         <option value="">เลือกหมวดหมู่ข้อมูลย่อยในหน้าหลัก</option>
                         <option v-for="sub in availableSubCategories" :key="sub" :value="sub">{{ sub }}</option>
                       </select>
-                      <button type="button" class="btn-add" @click="showAddSubCatModal = true; modalSelectedCategory = formData.category" style="padding: 0 16px; border-radius: 8px; height: 42px;">
+                      <button type="button" class="btn-add" @click="showAddSubCatModal = true; modalSelectedCategory = formData.category" style="padding: 0 16px; border-radius: 8px; height: 42px; flex-shrink: 0;">
                         <span class="icon" style="margin-right: 0;">+</span>
                       </button>
                     </div>
@@ -1567,9 +1567,12 @@ const updateDatasetPrefix = () => {
 
 .form-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 24px;
   margin-bottom: 24px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .form-group {
@@ -1577,12 +1580,19 @@ const updateDatasetPrefix = () => {
   flex-direction: column;
   gap: 8px;
   margin-bottom: 24px;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .form-group label {
   font-size: 0.875rem;
   font-weight: 600;
   color: #475569;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .form-group input, 
@@ -1594,6 +1604,10 @@ const updateDatasetPrefix = () => {
   font-size: 0.9375rem;
   transition: border-color 0.2s;
   outline: none;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .form-group input:focus, 
@@ -1604,6 +1618,13 @@ const updateDatasetPrefix = () => {
 
 .form-select-custom {
   background-color: white;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .radio-group {

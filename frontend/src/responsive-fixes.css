@@ -134,10 +134,57 @@ code {
   max-width: 100%;
 }
 
-/* Input Fields */
-input, select, textarea {
+/* Universal Form Rows, Groups & Controls */
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  width: 100% !important;
   max-width: 100% !important;
+  min-width: 0 !important;
   box-sizing: border-box !important;
+}
+
+.form-group,
+.form-group.half,
+.form-row > * {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.form-group label {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Input Fields & Dropdowns */
+input, 
+select, 
+textarea,
+.form-select-custom,
+.dark-input,
+.custom-select {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+
+select,
+.form-select-custom,
+.custom-select {
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+}
+
+select option {
+  max-width: 100%;
+  white-space: normal;
+  word-wrap: break-word;
 }
 
 /* Modals */
