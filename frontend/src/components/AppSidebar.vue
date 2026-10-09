@@ -57,8 +57,8 @@ const menuMapping = {
 const hasMenuAccess = (path) => {
   const role = userRoleId.value;
   
-  // Always allow Root Admin to access Permission Management so they cannot lock themselves out
-  if (path === '/permission-management' && (role === '4' || isAdmin.value)) {
+  // Always allow Root Admin (Role 4) to access Permission Management so they cannot lock themselves out
+  if (path === '/permission-management' && role === '4') {
     return true;
   }
 
@@ -87,39 +87,40 @@ const loadPermissions = async () => {
   const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
   if (savedUser.username) {
     userName.value = `${savedUser.firstname || savedUser.username} ${savedUser.lastname || ''}`;
-    userRole.value = savedUser.role || (savedUser.isAdmin === 'true' || savedUser.isAdmin === true ? 'Administrator' : 'User');
-    userRoleId.value = String(savedUser.previlage_id);
-    isAdmin.value = userRoleId.value === '4' || savedUser.isAdmin === 'true' || savedUser.isAdmin === true;
+    userRoleId.value = String(savedUser.previlage_id || '2');
+    isAdmin.value = userRoleId.value === '4';
+    userRole.value = savedUser.role || (isAdmin.value ? 'Administrator' : (userRoleId.value === '3' ? 'Department Admin' : 'User'));
 
     try {
       const res = await postWithUser('/getMenuByPermission', savedUser);
       if (res.data && (res.data.status === 'Success' || res.data.status === 'success')) {
         userPermissions.value = res.data.data.map(m => m.menu_name.toLowerCase().trim());
         
-        // Update session if backend role has changed (e.g. admin downgraded user)
-        if (res.data.current_role && String(res.data.current_role) !== String(savedUser.previlage_id)) {
-          savedUser.previlage_id = res.data.current_role;
-          if (String(res.data.current_role) === '4') {
-             savedUser.isAdmin = 'true';
-             savedUser.role = 'Administrator';
-          } else if (String(res.data.current_role) === '3') {
-             savedUser.isAdmin = 'false';
-             savedUser.role = 'Department Admin';
-          } else {
-             savedUser.isAdmin = 'false';
-             savedUser.role = 'User';
-          }
-          localStorage.setItem('user', JSON.stringify(savedUser));
-          
-          // Update reactive state immediately
-          userRoleId.value = String(res.data.current_role);
-          isAdmin.value = String(res.data.current_role) === '4';
-          userRole.value = savedUser.role;
+        // Update session if backend role has changed or sync latest role from DB
+        const currentRole = res.data.current_role ? String(res.data.current_role) : userRoleId.value;
+        userRoleId.value = currentRole;
+        isAdmin.value = currentRole === '4';
+        
+        savedUser.previlage_id = parseInt(currentRole);
+        if (currentRole === '4') {
+          savedUser.isAdmin = 'true';
+          savedUser.role = 'Administrator';
+        } else if (currentRole === '3') {
+          savedUser.isAdmin = 'false';
+          savedUser.role = 'Department Admin';
+        } else if (currentRole === '5') {
+          savedUser.isAdmin = 'false';
+          savedUser.role = 'ผู้ใช้งานภายใน (มีสิทธิ์ Dataset)';
+        } else {
+          savedUser.isAdmin = 'false';
+          savedUser.role = 'User';
+        }
+        localStorage.setItem('user', JSON.stringify(savedUser));
+        userRole.value = savedUser.role;
 
-          // Kick out if current route is no longer allowed
-          if (!hasMenuAccess(route.path)) {
-            router.push('/catalog');
-          }
+        // Kick out if current route is no longer allowed
+        if (!hasMenuAccess(route.path)) {
+          router.push('/catalog');
         }
       }
     } catch (e) {
