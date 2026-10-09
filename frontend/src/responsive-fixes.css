@@ -8,15 +8,24 @@
   box-sizing: border-box;
 }
 
-html, body {
-  overflow-x: hidden !important;
-  width: 100% !important;
-  max-width: 100% !important;
+html {
+  overflow-x: hidden;
+  overflow-y: auto;
+  width: 100%;
+}
+
+body {
+  overflow-x: hidden;
+  overflow-y: auto;
+  width: 100%;
+  min-height: 100%;
   margin: 0;
   padding: 0;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* 1. Universal Layout Containers (Backoffice & Admin Pages) */
+.layout,
 .analytics-layout,
 .monitor-layout,
 .dashboard-layout,
@@ -44,6 +53,7 @@ html, body {
 }
 
 /* 2. Universal Main Content Canvas */
+.content,
 .analytics-content,
 .monitor-content,
 .dashboard-content,
@@ -59,7 +69,6 @@ html, body {
   width: 100% !important;
   max-width: 100% !important;
   box-sizing: border-box !important;
-  overflow-x: hidden;
 }
 
 /* 3. Universal Card & Grid Defenses */
