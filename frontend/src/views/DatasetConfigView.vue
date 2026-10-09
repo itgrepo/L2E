@@ -1682,10 +1682,24 @@ const updateDatasetPrefix = () => {
 .checkbox-label {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
+  text-align: left;
   gap: 8px;
   font-size: 0.9375rem;
   color: #475569;
   cursor: pointer;
+  width: auto;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+  flex-shrink: 0 !important;
+}
+
+.checkbox-label span {
+  text-align: left !important;
 }
 
 .mt-8 { margin-top: 2rem; }
@@ -1703,11 +1717,25 @@ const updateDatasetPrefix = () => {
 .radio-label-v {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
+  text-align: left;
   gap: 12px;
   cursor: pointer;
   font-size: 0.9375rem;
   color: #475569;
   transition: color 0.2s;
+  width: auto;
+}
+
+.radio-label-v input[type="radio"] {
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+  flex-shrink: 0 !important;
+}
+
+.radio-label-v span {
+  text-align: left !important;
 }
 
 .radio-label-v:hover {
