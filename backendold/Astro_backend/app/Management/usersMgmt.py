@@ -264,59 +264,60 @@ def getQRString():
 @app.route('/getMenuByPermission', methods=['POST'])
 def getMenuByPermission():
     try:
-        dataInput = request.json
-        #------Cookie------#
-        # cookie_information = request.cookies.get('information')
-        # print(cookie_information)
-        # url_decode_cookie_information = urllib.parse.unquote(cookie_information) # URL Decode
-        # print(url_decode_cookie_information)
-        # dict_cookie_information = json.loads(decode(url_decode_cookie_information)) # Decode cookie['information'] (byte to dict)
-        # print(dict_cookie_information)
-        #------------------#
-        # username = dict_cookie_information['username']
-        user_data = json.loads(decode(dataInput['user'])) #Data user
-        #------------------#
-        if True: # Allow all users to fetch their own menu
-            ##--Get menu--#
-            conn = mysql.connect()
-            cursor = conn.cursor()
-            
-            # 1. Get current user's privilege to ensure session uses latest role
-            cursor.execute("SELECT previlage_id, status_id FROM user WHERE username = %s AND status_id != '7'", (user_data['username'],))
+        dataInput = request.json or {}
+        user_raw = dataInput.get('user', '')
+        user_data = safe_json_loads(platform_decode(user_raw))
+        
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        username = user_data.get('username')
+        user_id = user_data.get('user_id')
+        current_role = None
+        current_status = None
+        
+        if username:
+            cursor.execute("SELECT previlage_id, status_id FROM user WHERE username = %s AND status_id != '7'", (username,))
             user_info = cursor.fetchone()
-            current_role = user_info[0] if user_info else None
-            current_status = user_info[1] if user_info else None
+            if user_info:
+                current_role = user_info[0]
+                current_status = user_info[1]
+        elif user_id:
+            cursor.execute("SELECT previlage_id, status_id FROM user WHERE user_id = %s AND status_id != '7'", (user_id,))
+            user_info = cursor.fetchone()
+            if user_info:
+                current_role = user_info[0]
+                current_status = user_info[1]
+                
+        if not current_role and user_data.get('previlage_id'):
+            current_role = user_data.get('previlage_id')
 
-            sql = """SELECT menu_name.menu_name 
-                        FROM `menu_permission` 
-                    LEFT JOIN menu_name 
-                        ON menu_permission.menu_name_id = menu_name.menu_name_id 
-                    WHERE menu_permission.previlage_id = %s
-                        AND menu_permission.value = 'Yes' AND menu_name IS NOT NULL"""
-            cursor.execute(sql,(current_role,))
-            data = cursor.fetchall()
-            columns = [column[0] for column in cursor.description]
-            result = toJson(data,columns)
-            conn.commit()
-            cursor.close()
-            conn.close()
-            #--------------#
-            return jsonify({
-                "status":"Success",
-                "data": result,
-                "current_role": current_role,
-                "current_status": current_status
-            })
-        else:
-            logAction(user_data['user_id'], '/getMenuByPermission', 'Permission denied', 'warning')
-            return jsonify({"status": "Permission denied"})    
+        sql = """SELECT DISTINCT menu_name.menu_name 
+                    FROM `menu_permission` 
+                LEFT JOIN menu_name 
+                    ON menu_permission.menu_name_id = menu_name.menu_name_id 
+                WHERE menu_permission.previlage_id = %s
+                    AND menu_permission.value = 'Yes' AND menu_name IS NOT NULL"""
+        cursor.execute(sql, (current_role,))
+        data = cursor.fetchall()
+        columns = [column[0] for column in cursor.description]
+        result = toJson(data, columns)
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "status": "Success",
+            "data": result,
+            "current_role": current_role,
+            "current_status": current_status
+        })
     except Exception as e:
         exception_type, exception_object, exception_traceback = sys.exc_info()
         line_number = exception_traceback.tb_lineno
         print("Line number: ", line_number)
-        print("Error: " + str(e))
-        return jsonify({"status": "Error: " + str(e),"Line number": line_number})
-        # return jsonify({"status": "Error"})
+        print("Error in getMenuByPermission: " + str(e))
+        return jsonify({"status": "Error: " + str(e), "Line number": line_number})
         
 @app.route('/EditUserProfileByAdmin' ,methods=['POST'])
 def EditUserProfileByAdmin():
