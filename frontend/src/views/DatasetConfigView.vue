@@ -2048,22 +2048,33 @@ input:checked + .toggle-slider:before {
   position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
   background-color: rgba(15, 23, 42, 0.4);
   backdrop-filter: blur(4px);
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 1000;
+  padding: 16px;
+  box-sizing: border-box;
 }
 
 .modal {
   background: white;
-  width: 90%;
-  max-width: 400px;
+  width: 100%;
+  max-width: 440px;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
   border-radius: 16px;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .modal-header {
@@ -2072,6 +2083,7 @@ input:checked + .toggle-slider:before {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .modal-header h2 {
@@ -2091,6 +2103,10 @@ input:checked + .toggle-slider:before {
 
 .modal-body {
   padding: 24px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .modal-footer {
@@ -2101,6 +2117,7 @@ input:checked + .toggle-slider:before {
   gap: 12px;
   border-bottom-left-radius: 16px;
   border-bottom-right-radius: 16px;
+  flex-shrink: 0;
 }
 
 .btn-add {
