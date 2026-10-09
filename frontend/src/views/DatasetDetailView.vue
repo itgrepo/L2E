@@ -480,8 +480,26 @@ const openPreview = (format) => {
         fileTypeParam = 'dictionary';
     }
     
-    // For CSV, XLS, API, etc. it corresponds to the main data file.
-    window.open(`/api/downloadFile/${selectedDataset.value.id}?type=${fileTypeParam}`, '_blank');
+    const userStr = localStorage.getItem('user');
+    let userParam = '';
+    if (userStr) {
+      try {
+        userParam = `&user=${encodeURIComponent(encodeUserData(JSON.parse(userStr)))}`;
+      } catch (e) {
+        console.error('User encode error:', e);
+      }
+    }
+    
+    const hasPhysicalFile = selectedDataset.value.file_path || selectedDataset.value.excel_file_path || (fileTypeParam === 'dictionary' && selectedDataset.value.data_dictionary_path) || (fileTypeParam === 'sampling' && selectedDataset.value.data_sampling_path);
+    
+    if (hasPhysicalFile || fileTypeParam === 'dictionary' || fileTypeParam === 'sampling') {
+      window.open(`/api/downloadFile/${selectedDataset.value.id}?type=${fileTypeParam}${userParam}`, '_blank');
+    } else if (selectedDataset.value.dataset_id) {
+      const exportFormat = fileTypeParam === 'excel' ? 'xls' : 'csv';
+      window.open(`/api/exportData/${selectedDataset.value.dataset_id}?format=${exportFormat}`, '_blank');
+    } else {
+      window.open(`/api/downloadFile/${selectedDataset.value.id}?type=${fileTypeParam}${userParam}`, '_blank');
+    }
   } else {
     alert(`กำลังเปิดดาวน์โหลดไฟล์/แสดงพรีวิวในรูปแบบ ${format}`);
   }

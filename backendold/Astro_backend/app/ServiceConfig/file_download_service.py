@@ -87,31 +87,27 @@ def downloadFile(service_id):
         cursor.close()
         conn.close()
         
-        if result:
-            file_path_val, excel_path_val, dict_path_val, samp_path_val = result
-            file_name = None
-            if file_type == 'dictionary':
-                file_name = dict_path_val or file_path_val or excel_path_val
-            elif file_type == 'sampling':
-                file_name = samp_path_val
-            elif file_type == 'excel':
-                file_name = excel_path_val or file_path_val or dict_path_val
-            else:
-                file_name = file_path_val or excel_path_val or dict_path_val
-
-            if file_name and os.path.exists(os.path.join(UPLOAD_FOLDER, file_name)):
-                orig_name = get_original_filename(file_name, service_id)
-                try:
-                    resp = send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, download_name=orig_name)
-                except TypeError:
-                    resp = send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, attachment_filename=orig_name)
-                return add_security_headers(resp)
-            elif file_name:
-                return jsonify({"status": "File not found on server"}), 404
-            else:
-                return jsonify({"status": "No file associated with this dataset"}), 404
+        file_name = None
+        if file_type == 'dictionary':
+            file_name = dict_path_val or file_path_val or excel_path_val
+        elif file_type == 'sampling':
+            file_name = samp_path_val
+        elif file_type == 'excel':
+            file_name = excel_path_val or file_path_val or dict_path_val
         else:
-            return jsonify({"status": "Dataset not found"}), 404
+            file_name = file_path_val or excel_path_val or dict_path_val
+
+        if file_name and os.path.exists(os.path.join(UPLOAD_FOLDER, file_name)):
+            orig_name = get_original_filename(file_name, service_id)
+            try:
+                resp = send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, download_name=orig_name)
+            except TypeError:
+                resp = send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, attachment_filename=orig_name)
+            return add_security_headers(resp)
+        elif file_name:
+            return jsonify({"status": "File not found on server"}), 404
+        else:
+            return jsonify({"status": "No file associated with this dataset"}), 404
             
     except Exception as e:
         return jsonify({"status": "Error: " + str(e)}), 500

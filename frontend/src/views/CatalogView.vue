@@ -238,12 +238,22 @@ const openPreview = async (type) => {
 
 const downloadFile = () => {
   if (selectedDataset.value) {
+    const userData = localStorage.getItem('user');
+    let userParam = '';
+    if (userData) {
+      try {
+        userParam = `&user=${encodeURIComponent(encodeUserData(JSON.parse(userData)))}`;
+      } catch (e) {
+        console.error('User encode error:', e);
+      }
+    }
+
     if (previewType.value === 'CSV' || previewType.value === 'Excel') {
         const isExcel = previewType.value === 'Excel';
         const uploaded = isExcel ? selectedDataset.value.excel_file_path : selectedDataset.value.file_path;
         if (uploaded) {
             // Serve the uploaded file of exactly this type (CSV -> file_path, Excel -> excel_file_path)
-            window.open(`/api/downloadFile/${selectedDataset.value.service_id}?type=${isExcel ? 'excel' : 'data'}`, '_blank');
+            window.open(`/api/downloadFile/${selectedDataset.value.service_id}?type=${isExcel ? 'excel' : 'data'}${userParam}`, '_blank');
         } else {
             const format = isExcel ? 'xls' : 'csv';
             window.open(`/api/exportData/${selectedDataset.value.dataset_id}?format=${format}`, '_blank');
@@ -253,7 +263,7 @@ const downloadFile = () => {
         if (previewType.value === 'DICTIONARY') fileTypeParam = 'dictionary';
         else if (previewType.value === 'SAMPLING') fileTypeParam = 'sampling';
         
-        window.open(`/api/downloadFile/${selectedDataset.value.service_id}?type=${fileTypeParam}`, '_blank');
+        window.open(`/api/downloadFile/${selectedDataset.value.service_id}?type=${fileTypeParam}${userParam}`, '_blank');
     }
     isPreviewModalOpen.value = false;
   }

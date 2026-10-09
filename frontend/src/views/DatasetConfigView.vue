@@ -207,6 +207,8 @@ const resetForm = () => {
   editingId.value = null;
   formData.value = {
     dataset_id: '',
+    l2e_group_id: '',
+    source_system_id: '',
     category: '',
     sub_category: '',
     status: 'Inactive',
@@ -387,7 +389,7 @@ const handleApiConfigSubmit = async () => {
     }
   } catch(e) {
     console.error('API config error:', e);
-    errorMessage.value = 'เกิดข้อผิดพลาดในการบันทึก';
+    errorMessage.value = e.response?.data?.status || e.response?.data?.message || 'เกิดข้อผิดพลาดในการบันทึก';
   } finally {
     isSubmitting.value = false;
   }
@@ -428,7 +430,7 @@ const handleLinkSubmit = async () => {
     }
   } catch (error) {
     console.error('Link update error:', error);
-    errorMessage.value = 'ไม่สามารถบันทึกลิงก์ได้';
+    errorMessage.value = error.response?.data?.status || error.response?.data?.message || 'ไม่สามารถบันทึกลิงก์ได้';
   } finally {
     isSubmitting.value = false;
   }
@@ -538,7 +540,7 @@ const handleSubmit = async () => {
     }
   } catch (error) {
     console.error('Submit error:', error);
-    errorMessage.value = 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้';
+    errorMessage.value = error.response?.data?.status || error.response?.data?.message || error.message || 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้';
   } finally {
     isSubmitting.value = false;
   }
