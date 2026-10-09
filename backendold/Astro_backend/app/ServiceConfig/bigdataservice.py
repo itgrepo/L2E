@@ -1085,7 +1085,24 @@ def retrieveService():
                         WHERE r.service_id = s.service_id AND r.user_id = %s 
                         ORDER BY r.created_at DESC LIMIT 1) AS permission_status
                 FROM service s
-                WHERE s.status = 'Active' AND (s.dataset_id IS NULL OR s.dataset_id NOT LIKE 'API\_CLONE\_%%')
+                WHERE s.status = 'Active' 
+                  AND (s.dataset_id IS NULL OR s.dataset_id NOT LIKE 'API\_CLONE\_%%')
+                  AND (
+                      (s.access_type NOT IN ('internal', 'pii') OR s.access_type IS NULL)
+                      OR (
+                          s.access_type IN ('internal', 'pii') AND (
+                              (%s IN ('3', '5') AND %s != '' AND s.organization = %s)
+                              OR (%s IS NOT NULL AND EXISTS (
+                                  SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s
+                              ))
+                              OR (%s IS NOT NULL AND EXISTS (
+                                  SELECT 1 FROM service_group_access sga
+                                  JOIN group_user_detail gud ON sga.group_id = gud.group_id
+                                  WHERE sga.service_id = s.service_id AND gud.user_id = %s
+                              ))
+                          )
+                      )
+                  )
             """
             previlage_id = str(user_data.get('previlage_id', '2'))
             cursor.execute(sql, (
@@ -1094,7 +1111,8 @@ def retrieveService():
                 user_id, # dashboard_permission_status (1)
                 user_id, # api_permission_status (1)
                 previlage_id, user_org_name, user_org_name, previlage_id, user_org_name, user_org_name, user_id, user_id, user_id, user_id, # has_access (10)
-                user_id # permission_status (1)
+                user_id, # permission_status (1)
+                previlage_id, user_org_name, user_org_name, user_id, user_id, user_id, user_id # WHERE clause visibility filter for internal/pii (7)
             ))
             
         data = cursor.fetchall()
