@@ -310,10 +310,45 @@ const fetchCategories = async () => {
   }
 };
 
+const getAccessInfo = (item) => {
+  const raw = String((item && (item.access_type || item.accessibility)) || 'public').trim().toLowerCase();
+  if (raw === 'internal' || raw === 'ภายในหน่วยงาน') {
+    return {
+      key: 'internal',
+      label: 'ภายในหน่วยงาน (Internal)',
+      shortLabel: 'Internal',
+      cssClass: 'access-internal'
+    };
+  }
+  if (raw === 'restricted' || raw === 'จำกัดสิทธิ์' || raw === 'private' || raw === 'confidential') {
+    return {
+      key: 'restricted',
+      label: 'จำกัดสิทธิ์ (Restricted)',
+      shortLabel: 'Restricted',
+      cssClass: 'access-restricted'
+    };
+  }
+  if (raw === 'pii' || raw === 'ข้อมูลส่วนบุคคล') {
+    return {
+      key: 'pii',
+      label: 'ข้อมูลส่วนบุคคล (PII)',
+      shortLabel: 'PII',
+      cssClass: 'access-pii'
+    };
+  }
+  return {
+    key: 'public',
+    label: 'สาธารณะ (Public)',
+    shortLabel: 'Public',
+    cssClass: 'access-public'
+  };
+};
+
 const accessLevels = ref([
-  { name: 'Open Data', count: 0, active: false },
-  { name: 'Restricted', count: 0, active: false },
-  { name: 'Confidential', count: 0, active: false }
+  { name: 'สาธารณะ (Public)', key: 'public', count: 0, active: false },
+  { name: 'ภายในหน่วยงาน (Internal)', key: 'internal', count: 0, active: false },
+  { name: 'จำกัดสิทธิ์ (Restricted)', key: 'restricted', count: 0, active: false },
+  { name: 'ข้อมูลส่วนบุคคล (PII)', key: 'pii', count: 0, active: false }
 ]);
 
 const formats = ['CSV', 'XLS', 'API', 'JSON', 'XML'];
@@ -341,9 +376,9 @@ const filteredDatasets = computed(() => {
   }
 
   // 3. Access Level Filter
-  const activeLevels = accessLevels.value.filter(l => l.active).map(l => l.name);
-  if (activeLevels.length > 0) {
-    result = result.filter(ds => activeLevels.includes(ds.accessibility));
+  const activeLevelKeys = accessLevels.value.filter(l => l.active).map(l => l.key);
+  if (activeLevelKeys.length > 0) {
+    result = result.filter(ds => activeLevelKeys.includes(ds.access_type_raw));
   }
 
   // 4. Format Filter
@@ -357,9 +392,8 @@ const filteredDatasets = computed(() => {
   if (sortOption.value === 'newest') {
     result = result.sort((a, b) => b.id - a.id);
   } else if (sortOption.value === 'popular') {
-    result = result.sort((a, b) => parseInt(b.views || 0) - parseInt(a.views || 0));
+    result = result.sort((a, b) => (b.title || '').localeCompare(a.title || ''));
   } else if (sortOption.value === 'relevant') {
-    // If search query exists, it's implicitly sorted by exact match if we want, but for now just fallback to newest
     result = result.sort((a, b) => b.id - a.id);
   }
 
@@ -438,8 +472,8 @@ const toggleFavorite = (ds) => {
       title: ds.title,
       description: ds.description,
       accessibility: ds.accessibility,
+      accessClass: ds.accessClass,
       agency: ds.agency,
-      views: ds.views,
       updated: ds.updated,
       api_enabled: ds.api_enabled,
       api_type: ds.api_type,
@@ -465,50 +499,49 @@ const fetchDatasets = async () => {
     const response = await apiClient.post('/retrieveService', { user: userPayload });
     if (response.data.status === 'success') {
       console.log('Catalog Raw Data (first 3):', response.data.data.slice(0, 3).map(i => ({ name: i.service_name, api: i.api_enabled })));
-      datasets.value = response.data.data.map(item => ({
-        id: item.service_id,
-        dataset_id: item.dataset_id,
-        title: item.service_name,
-        agency: item.organization || 'ไม่ระบุหน่วยงาน',
-        category: item.category || 'ทั่วไป',
-        sub_category: item.sub_category || '-',
-        description: item.description || 'ข้อมูลชุดนี้รวบรวมเพื่อการวิเคราะห์และนำไปใช้ประโยชน์ในระดับภาครัฐและเอกชน โดยเน้นความถูกต้องและเป็นปัจจุบัน',
-        contact_name: item.contact_name || '-',
-        contact_email: item.contact_email || '-',
-        tags: item.tags || '',
-        purpose: item.purpose || '-',
-        accessibility: (() => {
-          let raw = (item.access_type || item.accessibility || 'public').toLowerCase();
-          if (raw === 'restricted') return 'Restricted';
-          if (raw === 'internal' || raw === 'confidential' || raw === 'pii') return 'Confidential';
-          return 'Open Data';
-        })(),
-        access_type: item.access_type || '-',
-        dept_contact: item.dept_contact || '-',
-        update_freq: (item.update_freq_value || '-') + ' ' + (item.update_freq_unit || ''),
-        geo_scope: item.geo_scope || '-',
-        data_source: item.data_source || '-',
-        gov_category: item.gov_category || '-',
-        license: item.license || '-',
-        access_conditions: item.access_conditions || '-',
-        sponsor: item.sponsor || '-',
-        smallest_unit: item.smallest_unit || '-',
-        languages: item.languages || '-',
-        objective_type: item.objective_type || '-',
-        external_dashboard_url: item.external_dashboard_url,
-        external_api_url: item.external_api_url,
-        has_access: item.has_access === 1 || item.has_access === '1' || item.has_access === true,
-        permission_status: item.permission_status,
-        api_response_fields: item.api_response_fields ? (typeof item.api_response_fields === 'string' ? JSON.parse(item.api_response_fields) : item.api_response_fields) : [],
-        api_enabled: item.api_enabled == 1 || item.api_enabled === '1' || item.api_enabled === true || String(item.api_enabled).toLowerCase() === 'true',
-        api_type: item.api_type || 'public',
-        formats: item.data_format ? item.data_format.split(',') : ['CSV', 'API', 'JSON'],
-        file_path: item.file_path,
-        views: (Math.floor(Math.random() * 900) + 100) + 'K records',
-        updated: 'อัปเดต ' + (Math.floor(Math.random() * 5) + 1) + ' วันก่อน',
-        isNew: Math.random() > 0.7
-      }));
-      
+      datasets.value = response.data.data.map(item => {
+        const accessInfo = getAccessInfo(item);
+        return {
+          id: item.service_id,
+          dataset_id: item.dataset_id,
+          title: item.service_name,
+          agency: item.organization || 'ไม่ระบุหน่วยงาน',
+          category: item.category || 'ทั่วไป',
+          sub_category: item.sub_category || '-',
+          description: item.description || 'ข้อมูลชุดนี้รวบรวมเพื่อการวิเคราะห์และนำไปใช้ประโยชน์ในระดับภาครัฐและเอกชน โดยเน้นความถูกต้องและเป็นปัจจุบัน',
+          contact_name: item.contact_name || '-',
+          contact_email: item.contact_email || '-',
+          tags: item.tags || '',
+          purpose: item.purpose || '-',
+          accessibility: accessInfo.shortLabel,
+          access_type_raw: accessInfo.key,
+          access_type_label: accessInfo.label,
+          accessClass: accessInfo.cssClass,
+          access_type: accessInfo.label,
+          dept_contact: item.dept_contact || '-',
+          update_freq: (item.update_freq_value || '-') + ' ' + (item.update_freq_unit || ''),
+          geo_scope: item.geo_scope || '-',
+          data_source: item.data_source || '-',
+          gov_category: item.gov_category || '-',
+          license: item.license || '-',
+          access_conditions: item.access_conditions || '-',
+          sponsor: item.sponsor || '-',
+          smallest_unit: item.smallest_unit || '-',
+          languages: item.languages || '-',
+          objective_type: item.objective_type || '-',
+          external_dashboard_url: item.external_dashboard_url,
+          external_api_url: item.external_api_url,
+          has_access: item.has_access === 1 || item.has_access === '1' || item.has_access === true,
+          permission_status: item.permission_status,
+          api_response_fields: item.api_response_fields ? (typeof item.api_response_fields === 'string' ? JSON.parse(item.api_response_fields) : item.api_response_fields) : [],
+          api_enabled: item.api_enabled == 1 || item.api_enabled === '1' || item.api_enabled === true || String(item.api_enabled).toLowerCase() === 'true',
+          api_type: item.api_type || 'public',
+          formats: item.data_format ? item.data_format.split(',') : ['CSV', 'API', 'JSON'],
+          file_path: item.file_path,
+          updated: 'อัปเดต ' + (Math.floor(Math.random() * 5) + 1) + ' วันก่อน',
+          isNew: Math.random() > 0.7
+        };
+      });
       
       // Ensure all unique categories from datasets exist in the sidebar
       const datasetCategories = [...new Set(datasets.value.map(ds => ds.category))];
@@ -519,12 +552,11 @@ const fetchDatasets = async () => {
       });
       
       // Update dynamic counts
-
       categories.value.forEach(cat => {
         cat.count = datasets.value.filter(ds => ds.category === cat.name).length;
       });
       accessLevels.value.forEach(lvl => {
-        lvl.count = datasets.value.filter(ds => ds.accessibility === lvl.name).length;
+        lvl.count = datasets.value.filter(ds => ds.access_type_raw === lvl.key).length;
       });
     }
   } catch (error) {
@@ -680,7 +712,7 @@ onMounted(async () => {
                 <p class="ds-description">{{ ds.description }}</p>
                 <div class="ds-footer">
                   <div class="ds-badges">
-                    <span class="badge access-open">{{ ds.accessibility }}</span>
+                    <span class="badge" :class="ds.accessClass || 'access-public'">{{ ds.accessibility }}</span>
                     <span v-if="ds.api_enabled" :class="['badge', ds.api_type === 'private' ? 'format-api-private' : (ds.api_type === 'scope' ? 'format-api-scope' : 'format-api-public')]">
                       API: {{ ds.api_type === 'private' ? 'Private' : (ds.api_type === 'scope' ? 'Scope' : 'Public') }}
                     </span>
@@ -1551,9 +1583,29 @@ onMounted(async () => {
   font-weight: 700;
 }
 
+.access-public,
 .access-open {
-  background-color: var(--mso-pink-dark);
-  color: var(--mso-accent);
+  background-color: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.access-internal {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.access-restricted {
+  background-color: #fff1f2;
+  color: #e11d48;
+  border: 1px solid #fecdd3;
+}
+
+.access-pii {
+  background-color: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
 }
 
 .format {

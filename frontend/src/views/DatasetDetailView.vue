@@ -100,6 +100,40 @@ const toggleFavorite = (ds) => {
   localStorage.setItem('user_favorites', JSON.stringify(favorites.value));
 };
 
+const getAccessInfo = (item) => {
+  const raw = String((item && (item.access_type || item.accessibility)) || 'public').trim().toLowerCase();
+  if (raw === 'internal' || raw === 'ภายในหน่วยงาน') {
+    return {
+      key: 'internal',
+      label: 'ภายในหน่วยงาน (Internal)',
+      shortLabel: 'Internal',
+      cssClass: 'access-internal'
+    };
+  }
+  if (raw === 'restricted' || raw === 'จำกัดสิทธิ์' || raw === 'private' || raw === 'confidential') {
+    return {
+      key: 'restricted',
+      label: 'จำกัดสิทธิ์ (Restricted)',
+      shortLabel: 'Restricted',
+      cssClass: 'access-restricted'
+    };
+  }
+  if (raw === 'pii' || raw === 'ข้อมูลส่วนบุคคล') {
+    return {
+      key: 'pii',
+      label: 'ข้อมูลส่วนบุคคล (PII)',
+      shortLabel: 'PII',
+      cssClass: 'access-pii'
+    };
+  }
+  return {
+    key: 'public',
+    label: 'สาธารณะ (Public)',
+    shortLabel: 'Public',
+    cssClass: 'access-public'
+  };
+};
+
 const fetchDatasetDetail = async () => {
   isLoading.value = true;
   errorMessage.value = '';
@@ -113,6 +147,7 @@ const fetchDatasetDetail = async () => {
     if (response.data.status === 'success') {
       const found = response.data.data.find(item => item.service_id.toString() === route.params.id.toString());
       if (found) {
+        const accessInfo = getAccessInfo(found);
         selectedDataset.value = {
           id: found.service_id,
           dataset_id: found.dataset_id,
@@ -125,8 +160,11 @@ const fetchDatasetDetail = async () => {
           contact_email: found.contact_email || '-',
           tags: found.tags || '',
           purpose: found.purpose || '-',
-          accessibility: found.accessibility || 'Open Data',
-          access_type: found.access_type || '-',
+          accessibility: accessInfo.shortLabel,
+          access_type_raw: accessInfo.key,
+          access_type_label: accessInfo.label,
+          accessClass: accessInfo.cssClass,
+          access_type: accessInfo.label,
           dept_contact: found.dept_contact || '-',
           update_freq: (found.update_freq_value || '-') + ' ' + (found.update_freq_unit || ''),
           geo_scope: found.geo_scope || '-',
@@ -184,7 +222,6 @@ const fetchDatasetDetail = async () => {
           excel_file_path: found.excel_file_path,
           data_dictionary_path: found.data_dictionary_path,
           data_sampling_path: found.data_sampling_path,
-          views: (Math.floor(Math.random() * 900) + 100) + 'K records',
           updated: 'ปรับปรุงเมื่อ 2 วันที่แล้ว',
           dataset_type: found.dataset_type || 'general',
           stat_year_start: found.stat_year_start,
@@ -488,9 +525,8 @@ watch(() => route.params.id, (newId) => {
             </div>
             
             <div class="header-meta">
-              <span class="meta-badge access">{{ selectedDataset.accessibility }}</span>
+              <span class="meta-badge" :class="selectedDataset.accessClass || 'access-public'">{{ selectedDataset.accessibility }}</span>
               <span class="meta-item">{{ selectedDataset.category }} / {{ selectedDataset.sub_category }}</span>
-              <span class="meta-item">• {{ selectedDataset.views }}</span>
             </div>
           </div>
           
@@ -1009,9 +1045,30 @@ h1 {
   font-weight: 700;
 }
 
-.meta-badge.access {
+.meta-badge.access,
+.meta-badge.access-public,
+.meta-badge.access-open {
   background: #ecfdf5;
-  color: #065f46;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.meta-badge.access-internal {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.meta-badge.access-restricted {
+  background: #fff1f2;
+  color: #e11d48;
+  border: 1px solid #fecdd3;
+}
+
+.meta-badge.access-pii {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
 }
 
 .meta-item {

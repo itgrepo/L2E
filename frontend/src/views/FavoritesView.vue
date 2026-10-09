@@ -13,6 +13,14 @@ const removeFavorite = (id) => {
     favoriteDatasets.value = favoriteDatasets.value.filter(f => f.id !== id);
     localStorage.setItem('user_favorites', JSON.stringify(favoriteDatasets.value));
 };
+
+const getAccessBadgeClass = (access) => {
+  const raw = String(access || '').toLowerCase();
+  if (raw.includes('internal') || raw.includes('ภายใน')) return 'access-internal';
+  if (raw.includes('restricted') || raw.includes('จำกัด') || raw.includes('private') || raw.includes('confidential')) return 'access-restricted';
+  if (raw.includes('pii') || raw.includes('บุคคล')) return 'access-pii';
+  return 'access-public';
+};
 </script>
 
 <template>
@@ -51,7 +59,7 @@ const removeFavorite = (id) => {
             <p class="ds-description">{{ ds.description }}</p>
             <div class="ds-footer">
               <div class="ds-badges">
-                <span class="badge access-open">{{ ds.accessibility }}</span>
+                <span class="badge" :class="ds.accessClass || getAccessBadgeClass(ds.accessibility)">{{ ds.accessibility }}</span>
                 <span v-if="ds.api_enabled" :class="['badge', ds.api_type === 'private' ? 'format-api-private' : (ds.api_type === 'scope' ? 'format-api-scope' : 'format-api-public')]">
                   API: {{ ds.api_type === 'private' ? 'Private' : (ds.api_type === 'scope' ? 'Scope' : 'Public') }}
                 </span>
@@ -245,9 +253,29 @@ p {
   font-weight: 700;
 }
 
+.access-public,
 .access-open {
-  background-color: var(--mso-pink-dark);
-  color: var(--mso-accent);
+  background-color: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.access-internal {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.access-restricted {
+  background-color: #fff1f2;
+  color: #e11d48;
+  border: 1px solid #fecdd3;
+}
+
+.access-pii {
+  background-color: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
 }
 
 .format {
