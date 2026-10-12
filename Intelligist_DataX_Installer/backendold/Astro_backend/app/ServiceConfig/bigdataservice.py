@@ -192,7 +192,7 @@ def addService():
                     return jsonify({"status": "Source System is required for new datasets"}), 400
                     
                 # Check for duplicate Dataset ID or Name
-                sql = "SELECT service_id FROM service WHERE service_name = %s OR (dataset_id = %s AND dataset_id != '')"
+                sql = "SELECT service_id FROM service WHERE (service_name = %s OR (dataset_id = %s AND dataset_id != '')) AND COALESCE(status, '') != 'Deleted'"
                 cursor.execute(sql, (service_name, dataset_id))
                 result_data = cursor.fetchall()
                 
@@ -760,6 +760,7 @@ def getApiServices():
             
             sql = """SELECT * FROM service 
                      WHERE organization = %s 
+                       AND COALESCE(status, '') != 'Deleted'
                        AND (
                            COALESCE(access_type, '') != 'pii' 
                            OR (%s IS NOT NULL AND created_by = %s)
@@ -770,7 +771,8 @@ def getApiServices():
         else:
             # Fetch all clones regardless of status, filtering pii for non-owner
             sql = """SELECT * FROM service 
-                     WHERE (
+                     WHERE COALESCE(status, '') != 'Deleted'
+                       AND (
                          COALESCE(access_type, '') != 'pii' 
                          OR (%s IS NOT NULL AND created_by = %s)
                          OR (%s IS NOT NULL AND created_by IS NULL AND LOWER(contact_email) = LOWER(%s))
@@ -806,6 +808,7 @@ def getService():
             cursor = conn.cursor()
             sql = """SELECT * FROM service 
                      WHERE (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')
+                       AND COALESCE(status, '') != 'Deleted'
                        AND (
                            COALESCE(access_type, '') != 'pii' 
                            OR (%s IS NOT NULL AND created_by = %s)

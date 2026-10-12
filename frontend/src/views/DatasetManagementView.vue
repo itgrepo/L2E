@@ -37,7 +37,7 @@ const fetchDatasets = async () => {
         });
         
         if (response.data.status === 'success') {
-            datasets.value = response.data.data;
+            datasets.value = (response.data.data || []).filter(d => d.status !== 'Deleted');
             updateStats();
         }
     } catch (error) {
@@ -49,16 +49,17 @@ const fetchDatasets = async () => {
 };
 
 const updateStats = () => {
+    const nonDeleted = datasets.value.filter(d => d.status !== 'Deleted');
     stats.value = {
-        total: datasets.value.length,
-        active: datasets.value.filter(d => d.status === 'Active').length,
-        inactive: datasets.value.filter(d => d.status !== 'Active').length,
-        highValue: datasets.value.filter(d => d.is_high_value === 'ใช่').length
+        total: nonDeleted.length,
+        active: nonDeleted.filter(d => d.status === 'Active').length,
+        inactive: nonDeleted.filter(d => d.status === 'Inactive').length,
+        highValue: nonDeleted.filter(d => d.is_high_value === 'ใช่').length
     };
 };
 
 const filteredDatasets = computed(() => {
-    let result = datasets.value;
+    let result = datasets.value.filter(d => d.status !== 'Deleted');
     
     if (searchQuery.value) {
         const q = searchQuery.value.toLowerCase();
@@ -80,7 +81,7 @@ const filteredDatasets = computed(() => {
 });
 
 const categories = computed(() => {
-    const cats = datasets.value.map(d => d.category).filter(Boolean);
+    const cats = datasets.value.filter(d => d.status !== 'Deleted').map(d => d.category).filter(Boolean);
     return [...new Set(cats)];
 });
 
@@ -125,11 +126,15 @@ const handleDelete = async (dataset) => {
         
         if (response.data.status && response.data.status.includes('success')) {
             showAlert(`ลบชุดข้อมูลสำเร็จ`, 'success');
+            datasets.value = datasets.value.filter(d => d.service_id !== dataset.service_id);
+            updateStats();
             fetchDatasets();
+        } else {
+            showAlert(response.data.status || 'เกิดข้อผิดพลาดในการลบชุดข้อมูล', 'error');
         }
     } catch (error) {
         console.error('Delete error:', error);
-        showAlert('เกิดข้อผิดพลาดในการลบ', 'error');
+        showAlert(error?.response?.data?.status || 'เกิดข้อผิดพลาดในการลบ', 'error');
     }
 };
 
