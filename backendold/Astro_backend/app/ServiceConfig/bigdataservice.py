@@ -84,6 +84,8 @@ def addService():
     try:
         if request.method == 'POST':
             user_data = json.loads(platform_decode(request.form['user']))
+            current_user_id = user_data.get('user_id') or user_data.get('id')
+            current_user_email = user_data.get('email')
             # Loosen check for presentation
             if True: # Admin check handled by decorator
                 service_name = request.form['service_name']
@@ -310,6 +312,8 @@ def addService():
                 return jsonify({"status":"Permission Denied"})
         elif request.method == 'PUT':
             user_data = json.loads(platform_decode(request.form['user']))
+            current_user_id = user_data.get('user_id') or user_data.get('id')
+            current_user_email = user_data.get('email')
             # Loosen check for presentation
             if True: # Admin check handled by decorator
                 service_id = request.form['service_id']
@@ -415,6 +419,8 @@ def addService():
                     if existing_created_by is not None and current_user_id is not None and str(existing_created_by) == str(current_user_id):
                         is_owner = True
                     elif not existing_created_by and existing_contact_email and current_user_email and existing_contact_email.strip().lower() == current_user_email.strip().lower():
+                        is_owner = True
+                    elif not existing_created_by and not existing_contact_email and str(user_data.get('previlage_id')) == '4':
                         is_owner = True
 
                     if (existing_access_type == 'pii' or access_type == 'pii') and not is_owner:
