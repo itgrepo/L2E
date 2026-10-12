@@ -1,11 +1,14 @@
 <script setup>
 import { defineProps, ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import HeroMockup from './HeroMockup.vue';
 import apiClient from '../utils/api';
 
 const props = defineProps({
   config: Object
 });
+
+const router = useRouter();
 
 const realStats = ref(null);
 
@@ -38,8 +41,13 @@ onMounted(async () => {
         <h1 class="hero-title" v-html="config?.title || 'ศูนย์กลางบัญชีข้อมูล<br/>สวัสดิการสังคมและสิทธิมนุษยชน'"></h1>
         <p class="hero-desc" v-html="config?.desc || 'แพลตฟอร์มบริหารจัดการและแลกเปลี่ยนข้อมูล พม.<br/>อย่างปลอดภัย มีมาตรฐาน พร้อมระบบวิเคราะห์ข้อมูลเชิงลึก'"></p>
         <div class="hero-buttons">
-          <button class="btn btn-primary btn-lg" style="border-radius: 20px; background-color: var(--primary); border-color: var(--primary);">{{ config?.btnPrimary || 'เริ่มต้นใช้งาน →' }}</button>
-          <button class="btn btn-outline btn-lg" style="border-radius: 20px; color: var(--primary); border-color: var(--primary);">{{ config?.btnSecondary || 'เรียนรู้เพิ่มเติม' }}</button>
+          <button 
+            class="btn btn-primary btn-lg" 
+            style="border-radius: 20px; background-color: var(--primary); border-color: var(--primary); cursor: pointer;"
+            @click="router.push('/login')"
+          >
+            {{ config?.btnPrimary || 'เริ่มต้นใช้งาน →' }}
+          </button>
         </div>
         <div class="hero-stats" v-if="(realStats && realStats.length) || (config?.stats && config.stats.length)">
           <div class="stat-block" v-for="(stat, index) in (realStats || config.stats)" :key="index">
