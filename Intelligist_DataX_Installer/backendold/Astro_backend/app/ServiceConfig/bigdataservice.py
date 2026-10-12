@@ -294,12 +294,18 @@ def addService():
                     # Notify All Users about the new dataset
                     try:
                         from .email_service import notify_dataset_created
+                        from ServiceConfig.notification_util import notify_all_users
+                        
+                        # In-app notification
+                        notify_all_users('dataset_created', f'มีชุดข้อมูลใหม่เข้าสู่ระบบ: {service_name}')
+                        
+                        # Email notification
                         cursor.execute("SELECT email FROM user WHERE status_account = 'active' AND email IS NOT NULL")
                         all_emails = [row[0] for row in cursor.fetchall() if row[0]]
                         if all_emails:
                             notify_dataset_created(service_name, description, all_emails)
                     except Exception as e:
-                        current_app.logger.error(f"Error sending dataset creation email: {e}")
+                        current_app.logger.error(f"Error sending dataset creation notification: {e}")
                         
                     cursor.close()
                     conn.close()
@@ -702,17 +708,18 @@ def addService():
                     cursor.execute(sql_update, tuple(values))
                     conn.commit()
                     
-                    # Notify Admin and Current User about the dataset update
+                    # Notify Admin and interested users about the dataset update
                     try:
                         from .email_service import notify_dataset_updated
+                        from ServiceConfig.notification_util import notify_dataset_interest
                         
-                        # Fetch admins
-                        cursor.execute("SELECT email FROM user WHERE previlage_id = 1 AND status_account = 'active' AND email IS NOT NULL")
+                        # 1. In-App Notification for users interested in this dataset
+                        notify_dataset_interest(service_id, 'dataset_updated', f'ชุดข้อมูล "{service_name or str(service_id)}" มีการอัปเดตข้อมูลใหม่')
+                        
+                        # 2. Fetch admins and current user for email
+                        cursor.execute("SELECT email FROM user WHERE previlage_id IN (1, 3, 4) AND status_account = 'active' AND email IS NOT NULL")
                         admin_emails = [row[0] for row in cursor.fetchall() if row[0]]
-                        
-                        # Fetch current user email
                         current_user_email = user_data.get('email')
-                        
                         notify_emails = set(admin_emails)
                         if current_user_email:
                             notify_emails.add(current_user_email)
@@ -720,7 +727,7 @@ def addService():
                         if notify_emails:
                             notify_dataset_updated(service_name or str(service_id), list(notify_emails))
                     except Exception as e:
-                        current_app.logger.error(f"Error sending dataset update email: {e}")
+                        current_app.logger.error(f"Error sending dataset update notification: {e}")
                         
                     cursor.close()
                     conn.close()
@@ -3170,21 +3177,28 @@ def request_dataset_permission():
         # Notify Admins
         try:
             from .email_service import notify_access_request
-            cursor.execute("SELECT email FROM user WHERE previlage_id = 1 AND status_account = 'active' AND email IS NOT NULL")
-            admin_emails = [row[0] for row in cursor.fetchall() if row[0]]
+            from ServiceConfig.notification_util import notify_user
             
+            cursor.execute("SELECT service_name FROM service WHERE service_id = %s", (service_id,))
+            svc = cursor.fetchone()
+            svc_name = svc[0] if svc else str(service_id)
+            
+            cursor.execute("SELECT username FROM user WHERE user_id = %s", (user_id,))
+            usr = cursor.fetchone()
+            usr_name = usr[0] if usr else str(user_id)
+            
+            # 1. In-App Notification to Admins
+            cursor.execute("SELECT user_id FROM user WHERE previlage_id IN (3, 4) AND status_account = 'active'")
+            for a_row in cursor.fetchall():
+                notify_user(a_row[0], 'access_request', f'ผู้ใช้ {usr_name} ส่งคำขอเข้าถึงชุดข้อมูล "{svc_name}"')
+                
+            # 2. Email Notification to Admins
+            cursor.execute("SELECT email FROM user WHERE previlage_id IN (1, 3, 4) AND status_account = 'active' AND email IS NOT NULL")
+            admin_emails = [row[0] for row in cursor.fetchall() if row[0]]
             if admin_emails:
-                cursor.execute("SELECT service_name FROM service WHERE service_id = %s", (service_id,))
-                svc = cursor.fetchone()
-                svc_name = svc[0] if svc else str(service_id)
-                
-                cursor.execute("SELECT username FROM user WHERE user_id = %s", (user_id,))
-                usr = cursor.fetchone()
-                usr_name = usr[0] if usr else str(user_id)
-                
                 notify_access_request(svc_name, usr_name, admin_emails)
         except Exception as e:
-            current_app.logger.error(f"Error sending access request email: {e}")
+            current_app.logger.error(f"Error sending access request notification: {e}")
             
         cursor.close()
         conn.close()
@@ -3409,16 +3423,22 @@ def approve_dataset_request():
         # Notify User
         try:
             from .email_service import notify_access_approved
+            from ServiceConfig.notification_util import notify_user
+            
+            cursor.execute("SELECT service_name FROM service WHERE service_id = %s", (service_id,))
+            svc = cursor.fetchone()
+            svc_name = svc[0] if svc else str(service_id)
+            
+            # 1. In-app notification
+            notify_user(target_user_id, 'access_approved', f'คำขอเข้าถึงชุดข้อมูล "{svc_name}" ได้รับการอนุมัติแล้ว')
+            
+            # 2. Email notification
             cursor.execute("SELECT email FROM user WHERE user_id = %s", (target_user_id,))
             target_user_email = cursor.fetchone()
-            
             if target_user_email and target_user_email[0]:
-                cursor.execute("SELECT service_name FROM service WHERE service_id = %s", (service_id,))
-                svc = cursor.fetchone()
-                svc_name = svc[0] if svc else str(service_id)
                 notify_access_approved(svc_name, [target_user_email[0]])
         except Exception as e:
-            current_app.logger.error(f"Error sending access approved email: {e}")
+            current_app.logger.error(f"Error sending access approved notification: {e}")
             
         cursor.close()
         conn.close()
@@ -3472,6 +3492,16 @@ def reject_dataset_request():
         
         # Log action
         logAction(user_data.get('user_id'), '/rejectDatasetRequest', f'Rejected request {request_id} for user_id {target_user_id} on service_id {service_id}', 'info')
+        
+        # Notify User
+        try:
+            from ServiceConfig.notification_util import notify_user
+            cursor.execute("SELECT service_name FROM service WHERE service_id = %s", (service_id,))
+            svc = cursor.fetchone()
+            svc_name = svc[0] if svc else str(service_id)
+            notify_user(target_user_id, 'access_rejected', f'คำขอเข้าถึงชุดข้อมูล "{svc_name}" ไม่ได้รับการอนุมัติ')
+        except Exception as e:
+            current_app.logger.error(f"Error sending access rejected notification: {e}")
         
         cursor.close()
         conn.close()

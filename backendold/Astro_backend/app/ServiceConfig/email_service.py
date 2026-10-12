@@ -12,13 +12,33 @@ MAIL_USE_SSL = os.environ.get('MAIL_USE_SSL', 'true').lower() == 'true'
 MAIL_FROM = os.environ.get('MAIL_FROM', "L2E Data Exchange <learn2earn@bde.go.th>").strip('"')
 BASE_URL = os.environ.get('FRONTEND_URL', 'http://134.185.172.127:3003')
 
+def filter_opted_out_emails(to_emails):
+    try:
+        from ServiceConfig import mysql
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        cursor.execute("SELECT u.email FROM user u JOIN user_notification_settings s ON u.user_id = s.user_id WHERE s.email_notif = 0")
+        opted_out = set(r[0].lower().strip() for r in cursor.fetchall() if r[0])
+        cursor.close()
+        conn.close()
+        return [e for e in to_emails if e.lower().strip() not in opted_out]
+    except Exception:
+        return to_emails
+
 def _send_email_task(to_emails, subject, body_html):
-    print(f"Sending email to {to_emails}", flush=True)
     if not to_emails:
         return
         
     if isinstance(to_emails, str):
         to_emails = [to_emails]
+
+    # Filter out users who turned off email notifications in their profile
+    to_emails = filter_opted_out_emails(to_emails)
+    if not to_emails:
+        print(f"All recipients opted out of email notifications for: {subject}")
+        return
+
+    print(f"Sending email to {to_emails}", flush=True)
 
     try:
         if MAIL_USE_SSL:
