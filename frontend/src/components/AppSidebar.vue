@@ -295,9 +295,9 @@ const settingItems = [
 
 <style scoped>
 .sidebar-container {
+  width: 260px;
+  min-width: 260px;
   flex-shrink: 0;
-  display: flex;
-  min-height: 100%;
   background-color: var(--sidebar-bg, var(--primary-hover));
 }
 
@@ -307,7 +307,7 @@ const settingItems = [
   background-color: var(--sidebar-bg, var(--primary-hover));
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  height: calc(100vh - 100px);
   max-height: calc(100vh - 100px);
   position: sticky;
   top: 100px;
@@ -661,6 +661,9 @@ const settingItems = [
   .app-sidebar {
     left: 0 !important;
     position: sticky !important;
+    top: 100px !important;
+    height: calc(100vh - 100px) !important;
+    max-height: calc(100vh - 100px) !important;
   }
 }
 
