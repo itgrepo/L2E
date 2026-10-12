@@ -207,6 +207,18 @@ const fetchRoles = async () => {
     }
 };
 
+const getOrgName = (orgId) => {
+    if (!orgId) return 'เลือกหน่วยงาน';
+    const org = organizations.value.find(o => String(o.org_id) === String(orgId));
+    return org ? org.org_name : 'เลือกหน่วยงาน';
+};
+
+const getRoleName = (roleId) => {
+    if (!roleId) return '';
+    const r = roles.value.find(role => String(role.previlage_id) === String(roleId));
+    return r ? r.previlage_name : '';
+};
+
 const handleRoleChange = async (user, newRoleId) => {
     try {
         const userStored = JSON.parse(localStorage.getItem('user') || '{}');
@@ -375,8 +387,9 @@ onMounted(() => {
                         :value="u.previlage_id" 
                         @change="handleRoleChange(u, $event.target.value)"
                         class="role-select"
+                        :title="getRoleName(u.previlage_id)"
                     >
-                        <option v-for="role in roles" :key="role.previlage_id" :value="role.previlage_id">
+                        <option v-for="role in roles" :key="role.previlage_id" :value="role.previlage_id" :title="role.previlage_name">
                             {{ role.previlage_name }}
                         </option>
                     </select>
@@ -389,9 +402,10 @@ onMounted(() => {
                         :value="u.org_id" 
                         @change="handleOrgChange(u, $event.target.value)"
                         class="role-select"
+                        :title="getOrgName(u.org_id)"
                     >
                         <option value="" disabled>เลือกหน่วยงาน</option>
-                        <option v-for="org in organizations" :key="org.org_id" :value="org.org_id">
+                        <option v-for="org in organizations" :key="org.org_id" :value="org.org_id" :title="org.org_name">
                             {{ org.org_name }}
                         </option>
                     </select>
@@ -438,31 +452,33 @@ onMounted(() => {
                     {{ u.previlage_name || 'No Role' }}
                   </span>
                 </td>
-                <td>
+                <td class="org-cell">
                     <div class="role-selector-box">
                       <select 
                           :value="u.org_id" 
                           @change="handleOrgChange(u, $event.target.value)"
-                          class="role-select"
+                          class="role-select org-select"
+                          :title="getOrgName(u.org_id)"
                           v-if="u.previlage_id == 3"
                       >
                           <option value="" disabled>เลือกหน่วยงาน</option>
-                          <option v-for="org in organizations" :key="org.org_id" :value="org.org_id">
+                          <option v-for="org in organizations" :key="org.org_id" :value="org.org_id" :title="org.org_name">
                               {{ org.org_name }}
                           </option>
                       </select>
                       <span class="text-muted" v-else>-</span>
                     </div>
                 </td>
-                <td>
+                <td class="actions-cell">
                   <div class="actions-group">
                     <div class="role-selector-box">
                       <select 
                           :value="u.previlage_id" 
                           @change="handleRoleChange(u, $event.target.value)"
-                          class="role-select"
+                          class="role-select action-role-select"
+                          :title="getRoleName(u.previlage_id)"
                       >
-                          <option v-for="role in roles" :key="role.previlage_id" :value="role.previlage_id">
+                          <option v-for="role in roles" :key="role.previlage_id" :value="role.previlage_id" :title="role.previlage_name">
                               {{ role.previlage_name }}
                           </option>
                       </select>
@@ -835,7 +851,19 @@ h1 {
     height: 18px;
 }
 
+.org-cell {
+    width: 260px;
+    min-width: 240px;
+}
+
+.actions-cell {
+    width: 320px;
+    min-width: 300px;
+}
+
 .role-select {
+    width: 240px;
+    max-width: 240px;
     padding: 8px 12px;
     border: 1px solid #e2e8f0;
     border-radius: 10px;
@@ -845,6 +873,14 @@ h1 {
     cursor: pointer;
     outline: none;
     transition: all 0.2s;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.mobile-select .role-select {
+    width: 100%;
+    max-width: 100%;
 }
 
 .role-select:hover {
