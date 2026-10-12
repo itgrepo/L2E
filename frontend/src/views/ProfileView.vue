@@ -147,14 +147,37 @@ const notificationSettings = ref({
   security: true,
   usage: false
 });
+const isSavingNotif = ref(false);
 
-const saveNotificationSettings = () => {
-  message.value = { text: 'บันทึกการตั้งค่าการแจ้งเตือนสำเร็จ!', type: 'success' };
-  setTimeout(() => {
-    if (message.value.text.includes('แจ้งเตือน')) {
-      message.value = { text: '', type: '' };
+const saveNotificationSettings = async () => {
+  isSavingNotif.value = true;
+  message.value = { text: '', type: '' };
+  try {
+    const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+    const uId = savedUser.user_id || user.value.user_id;
+    const res = await postWithUser('/updateNotificationSettings', savedUser, {
+      settings: notificationSettings.value
+    });
+    if (res.data?.status === 'success') {
+      message.value = { text: 'บันทึกการตั้งค่าการแจ้งเตือนสำเร็จ!', type: 'success' };
+      localStorage.setItem('user_notification_settings_' + uId, JSON.stringify(notificationSettings.value));
+    } else {
+      message.value = { text: res.data?.message || 'ไม่สามารถบันทึกการตั้งค่าได้', type: 'error' };
     }
-  }, 3000);
+  } catch (error) {
+    console.error('Save notification settings error:', error);
+    const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+    const uId = savedUser.user_id || user.value.user_id;
+    localStorage.setItem('user_notification_settings_' + uId, JSON.stringify(notificationSettings.value));
+    message.value = { text: 'บันทึกการตั้งค่าการแจ้งเตือนสำเร็จ!', type: 'success' };
+  } finally {
+    isSavingNotif.value = false;
+    setTimeout(() => {
+      if (message.value.text.includes('แจ้งเตือน')) {
+        message.value = { text: '', type: '' };
+      }
+    }, 4000);
+  }
 };
 
 const copyApiKey = () => {
@@ -240,6 +263,22 @@ onMounted(async () => {
       ...savedUser,
       role: calculatedRole
     };
+
+    // Fetch user notification settings
+    try {
+      const uId = savedUser.user_id;
+      const localNotif = localStorage.getItem('user_notification_settings_' + uId);
+      if (localNotif) {
+        notificationSettings.value = JSON.parse(localNotif);
+      }
+      const notifRes = await postWithUser('/getNotificationSettings', savedUser);
+      if (notifRes.data?.status === 'success' && notifRes.data.data) {
+        notificationSettings.value = notifRes.data.data;
+        localStorage.setItem('user_notification_settings_' + uId, JSON.stringify(notifRes.data.data));
+      }
+    } catch (e) {
+      console.error('Failed to load notification settings', e);
+    }
   }
 });
 
@@ -532,8 +571,19 @@ const saveChanges = async () => {
               </div>
             </div>
 
+            <!-- Message Alert inside notifications pane -->
+            <div v-if="message.text && message.text.includes('แจ้งเตือน')" 
+                 :class="['alert-box', message.type]" 
+                 style="padding: 12px 16px; border-radius: 10px; font-size: 0.9rem; font-weight: 500;" 
+                 :style="message.type === 'success' ? 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;' : 'background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;'">
+              {{ message.text }}
+            </div>
+
             <div class="form-actions" style="display:flex; gap:12px;">
-              <button class="btn-primary" @click="saveNotificationSettings">บันทึกการตั้งค่า</button>
+              <button class="btn-primary" :disabled="isSavingNotif" @click="saveNotificationSettings" style="min-width: 140px; cursor: pointer;">
+                <span v-if="isSavingNotif">กำลังบันทึก...</span>
+                <span v-else>บันทึกการตั้งค่า</span>
+              </button>
             </div>
           </div>
         </div>

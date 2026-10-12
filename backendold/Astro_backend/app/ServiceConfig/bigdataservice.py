@@ -3681,6 +3681,16 @@ def init_notifications_table():
           KEY user_id (user_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         ''')
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_notification_settings (
+          user_id int(11) NOT NULL PRIMARY KEY,
+          email_notif tinyint(1) DEFAULT 1,
+          security_notif tinyint(1) DEFAULT 1,
+          weekly_summary tinyint(1) DEFAULT 0,
+          created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ''')
         conn.commit()
         cursor.close()
         conn.close()
@@ -3701,11 +3711,29 @@ def add_notification(user_id, type_str, message):
     except Exception as e:
         print("Error adding notification:", e)
 
+def extract_user_from_req():
+    user_data = getattr(request, 'current_user', None)
+    if user_data and user_data.get('user_id'):
+        return user_data
+    user_str = None
+    if request.is_json and request.json:
+        user_str = request.json.get('user')
+    if not user_str:
+        user_str = request.args.get('user')
+    if not user_str:
+        user_str = request.headers.get('x-user')
+    if user_str:
+        try:
+            decoded = platform_decode(user_str)
+            return safe_json_loads(decoded) or {}
+        except Exception:
+            pass
+    return {}
+
 @app.route('/notifications', methods=['POST'])
 def getNotifications():
     try:
-        dataInput = request.json
-        user_data = getattr(request, 'current_user', {})
+        user_data = extract_user_from_req()
         user_id = user_data.get("user_id")
         if not user_id:
             return jsonify({"status": "error", "message": "Unauthorized"}), 401
@@ -3726,8 +3754,7 @@ def getNotifications():
 @app.route('/notifications/unread-count', methods=['POST'])
 def getUnreadCount():
     try:
-        dataInput = request.json
-        user_data = getattr(request, 'current_user', {})
+        user_data = extract_user_from_req()
         user_id = user_data.get("user_id")
         if not user_id:
             return jsonify({"status": "error", "message": "Unauthorized"}), 401
@@ -3746,8 +3773,7 @@ def getUnreadCount():
 @app.route('/notifications/<int:notif_id>/read', methods=['POST'])
 def markRead(notif_id):
     try:
-        dataInput = request.json
-        user_data = getattr(request, 'current_user', {})
+        user_data = extract_user_from_req()
         user_id = user_data.get("user_id")
         if not user_id:
             return jsonify({"status": "error", "message": "Unauthorized"}), 401
@@ -3766,8 +3792,7 @@ def markRead(notif_id):
 @app.route('/notifications/read-all', methods=['POST'])
 def markReadAll():
     try:
-        dataInput = request.json
-        user_data = getattr(request, 'current_user', {})
+        user_data = extract_user_from_req()
         user_id = user_data.get("user_id")
         if not user_id:
             return jsonify({"status": "error", "message": "Unauthorized"}), 401
@@ -3780,6 +3805,75 @@ def markReadAll():
         conn.close()
         
         return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/getNotificationSettings', methods=['GET', 'POST'])
+def getNotificationSettings():
+    try:
+        user_data = extract_user_from_req()
+        user_id = user_data.get("user_id")
+        if not user_id:
+            return jsonify({"status": "error", "message": "Unauthorized"}), 401
+            
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        cursor.execute("SELECT email_notif, security_notif, weekly_summary FROM user_notification_settings WHERE user_id = %s", (user_id,))
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if row:
+            return jsonify({
+                'status': 'success',
+                'data': {
+                    'email': bool(row[0]),
+                    'security': bool(row[1]),
+                    'usage': bool(row[2])
+                }
+            })
+        else:
+            return jsonify({
+                'status': 'success',
+                'data': {
+                    'email': True,
+                    'security': True,
+                    'usage': False
+                }
+            })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/updateNotificationSettings', methods=['POST'])
+def updateNotificationSettings():
+    try:
+        user_data = extract_user_from_req()
+        user_id = user_data.get("user_id")
+        if not user_id:
+            return jsonify({"status": "error", "message": "Unauthorized"}), 401
+            
+        dataInput = request.json or {}
+        settings = dataInput.get('settings', {})
+        email_val = 1 if settings.get('email', True) else 0
+        sec_val = 1 if settings.get('security', True) else 0
+        usage_val = 1 if settings.get('usage', False) else 0
+        
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        sql = """
+            INSERT INTO user_notification_settings (user_id, email_notif, security_notif, weekly_summary)
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE 
+                email_notif = VALUES(email_notif),
+                security_notif = VALUES(security_notif),
+                weekly_summary = VALUES(weekly_summary)
+        """
+        cursor.execute(sql, (user_id, email_val, sec_val, usage_val))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'status': 'success', 'message': 'บันทึกการตั้งค่าการแจ้งเตือนสำเร็จ'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
