@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient from '../utils/api';
@@ -194,8 +194,8 @@ const formatDateLabel = (dateStr) => {
   return dateStr;
 };
 
-const fetchDashboardData = async () => {
-  isLoading.value = true;
+const fetchDashboardData = async (silent = false) => {
+  if (!silent) isLoading.value = true;
   try {
     const userRaw = localStorage.getItem('user');
     if (userRaw) {
@@ -226,7 +226,7 @@ const fetchDashboardData = async () => {
         type: act.type,
         text: act.text,
         time: act.time,
-        color: act.type === 'API' ? '#3b82f6' : (act.type === 'alert' || act.type === 'error' ? '#ef4444' : '#22c55e')
+        color: act.type === 'API' ? '#3b82f6' : (act.type === 'Download' ? '#ef4444' : (act.type === 'alert' || act.type === 'error' ? '#ef4444' : '#22c55e'))
       }));
     }
 
@@ -249,7 +249,7 @@ const fetchDashboardData = async () => {
   } catch (error) {
     console.error('Error fetching dashboard data:', error);
   } finally {
-    isLoading.value = false;
+    if (!silent) isLoading.value = false;
   }
 };
 
@@ -331,8 +331,42 @@ const downloadReport = async () => {
   }
 };
 
+let pollInterval = null;
+
+const handleVisibilityOrFocus = () => {
+  if (document.visibilityState === 'visible') {
+    fetchDashboardData(true);
+  }
+};
+
+const handleStorageEvent = (e) => {
+  if (e.key === 'datax_download_event') {
+    fetchDashboardData(true);
+  }
+};
+
 onMounted(() => {
-  fetchDashboardData();
+  fetchDashboardData(false);
+  
+  // Real-time polling every 5 seconds (silent background refresh)
+  pollInterval = setInterval(() => {
+    fetchDashboardData(true);
+  }, 5000);
+  
+  // Real-time updates when user returns to tab, focuses window, or downloads in another tab
+  document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+  window.addEventListener('focus', handleVisibilityOrFocus);
+  window.addEventListener('storage', handleStorageEvent);
+});
+
+onUnmounted(() => {
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+  document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+  window.removeEventListener('focus', handleVisibilityOrFocus);
+  window.removeEventListener('storage', handleStorageEvent);
 });
 </script>
 

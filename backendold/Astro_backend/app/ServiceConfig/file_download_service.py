@@ -34,10 +34,23 @@ def downloadFile(service_id):
         file_type = request.args.get('type', 'data')
         user_param = request.args.get('user') or request.headers.get('x-user')
         
+        # Parse user info early for permissions and audit logging
+        user_data = {}
+        user_id = 0
+        u_email = None
+        if user_param:
+            try:
+                from ServiceConfig import platform_decode, safe_json_loads
+                user_data = safe_json_loads(platform_decode(user_param)) if user_param else {}
+                user_id = user_data.get('user_id') or 0
+                u_email = user_data.get('email')
+            except Exception:
+                pass
+
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        sql = "SELECT file_path, excel_file_path, data_dictionary_path, data_sampling_path, access_type, organization, created_by, contact_email FROM service WHERE service_id = %s"
+        sql = "SELECT file_path, excel_file_path, data_dictionary_path, data_sampling_path, access_type, organization, created_by, contact_email, service_name, dataset_id FROM service WHERE service_id = %s"
         cursor.execute(sql, (service_id,))
         result = cursor.fetchone()
         
@@ -46,17 +59,13 @@ def downloadFile(service_id):
             conn.close()
             return jsonify({"status": "Dataset not found"}), 404
             
-        file_path_val, excel_path_val, dict_path_val, samp_path_val, access_type, org_name, created_by_val, contact_email_val = result
+        file_path_val, excel_path_val, dict_path_val, samp_path_val, access_type, org_name, created_by_val, contact_email_val, service_name_val, dataset_id_val = result
         access_type_lower = (access_type or 'public').lower()
         
         # Private (PII) datasets are strictly owner-only
         if access_type_lower == 'pii':
-            from ServiceConfig import platform_decode, safe_json_loads
-            user_data = safe_json_loads(platform_decode(user_param)) if user_param else {}
-            u_id = user_data.get('user_id')
-            u_email = user_data.get('email')
             is_owner = False
-            if created_by_val is not None and u_id is not None and str(created_by_val) == str(u_id):
+            if created_by_val is not None and user_id is not None and str(created_by_val) == str(user_id):
                 is_owner = True
             elif not created_by_val and contact_email_val and u_email and contact_email_val.strip().lower() == u_email.strip().lower():
                 is_owner = True
@@ -65,9 +74,6 @@ def downloadFile(service_id):
                 conn.close()
                 return jsonify({"status": "error", "message": "Permission denied: only the dataset owner can access this private dataset"}), 403
         elif file_type != 'dictionary' and access_type_lower in ['internal', 'restricted']:
-            from ServiceConfig import platform_decode, safe_json_loads
-            user_data = safe_json_loads(platform_decode(user_param)) if user_param else {}
-            user_id = user_data.get('user_id')
             previlage_id = str(user_data.get('previlage_id', '2'))
             user_org_id = user_data.get('org_id')
             user_org_name = ''
@@ -113,6 +119,32 @@ def downloadFile(service_id):
 
         if file_name and os.path.exists(os.path.join(UPLOAD_FOLDER, file_name)):
             orig_name = get_original_filename(file_name, service_id)
+            
+            # Record download log into MySQL log table
+            try:
+                ip_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
+                if ip_addr and ',' in ip_addr:
+                    ip_addr = ip_addr.split(',')[0].strip()
+                user_agent = request.headers.get('User-Agent', 'Unknown')
+                
+                log_conn = mysql.connect()
+                log_cursor = log_conn.cursor()
+                ds_title = service_name_val or dataset_id_val or f"ID {service_id}"
+                log_sql = """INSERT INTO log (user_id, ip, path, log_detail, type, device) 
+                             VALUES (%s, %s, %s, %s, 'Download', %s)"""
+                log_cursor.execute(log_sql, (
+                    user_id or 0, 
+                    ip_addr, 
+                    f"/downloadFile/{service_id}?type={file_type}", 
+                    f"Downloaded Dataset: {ds_title}", 
+                    user_agent
+                ))
+                log_conn.commit()
+                log_cursor.close()
+                log_conn.close()
+            except Exception as log_ex:
+                print("Failed to record download log in file_download_service:", log_ex)
+
             try:
                 resp = send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, download_name=orig_name)
             except TypeError:

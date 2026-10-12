@@ -1381,6 +1381,24 @@ def get_dataset_file_api(dataset_id):
         else:
             return jsonify({'status': 'error', 'message': 'Unsupported file format', 'request_id': request_id}), 400
         
+        # Record file download in log table
+        try:
+            ip_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
+            if ip_addr and ',' in ip_addr:
+                ip_addr = ip_addr.split(',')[0].strip()
+            user_agent = request.headers.get('User-Agent', 'Unknown')
+            log_conn = mysql.connect()
+            log_cursor = log_conn.cursor()
+            ds_title = service_name or dataset_id
+            log_sql = """INSERT INTO log (user_id, ip, path, log_detail, type, device) 
+                         VALUES (%s, %s, %s, %s, 'Download', %s)"""
+            log_cursor.execute(log_sql, (user_id or 0, ip_addr, f"/dataapi/api/v1/{dataset_id}/file", f"Downloaded Dataset: {ds_title}", user_agent))
+            log_conn.commit()
+            log_cursor.close()
+            log_conn.close()
+        except Exception as log_ex:
+            print("Failed to record file API download log:", log_ex)
+
         return jsonify({
             'status': 'success',
             'dataset_id': dataset_id,
@@ -1434,6 +1452,24 @@ def exportData(dataset_id):
         oracle_conn.close()
         
         df = pd.DataFrame(rows_data, columns=ora_columns)
+        
+        # Record export download in log table
+        try:
+            ip_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
+            if ip_addr and ',' in ip_addr:
+                ip_addr = ip_addr.split(',')[0].strip()
+            user_agent = request.headers.get('User-Agent', 'Unknown')
+            log_conn = mysql.connect()
+            log_cursor = log_conn.cursor()
+            svc_name = service.get('service_name') or dataset_id
+            log_sql = """INSERT INTO log (user_id, ip, path, log_detail, type, device) 
+                         VALUES (%s, %s, %s, %s, 'Download', %s)"""
+            log_cursor.execute(log_sql, (0, ip_addr, f"/exportData/{dataset_id}?format={format_type}", f"Downloaded Dataset: {svc_name}", user_agent))
+            log_conn.commit()
+            log_cursor.close()
+            log_conn.close()
+        except Exception as log_ex:
+            print("Failed to record export download log:", log_ex)
         
         if format_type == 'excel' or format_type == 'xls':
             output = io.BytesIO()
@@ -2921,14 +2957,14 @@ def get_dashboard_stats():
         cursor = conn.cursor()
         
         # 1. Datasets Count & Monthly Trend
-        cursor.execute("SELECT COUNT(*) as count FROM service WHERE status = 'Active'")
+        cursor.execute("SELECT COUNT(*) as count FROM service WHERE status = 'Active' AND (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%')")
         datasets_count = cursor.fetchone()[0] or 0
         
         cursor.execute("""
             SELECT 
                 SUM(CASE WHEN MONTH(create_at) = MONTH(CURRENT_DATE()) AND YEAR(create_at) = YEAR(CURRENT_DATE()) THEN 1 ELSE 0 END),
                 SUM(CASE WHEN MONTH(create_at) = MONTH(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)) AND YEAR(create_at) = YEAR(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)) THEN 1 ELSE 0 END)
-            FROM service WHERE status = 'Active'
+            FROM service WHERE status = 'Active' AND (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%')
         """)
         ds_trend_row = cursor.fetchone()
         ds_cur = ds_trend_row[0] or 0

@@ -500,6 +500,9 @@ const openPreview = (format) => {
     } else {
       window.open(`/api/downloadFile/${selectedDataset.value.id}?type=${fileTypeParam}${userParam}`, '_blank');
     }
+    try {
+      localStorage.setItem('datax_download_event', Date.now().toString());
+    } catch (e) {}
   } else {
     alert(`กำลังเปิดดาวน์โหลดไฟล์/แสดงพรีวิวในรูปแบบ ${format}`);
   }

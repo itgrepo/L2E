@@ -265,6 +265,9 @@ const downloadFile = () => {
         
         window.open(`/api/downloadFile/${selectedDataset.value.service_id}?type=${fileTypeParam}${userParam}`, '_blank');
     }
+    try {
+        localStorage.setItem('datax_download_event', Date.now().toString());
+    } catch (e) {}
     isPreviewModalOpen.value = false;
   }
 };
