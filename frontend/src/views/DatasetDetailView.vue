@@ -39,10 +39,13 @@ const apiClones = ref([]);
 
 const combinedApis = computed(() => {
   let apis = [];
-  if (selectedDataset.value && (selectedDataset.value.api_enabled === 1 || selectedDataset.value.api_enabled === true || selectedDataset.value.api_enabled === '1')) {
+  if (selectedDataset.value && 
+      (selectedDataset.value.api_enabled === 1 || selectedDataset.value.api_enabled === true || selectedDataset.value.api_enabled === '1') &&
+      selectedDataset.value.api_endpoint && String(selectedDataset.value.api_endpoint).trim() !== ''
+  ) {
     apis.push({
       api_type: selectedDataset.value.api_type || 'general',
-      api_endpoint: selectedDataset.value.api_endpoint || selectedDataset.value.dataset_id,
+      api_endpoint: selectedDataset.value.api_endpoint,
       service_name: selectedDataset.value.title,
       api_response_fields: selectedDataset.value.api_response_fields || []
     });

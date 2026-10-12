@@ -654,26 +654,10 @@ def addService():
                                 fields.append("data_dictionary_path = %s")
                                 values.append(filename)
 
-                            # Save parsed response fields ONLY if no API fields exist yet (Public API always prioritized)
+                            # Save parsed response fields ONLY if no API fields exist yet (available for future API creation via API Management)
                             if not has_existing_api_fields:
                                 fields.append("api_response_fields = %s")
                                 values.append(json.dumps(columns))
-
-                            # Enable API automatically
-                            fields.append("api_enabled = %s")
-                            values.append(1)
-
-                            target_ds = existing_dataset_id or dataset_id or str(service_id)
-                            fields.append("api_endpoint = COALESCE(NULLIF(api_endpoint, ''), %s)")
-                            values.append(target_ds)
-
-                            fields.append("api_type = COALESCE(NULLIF(api_type, ''), 'general')")
-
-                            # Auto endpoint setting
-                            if not existing_service_url or existing_service_url in ('#', '', '/api/data/#') or not service_url:
-                                auto_endpoint = f"/api/data/{target_ds}"
-                                fields.append("service_url = %s")
-                                values.append(auto_endpoint)
 
                         elif file_type == 'zip':
                             fields.append("data_sampling_path = %s")

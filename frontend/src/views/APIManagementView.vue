@@ -5,9 +5,13 @@ import apiClient, { postWithUser, encodeUserData } from '../utils/api';
 
 const activeTab = ref('general');
 const services = ref([]);
+const availableDatasetsForApi = computed(() => {
+  return services.value.filter(s => !s.dataset_id || !s.dataset_id.startsWith('API_CLONE_'));
+});
 const generalApiServices = computed(() => {
   return services.value.filter(s => 
-    ((s.api_endpoint && s.api_endpoint.trim() !== '') || s.api_enabled == 1 || s.api_enabled === '1' || s.api_enabled === true) && 
+    s.api_endpoint && s.api_endpoint.trim() !== '' &&
+    (s.api_enabled == 1 || s.api_enabled === '1' || s.api_enabled === true) && 
     s.api_type !== 'scope'
   );
 });
@@ -926,7 +930,7 @@ const formatScopeJson = (scopeJson) => {
               <label>Report ID <span class="required">*</span></label>
               <select v-model="apiForm.report_id" @change="onReportSelect">
                 <option value="">-- เลือก Report ID --</option>
-                <option v-for="srv in services" :key="srv.service_id" :value="srv.service_id">
+                <option v-for="srv in availableDatasetsForApi" :key="srv.service_id" :value="srv.service_id">
                   {{ srv.dataset_id || srv.service_id }} - {{ srv.service_name }}
                 </option>
               </select>
