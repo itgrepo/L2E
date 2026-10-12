@@ -1363,7 +1363,7 @@ onMounted(async () => {
   border-radius: 16px;
   padding: 24px;
   position: sticky;
-  top: 88px;
+  top: 116px;
 }
 
 .filter-section {

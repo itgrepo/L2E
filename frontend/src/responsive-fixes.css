@@ -9,14 +9,12 @@
 }
 
 html {
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow-x: clip;
   width: 100%;
 }
 
 body {
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow-x: clip;
   width: 100%;
   min-height: 100%;
   margin: 0;
