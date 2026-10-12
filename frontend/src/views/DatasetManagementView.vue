@@ -364,8 +364,14 @@ onMounted(() => {
                 <td>
                   <div class="dataset-cell">
                     <div class="dataset-name">{{ d.service_name }}</div>
-                    <div class="dataset-tags" v-if="d.is_high_value === 'ใช่'">
-                      <span class="tag-high-value">High Value</span>
+                    <div class="dataset-tags">
+                      <span v-if="d.access_type === 'pii'" class="tag-private" style="background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a; font-size: 0.7rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" style="width: 12px; height: 12px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                        เฉพาะเจ้าของ (Private)
+                      </span>
+                      <span class="tag-high-value" v-if="d.is_high_value === 'ใช่'">High Value</span>
                     </div>
                   </div>
                 </td>

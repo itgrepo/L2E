@@ -37,7 +37,7 @@ def downloadFile(service_id):
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        sql = "SELECT file_path, excel_file_path, data_dictionary_path, data_sampling_path, access_type, organization FROM service WHERE service_id = %s"
+        sql = "SELECT file_path, excel_file_path, data_dictionary_path, data_sampling_path, access_type, organization, created_by, contact_email FROM service WHERE service_id = %s"
         cursor.execute(sql, (service_id,))
         result = cursor.fetchone()
         
@@ -46,11 +46,25 @@ def downloadFile(service_id):
             conn.close()
             return jsonify({"status": "Dataset not found"}), 404
             
-        file_path_val, excel_path_val, dict_path_val, samp_path_val, access_type, org_name = result
+        file_path_val, excel_path_val, dict_path_val, samp_path_val, access_type, org_name, created_by_val, contact_email_val = result
         access_type_lower = (access_type or 'public').lower()
         
-        # Dictionary is always public
-        if file_type != 'dictionary' and access_type_lower in ['internal', 'restricted', 'pii']:
+        # Private (PII) datasets are strictly owner-only
+        if access_type_lower == 'pii':
+            from ServiceConfig import platform_decode, safe_json_loads
+            user_data = safe_json_loads(platform_decode(user_param)) if user_param else {}
+            u_id = user_data.get('user_id')
+            u_email = user_data.get('email')
+            is_owner = False
+            if created_by_val is not None and u_id is not None and str(created_by_val) == str(u_id):
+                is_owner = True
+            elif not created_by_val and contact_email_val and u_email and contact_email_val.strip().lower() == u_email.strip().lower():
+                is_owner = True
+            if not is_owner:
+                cursor.close()
+                conn.close()
+                return jsonify({"status": "error", "message": "Permission denied: only the dataset owner can access this private dataset"}), 403
+        elif file_type != 'dictionary' and access_type_lower in ['internal', 'restricted']:
             from ServiceConfig import platform_decode, safe_json_loads
             user_data = safe_json_loads(platform_decode(user_param)) if user_param else {}
             user_id = user_data.get('user_id')
@@ -120,7 +134,7 @@ def previewDatasetFile(service_id):
         
         conn = mysql.connect()
         cursor = conn.cursor()
-        sql = "SELECT file_path, excel_file_path, data_dictionary_path, data_sampling_path, api_response_fields FROM service WHERE service_id = %s"
+        sql = "SELECT file_path, excel_file_path, data_dictionary_path, data_sampling_path, api_response_fields, access_type, created_by, contact_email FROM service WHERE service_id = %s"
         cursor.execute(sql, (service_id,))
         result = cursor.fetchone()
         cursor.close()
@@ -129,7 +143,21 @@ def previewDatasetFile(service_id):
         if not result:
             return jsonify({"status": "error", "message": "Dataset not found"}), 404
             
-        file_path_val, excel_path_val, dict_path_val, samp_path_val, resp_fields = result
+        file_path_val, excel_path_val, dict_path_val, samp_path_val, resp_fields, access_type_val, created_by_val, contact_email_val = result
+        access_type_lower = (access_type_val or 'public').lower()
+        if access_type_lower == 'pii':
+            user_param = request.args.get('user') or request.headers.get('x-user')
+            from ServiceConfig import platform_decode, safe_json_loads
+            user_data = safe_json_loads(platform_decode(user_param)) if user_param else {}
+            u_id = user_data.get('user_id')
+            u_email = user_data.get('email')
+            is_owner = False
+            if created_by_val is not None and u_id is not None and str(created_by_val) == str(u_id):
+                is_owner = True
+            elif not created_by_val and contact_email_val and u_email and contact_email_val.strip().lower() == u_email.strip().lower():
+                is_owner = True
+            if not is_owner:
+                return jsonify({"status": "error", "message": "Permission denied: only the dataset owner can access this private dataset"}), 403
         file_name = None
         if file_type in ['dictionary', 'dict']:
             file_name = dict_path_val or file_path_val or excel_path_val

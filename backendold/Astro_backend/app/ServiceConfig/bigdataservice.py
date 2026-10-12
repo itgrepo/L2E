@@ -53,6 +53,31 @@ def log_api_audit(action, target_user_id=None, service_id=None, credential_id=No
     except Exception as e:
         current_app.logger.error(f"Audit Log Error: {e}")
 
+def check_dataset_owner(cursor, service_id, user_data):
+    """
+    Check if a service is private ('pii') and if the caller is the owner.
+    Returns: (is_allowed, error_tuple)
+    """
+    if not service_id:
+        return True, None
+    cursor.execute("SELECT access_type, created_by, contact_email FROM service WHERE service_id = %s", (service_id,))
+    svc_row = cursor.fetchone()
+    if not svc_row:
+        return True, None
+    access_type, created_by, contact_email = svc_row
+    if access_type == 'pii':
+        caller_id = user_data.get('user_id') if isinstance(user_data, dict) else None
+        caller_email = user_data.get('email') if isinstance(user_data, dict) else None
+        is_owner = False
+        if created_by is not None and caller_id is not None and str(created_by) == str(caller_id):
+            is_owner = True
+        elif not created_by and contact_email and caller_email and contact_email.strip().lower() == caller_email.strip().lower():
+            is_owner = True
+        if not is_owner:
+            err_msg = "คุณไม่มีสิทธิ์ดำเนินการกับชุดข้อมูลนี้ เนื่องจากเป็นชุดข้อมูลเฉพาะเจ้าของ (Private) มีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้"
+            return False, (jsonify({"status": "error", "message": err_msg}), 403)
+    return True, None
+
 @app.route('/addService', methods=['POST','PUT'])
 @require_admin
 def addService():
@@ -240,9 +265,10 @@ def addService():
                         stat_official, geo_dataset_name, geo_scale, geo_west_bound,
                         geo_east_bound, geo_north_bound, geo_south_bound, geo_position_accuracy,
                         geo_reference_time, geo_published_date,
-                        l2e_group_id, source_system_id
-                    ) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                        l2e_group_id, source_system_id, created_by
+                    ) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
                     
+                    creator_user_id = user_data.get('user_id')
                     cursor.execute(sql_insert, (
                         service_name, service_url, image_blob, service_status,
                         dataset_id, category, sub_category, organization,
@@ -259,7 +285,7 @@ def addService():
                         stat_official, geo_dataset_name, geo_scale, geo_west_bound,
                         geo_east_bound, geo_north_bound, geo_south_bound, geo_position_accuracy,
                         geo_reference_time, geo_published_date,
-                        l2e_group_id, source_system_id
+                        l2e_group_id, source_system_id, creator_user_id
                     ))
                     conn.commit()
                     
@@ -367,7 +393,7 @@ def addService():
                     conn.close()
                     return jsonify({"status": err_msg}), 400
                     
-                sql = "SELECT service_id, dataset_id, service_url, file_path, excel_file_path, data_dictionary_path, data_sampling_path, api_response_fields, api_enabled FROM service WHERE service_id = %s"
+                sql = "SELECT service_id, dataset_id, service_url, file_path, excel_file_path, data_dictionary_path, data_sampling_path, api_response_fields, api_enabled, access_type, created_by, contact_email FROM service WHERE service_id = %s"
                 cursor.execute(sql, (service_id,))
                 service_result = cursor.fetchall()
                 
@@ -381,10 +407,27 @@ def addService():
                     old_samp_path = svc_row_info[6]
                     old_api_res_fields = svc_row_info[7] if len(svc_row_info) > 7 else None
                     has_existing_api_fields = bool(old_api_res_fields and str(old_api_res_fields).strip() not in ['', '[]', 'null', 'None'])
+                    existing_access_type = svc_row_info[9] if len(svc_row_info) > 9 else None
+                    existing_created_by = svc_row_info[10] if len(svc_row_info) > 10 else None
+                    existing_contact_email = svc_row_info[11] if len(svc_row_info) > 11 else None
+
+                    is_owner = False
+                    if existing_created_by is not None and current_user_id is not None and str(existing_created_by) == str(current_user_id):
+                        is_owner = True
+                    elif not existing_created_by and existing_contact_email and current_user_email and existing_contact_email.strip().lower() == current_user_email.strip().lower():
+                        is_owner = True
+
+                    if (existing_access_type == 'pii' or access_type == 'pii') and not is_owner:
+                        cursor.close()
+                        conn.close()
+                        return jsonify({"status": "คุณไม่มีสิทธิ์แก้ไขชุดข้อมูลนี้ เนื่องจากเป็นชุดข้อมูลเฉพาะเจ้าของ (Private) มีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถแก้ไขได้"}), 403
 
                     # Construct update query dynamically for provided fields
                     fields = []
                     values = []
+                    if existing_created_by is None and current_user_id:
+                        fields.append("created_by = %s")
+                        values.append(current_user_id)
                     
                     if service_image and service_image.filename:
                         ok_img, clean_img, _, _, err_img = validate_and_sanitize_upload(
@@ -698,6 +741,8 @@ def getApiServices():
         user_data = getattr(request, 'current_user', {})
         org_id = user_data.get('org_id')
         previlage_id = str(user_data.get('previlage_id', ''))
+        current_user_id = user_data.get('user_id')
+        current_user_email = user_data.get('email')
         
         conn = mysql.connect()
         cursor = conn.cursor()
@@ -707,12 +752,25 @@ def getApiServices():
             org_row = cursor.fetchone()
             org_name = org_row[0] if org_row else ''
             
-            sql = "SELECT * FROM service WHERE organization = %s ORDER BY service_id DESC"
-            cursor.execute(sql, (org_name,))
+            sql = """SELECT * FROM service 
+                     WHERE organization = %s 
+                       AND (
+                           COALESCE(access_type, '') != 'pii' 
+                           OR (%s IS NOT NULL AND created_by = %s)
+                           OR (%s IS NOT NULL AND created_by IS NULL AND LOWER(contact_email) = LOWER(%s))
+                       )
+                     ORDER BY service_id DESC"""
+            cursor.execute(sql, (org_name, current_user_id, current_user_id, current_user_email, current_user_email))
         else:
-            # Fetch all clones regardless of status
-            sql = "SELECT * FROM service ORDER BY service_id DESC"
-            cursor.execute(sql)
+            # Fetch all clones regardless of status, filtering pii for non-owner
+            sql = """SELECT * FROM service 
+                     WHERE (
+                         COALESCE(access_type, '') != 'pii' 
+                         OR (%s IS NOT NULL AND created_by = %s)
+                         OR (%s IS NOT NULL AND created_by IS NULL AND LOWER(contact_email) = LOWER(%s))
+                     )
+                     ORDER BY service_id DESC"""
+            cursor.execute(sql, (current_user_id, current_user_id, current_user_email, current_user_email))
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         service_result = toJson(data, columns)
@@ -733,12 +791,21 @@ def getService():
     try:
         dataInput = request.json
         user_data = getattr(request, 'current_user', {})
+        current_user_id = user_data.get('user_id')
+        current_user_email = user_data.get('email')
+
         # Loosen check for presentation: any valid user payload passes
         if True: # Admin check handled by decorator
             conn = mysql.connect()
             cursor = conn.cursor()
-            sql = "SELECT * FROM service WHERE (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')"
-            cursor.execute(sql)
+            sql = """SELECT * FROM service 
+                     WHERE (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')
+                       AND (
+                           COALESCE(access_type, '') != 'pii' 
+                           OR (%s IS NOT NULL AND created_by = %s)
+                           OR (%s IS NOT NULL AND created_by IS NULL AND LOWER(contact_email) = LOWER(%s))
+                       )"""
+            cursor.execute(sql, (current_user_id, current_user_id, current_user_email, current_user_email))
             data = cursor.fetchall()
             columns = [column[0] for column in cursor.description]
             service_result = toJson(data, columns)
@@ -887,6 +954,14 @@ def toggleServiceStatus():
         conn = mysql.connect()
         cursor = conn.cursor()
         
+        # Check if private dataset
+        user_data = getattr(request, 'current_user', {})
+        is_allowed, err = check_dataset_owner(cursor, service_id, user_data)
+        if not is_allowed:
+            cursor.close()
+            conn.close()
+            return err
+        
         sql = "UPDATE service SET status = %s WHERE service_id = %s"
         cursor.execute(sql, (new_status, service_id))
         conn.commit()
@@ -1017,9 +1092,21 @@ def retrieveService():
         conn = mysql.connect()
         cursor = conn.cursor()
         
+        current_u_id = user_data.get('user_id')
+        current_u_email = user_data.get('email')
+
         if user_id == 'ADMIN':
-            sql = "SELECT *, 1 AS has_access, 1 AS has_dashboard_access, 1 AS has_api_access, NULL AS permission_status, NULL AS dashboard_permission_status, NULL AS api_permission_status FROM service WHERE status = 'Active' AND (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')"
-            cursor.execute(sql)
+            sql = """SELECT *, 1 AS has_access, 1 AS has_dashboard_access, 1 AS has_api_access, 
+                            NULL AS permission_status, NULL AS dashboard_permission_status, NULL AS api_permission_status 
+                     FROM service 
+                     WHERE status = 'Active' 
+                       AND (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')
+                       AND (
+                           COALESCE(access_type, '') != 'pii' 
+                           OR (%s IS NOT NULL AND created_by = %s)
+                           OR (%s IS NOT NULL AND created_by IS NULL AND LOWER(contact_email) = LOWER(%s))
+                       )"""
+            cursor.execute(sql, (current_u_id, current_u_id, current_u_email, current_u_email))
         else:
             org_id = user_data.get('org_id')
             user_org_name = ''
@@ -1033,12 +1120,13 @@ def retrieveService():
                 SELECT s.*,
                        (CASE 
                            WHEN s.access_type = 'public' THEN 1
+                           WHEN s.access_type = 'pii' AND ((%s IS NOT NULL AND s.created_by = %s) OR (%s IS NOT NULL AND s.created_by IS NULL AND s.contact_email = %s)) THEN 1
                            WHEN s.access_type = 'internal' AND %s IN ('3', '5') AND %s != '' AND s.organization = %s THEN 1
                            WHEN %s = '3' AND %s != '' AND s.organization = %s THEN 1
-                           WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
+                           WHEN s.access_type IN ('internal', 'restricted') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s AND (sua.allow_dashboard = 1 OR sua.allow_dashboard IS NULL)
                            ) THEN 1
-                           WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
+                           WHEN s.access_type IN ('internal', 'restricted') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_group_access sga
                                JOIN group_user_detail gud ON sga.group_id = gud.group_id
                                WHERE sga.service_id = s.service_id AND gud.user_id = %s
@@ -1047,12 +1135,13 @@ def retrieveService():
                        END) AS has_dashboard_access,
                        (CASE 
                            WHEN s.access_type = 'public' THEN 1
+                           WHEN s.access_type = 'pii' AND ((%s IS NOT NULL AND s.created_by = %s) OR (%s IS NOT NULL AND s.created_by IS NULL AND s.contact_email = %s)) THEN 1
                            WHEN s.access_type = 'internal' AND %s IN ('3', '5') AND %s != '' AND s.organization = %s THEN 1
                            WHEN %s = '3' AND %s != '' AND s.organization = %s THEN 1
-                           WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
+                           WHEN s.access_type IN ('internal', 'restricted') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s AND (sua.allow_api = 1 OR sua.allow_api IS NULL)
                            ) THEN 1
-                           WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
+                           WHEN s.access_type IN ('internal', 'restricted') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_group_access sga
                                JOIN group_user_detail gud ON sga.group_id = gud.group_id
                                WHERE sga.service_id = s.service_id AND gud.user_id = %s
@@ -1069,12 +1158,13 @@ def retrieveService():
                         ORDER BY r.created_at DESC LIMIT 1) AS api_permission_status,
                        (CASE 
                            WHEN s.access_type = 'public' THEN 1
+                           WHEN s.access_type = 'pii' AND ((%s IS NOT NULL AND s.created_by = %s) OR (%s IS NOT NULL AND s.created_by IS NULL AND s.contact_email = %s)) THEN 1
                            WHEN s.access_type = 'internal' AND %s IN ('3', '5') AND %s != '' AND s.organization = %s THEN 1
                            WHEN %s = '3' AND %s != '' AND s.organization = %s THEN 1
-                           WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
+                           WHEN s.access_type IN ('internal', 'restricted') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s
                            ) THEN 1
-                           WHEN s.access_type IN ('internal', 'restricted', 'pii') AND %s IS NOT NULL AND EXISTS (
+                           WHEN s.access_type IN ('internal', 'restricted') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_group_access sga
                                JOIN group_user_detail gud ON sga.group_id = gud.group_id
                                WHERE sga.service_id = s.service_id AND gud.user_id = %s
@@ -1088,9 +1178,14 @@ def retrieveService():
                 WHERE s.status = 'Active' 
                   AND (s.dataset_id IS NULL OR s.dataset_id NOT LIKE 'API\_CLONE\_%%')
                   AND (
+                      COALESCE(s.access_type, '') != 'pii' 
+                      OR (%s IS NOT NULL AND s.created_by = %s)
+                      OR (%s IS NOT NULL AND s.created_by IS NULL AND LOWER(s.contact_email) = LOWER(%s))
+                  )
+                  AND (
                       (s.access_type NOT IN ('internal', 'pii') OR s.access_type IS NULL)
                       OR (
-                          s.access_type IN ('internal', 'pii') AND (
+                          s.access_type = 'internal' AND (
                               (%s IN ('3', '5') AND %s != '' AND s.organization = %s)
                               OR (%s IS NOT NULL AND EXISTS (
                                   SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s
@@ -1102,17 +1197,25 @@ def retrieveService():
                               ))
                           )
                       )
+                      OR (
+                          s.access_type = 'pii' AND (
+                              (%s IS NOT NULL AND s.created_by = %s)
+                              OR (%s IS NOT NULL AND s.created_by IS NULL AND s.contact_email = %s)
+                          )
+                      )
                   )
             """
             previlage_id = str(user_data.get('previlage_id', '2'))
             cursor.execute(sql, (
-                previlage_id, user_org_name, user_org_name, previlage_id, user_org_name, user_org_name, user_id, user_id, user_id, user_id, # has_dashboard_access (10)
-                previlage_id, user_org_name, user_org_name, previlage_id, user_org_name, user_org_name, user_id, user_id, user_id, user_id, # has_api_access (10)
+                current_u_id, current_u_id, current_u_email, current_u_email, previlage_id, user_org_name, user_org_name, previlage_id, user_org_name, user_org_name, user_id, user_id, user_id, user_id, # has_dashboard_access (14)
+                current_u_id, current_u_id, current_u_email, current_u_email, previlage_id, user_org_name, user_org_name, previlage_id, user_org_name, user_org_name, user_id, user_id, user_id, user_id, # has_api_access (14)
                 user_id, # dashboard_permission_status (1)
                 user_id, # api_permission_status (1)
-                previlage_id, user_org_name, user_org_name, previlage_id, user_org_name, user_org_name, user_id, user_id, user_id, user_id, # has_access (10)
+                current_u_id, current_u_id, current_u_email, current_u_email, previlage_id, user_org_name, user_org_name, previlage_id, user_org_name, user_org_name, user_id, user_id, user_id, user_id, # has_access (14)
                 user_id, # permission_status (1)
-                previlage_id, user_org_name, user_org_name, user_id, user_id, user_id, user_id # WHERE clause visibility filter for internal/pii (7)
+                current_u_id, current_u_id, current_u_email, current_u_email, # WHERE clause pii check 1 (4)
+                previlage_id, user_org_name, user_org_name, user_id, user_id, user_id, user_id, # WHERE clause internal check (7)
+                current_u_id, current_u_id, current_u_email, current_u_email # WHERE clause pii check 2 (4)
             ))
             
         data = cursor.fetchall()
@@ -2202,6 +2305,14 @@ def saveApiConfig():
 
         conn = mysql.connect()
         cursor = conn.cursor()
+
+        # Check if private dataset
+        is_allowed, err = check_dataset_owner(cursor, service_id, user_data)
+        if not is_allowed:
+            cursor.close()
+            conn.close()
+            return err
+
         sql = """UPDATE service SET 
                     api_enabled = %s,
                     api_type = %s,
@@ -2237,6 +2348,14 @@ def getApiCredentials():
         
         conn = mysql.connect()
         cursor = conn.cursor()
+
+        user_data = getattr(request, 'current_user', {})
+        is_allowed, err = check_dataset_owner(cursor, service_id, user_data)
+        if not is_allowed:
+            cursor.close()
+            conn.close()
+            return err
+
         sql = """SELECT c.credential_id, c.service_id, c.user_id, c.public_key_id, c.key_last_four, c.status, c.created_at, c.expires_at,
                         u.username, u.firstname, u.lastname,
                         s.scope_json
@@ -2300,6 +2419,12 @@ def addApiCredential():
         
         conn = mysql.connect()
         cursor = conn.cursor()
+
+        is_allowed, err = check_dataset_owner(cursor, service_id, user_data)
+        if not is_allowed:
+            cursor.close()
+            conn.close()
+            return err
 
         # Removed active credential check to allow multiple keys per user
 
@@ -2932,6 +3057,16 @@ def request_dataset_permission():
         
         if not user_id or not service_id:
             return jsonify({'status': 'error', 'message': 'Missing user or service ID'}), 400
+
+        # Check if dataset is private ('pii')
+        conn_chk = mysql.connect()
+        cur_chk = conn_chk.cursor()
+        cur_chk.execute("SELECT access_type FROM service WHERE service_id = %s", (service_id,))
+        svc_chk = cur_chk.fetchone()
+        cur_chk.close()
+        conn_chk.close()
+        if svc_chk and svc_chk[0] == 'pii':
+            return jsonify({'status': 'error', 'message': 'ชุดข้อมูลนี้เป็นชุดข้อมูลเฉพาะเจ้าของ (Private) ไม่อนุญาตให้ส่งคำขอเข้าถึง'}), 403
             
         if not reason or not reason.strip():
             return jsonify({'status': 'error', 'message': 'โปรดระบุวัตถุประสงค์ในการขอเข้าถึง'}), 400
@@ -3029,11 +3164,22 @@ def get_pending_dataset_requests():
             return jsonify({'status': 'error', 'message': 'Permission Denied'}), 403
             
         filter_status = dataInput.get('status', 'Pending')
+        caller_id = user_data.get('user_id')
+        caller_email = user_data.get('email')
+        
+        owner_filter_sql = """
+            AND (
+                COALESCE(s.access_type, '') != 'pii' 
+                OR (%s IS NOT NULL AND s.created_by = %s) 
+                OR (%s IS NOT NULL AND s.created_by IS NULL AND LOWER(s.contact_email) = LOWER(%s))
+            )
+        """
+        owner_params = (caller_id, caller_id, caller_email, caller_email)
         
         conn = mysql.connect()
         cursor = conn.cursor()
         if filter_status == 'All':
-            sql = """SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
+            sql = f"""SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
                             r.mou_file_path, r.mou_filename, r.request_type,
                             u.username, u.firstname, u.lastname, u.email, COALESCE(org.org_name, '') AS organization,
                             s.service_name, s.dataset_id, s.organization as dataset_org
@@ -3041,10 +3187,11 @@ def get_pending_dataset_requests():
                      JOIN user u ON r.user_id = u.user_id
                      LEFT JOIN organization org ON u.org_id = org.org_id
                      JOIN service s ON r.service_id = s.service_id
+                     WHERE 1=1 {owner_filter_sql}
                      ORDER BY r.created_at DESC"""
-            cursor.execute(sql)
+            cursor.execute(sql, owner_params)
         else:
-            sql = """SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
+            sql = f"""SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
                             r.mou_file_path, r.mou_filename, r.request_type,
                             u.username, u.firstname, u.lastname, u.email, COALESCE(org.org_name, '') AS organization,
                             s.service_name, s.dataset_id, s.organization as dataset_org
@@ -3052,9 +3199,9 @@ def get_pending_dataset_requests():
                      JOIN user u ON r.user_id = u.user_id
                      LEFT JOIN organization org ON u.org_id = org.org_id
                      JOIN service s ON r.service_id = s.service_id
-                     WHERE r.status = %s
+                     WHERE r.status = %s {owner_filter_sql}
                      ORDER BY r.created_at DESC"""
-            cursor.execute(sql, (filter_status,))
+            cursor.execute(sql, (filter_status,) + owner_params)
         data = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
         result = toJson(data, columns)
@@ -3104,6 +3251,12 @@ def approve_dataset_request():
             return jsonify({'status': 'error', 'message': 'Request not found'}), 404
             
         target_user_id, service_id, req_type, req_fields_raw = req_row
+        
+        is_allowed, err = check_dataset_owner(cursor, service_id, user_data)
+        if not is_allowed:
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': 'คุณไม่มีสิทธิ์อนุมัติชุดข้อมูลนี้ เนื่องจากเป็นชุดข้อมูลเฉพาะเจ้าของ (Private) มีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถอนุมัติตามสิทธิ์ได้'}), 403
         
         # Get granular permissions from request or defaults
         allow_dictionary = 1
@@ -3259,6 +3412,12 @@ def reject_dataset_request():
             return jsonify({'status': 'error', 'message': 'Request not found'}), 404
             
         target_user_id, service_id = req_row
+        
+        is_allowed, err = check_dataset_owner(cursor, service_id, user_data)
+        if not is_allowed:
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': 'คุณไม่มีสิทธิ์ปฏิเสธคำขอชุดข้อมูลนี้ เนื่องจากเป็นชุดข้อมูลเฉพาะเจ้าของ (Private) มีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้'}), 403
         
         # Update request status
         sql_update = "UPDATE dataset_permission_requests SET status = 'Rejected' WHERE request_id = %s"
@@ -3619,6 +3778,13 @@ def deleteApiService():
             
         conn = mysql.connect()
         cursor = conn.cursor()
+
+        user_data = getattr(request, 'current_user', {})
+        is_allowed, err = check_dataset_owner(cursor, service_id, user_data)
+        if not is_allowed:
+            cursor.close()
+            conn.close()
+            return err
         
         # Check if service is an API (has api_type)
         cursor.execute("SELECT api_type FROM service WHERE service_id = %s", (service_id,))
@@ -3678,6 +3844,13 @@ def updateApiService():
         
         conn = mysql.connect()
         cursor = conn.cursor()
+
+        user_data = getattr(request, 'current_user', {})
+        is_allowed, err = check_dataset_owner(cursor, service_id, user_data)
+        if not is_allowed:
+            cursor.close()
+            conn.close()
+            return err
         
         update_sql = """
             UPDATE service 

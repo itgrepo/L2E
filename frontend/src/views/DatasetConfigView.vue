@@ -833,7 +833,10 @@ const updateDatasetPrefix = () => {
                     <option value="restricted">จำกัดสิทธิ์ (Restricted)</option>
                     <option value="pii">เฉพาะเจ้าของ (Private)</option>
                   </select>
-                  <small class="text-gray-500 mt-1 block">ระบุระดับความอ่อนไหวของข้อมูลเพื่อใช้บังคับสิทธิ์การเข้าถึง</small>
+                  <small v-if="formData.access_type === 'pii'" class="text-amber-600 mt-1 block font-medium" style="color: #d97706; font-size: 0.85rem;">
+                    <i class="fa fa-lock mr-1"></i> ชุดข้อมูลนี้จะมองเห็น อนุมัติคำขอ และแก้ไขได้เฉพาะคุณ (เจ้าของชุดข้อมูล) เท่านั้น โดยผู้ใช้อื่นจะไม่สามารถมองเห็นหรือแก้ไขได้
+                  </small>
+                  <small v-else class="text-gray-500 mt-1 block">ระบุระดับความอ่อนไหวของข้อมูลเพื่อใช้บังคับสิทธิ์การเข้าถึง</small>
                 </div>
 
                 <div class="form-group">
