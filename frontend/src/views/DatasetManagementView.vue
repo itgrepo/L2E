@@ -6,8 +6,12 @@ import apiClient, { postWithUser, encodeUserData } from '../utils/api';
 
 const router = useRouter();
 const datasets = ref([]);
+const groupsList = ref([]);
+const subgroupsList = ref([]);
 const isLoading = ref(true);
 const searchQuery = ref('');
+const filterGroup = ref('');
+const filterSubgroup = ref('');
 const filterCategory = ref('');
 const filterStatus = ref('');
 const alertMessage = ref({ text: '', type: '' });
@@ -54,6 +58,82 @@ const availableItems = ref([]);
 const isProcessingAccess = ref(false);
 const modalSearchQuery = ref('');
 
+const fetchMasters = async () => {
+    try {
+        const userData = localStorage.getItem('user');
+        const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
+        
+        const [groupRes, subRes] = await Promise.allSettled([
+            apiClient.post('/getGroups', { user: userParam }),
+            apiClient.post('/getDatasetGroups', { user: userParam })
+        ]);
+        
+        if (groupRes.status === 'fulfilled' && groupRes.value.data?.status === 'success' && Array.isArray(groupRes.value.data.data)) {
+            groupsList.value = groupRes.value.data.data;
+        }
+        if (subRes.status === 'fulfilled') {
+            const data = subRes.value.data;
+            if (data?.status === 'success' && Array.isArray(data.data)) {
+                subgroupsList.value = data.data;
+            } else if (Array.isArray(data)) {
+                subgroupsList.value = data;
+            } else if (data?.data && Array.isArray(data.data)) {
+                subgroupsList.value = data.data;
+            }
+        }
+    } catch (e) {
+        console.error('Error fetching masters in DatasetManagementView:', e);
+    }
+};
+
+const getGroupName = (dataset) => {
+    if (!dataset) return '-';
+    if (dataset.l2e_group_id) {
+        const g = groupsList.value.find(group => 
+            group.group_id === dataset.l2e_group_id || 
+            String(group.group_id) === String(dataset.l2e_group_id)
+        );
+        if (g) return g.group_name;
+    }
+    if (dataset.group_name) return dataset.group_name;
+    return 'ทั่วไป (General)';
+};
+
+const getSubgroupName = (dataset) => {
+    if (!dataset) return '-';
+    if (dataset.subgroup_id) {
+        const s = subgroupsList.value.find(sg => 
+            sg.id === dataset.subgroup_id || 
+            String(sg.id) === String(dataset.subgroup_id)
+        );
+        if (s) return s.name_th || s.name_en;
+    }
+    if (dataset.subgroup) {
+        const s = subgroupsList.value.find(sg => 
+            sg.code === dataset.subgroup || 
+            (sg.code && sg.code.toLowerCase() === dataset.subgroup.toLowerCase())
+        );
+        if (s) return s.name_th || s.name_en;
+    }
+    // Prefix fallback
+    const dsId = (dataset.dataset_id || '').toUpperCase();
+    if (dsId.includes('CRS-') || dsId.includes('COURSES')) return 'กลุ่มข้อมูลหลักสูตร (Course Data)';
+    if (dsId.includes('CMP-')) return 'กลุ่มข้อมูลผลการเรียน (Completion Data)';
+    if (dsId.includes('COM-')) return 'กลุ่มข้อมูลสมรรถนะบุคคล (Competency Data)';
+    if (dsId.includes('JOB-')) return 'กลุ่มข้อมูลตลาดแรงงาน (Job / Labour Market Data)';
+    if (dsId.includes('SKL-')) return 'กลุ่มข้อมูลการวิเคราะห์ทักษะ (Skill Analytics Data)';
+    
+    // Category fallback
+    const cat = ((dataset.category || '') + ' ' + (dataset.sub_category || '')).toLowerCase();
+    if (cat.includes('course') || cat.includes('learning catalog') || cat.includes('หลักสูตร')) return 'กลุ่มข้อมูลหลักสูตร (Course Data)';
+    if (cat.includes('completion') || cat.includes('learning record') || cat.includes('ผลการเรียน')) return 'กลุ่มข้อมูลผลการเรียน (Completion Data)';
+    if (cat.includes('competency') || cat.includes('learner profile') || cat.includes('สมรรถนะ')) return 'กลุ่มข้อมูลสมรรถนะบุคคล (Competency Data)';
+    if (cat.includes('job') || cat.includes('labour') || cat.includes('labor') || cat.includes('ตลาดแรงงาน')) return 'กลุ่มข้อมูลตลาดแรงงาน (Job / Labour Market Data)';
+    if (cat.includes('skill') || cat.includes('analytics') || cat.includes('intelligence') || cat.includes('วิเคราะห์ทักษะ')) return 'กลุ่มข้อมูลการวิเคราะห์ทักษะ (Skill Analytics Data)';
+
+    return '-';
+};
+
 const fetchDatasets = async () => {
     isLoading.value = true;
     try {
@@ -88,11 +168,34 @@ const filteredDatasets = computed(() => {
     let result = datasets.value.filter(d => d.status !== 'Deleted');
     
     if (searchQuery.value) {
-        const q = searchQuery.value.toLowerCase();
-        result = result.filter(d => 
-            (d.service_name && d.service_name.toLowerCase().includes(q)) || 
-            (d.dataset_id && d.dataset_id.toLowerCase().includes(q))
-        );
+        const q = searchQuery.value.toLowerCase().trim();
+        result = result.filter(d => {
+            const nameMatch = d.service_name && d.service_name.toLowerCase().includes(q);
+            const idMatch = d.dataset_id && d.dataset_id.toLowerCase().includes(q);
+            const groupMatch = getGroupName(d).toLowerCase().includes(q);
+            const subgroupMatch = getSubgroupName(d).toLowerCase().includes(q);
+            const orgMatch = d.organization && d.organization.toLowerCase().includes(q);
+            const catMatch = d.category && d.category.toLowerCase().includes(q);
+            return nameMatch || idMatch || groupMatch || subgroupMatch || orgMatch || catMatch;
+        });
+    }
+
+    if (filterGroup.value) {
+        result = result.filter(d => {
+            if (filterGroup.value === 'general') {
+                return !d.l2e_group_id;
+            }
+            return String(d.l2e_group_id) === String(filterGroup.value);
+        });
+    }
+
+    if (filterSubgroup.value) {
+        result = result.filter(d => {
+            if (d.subgroup_id && String(d.subgroup_id) === String(filterSubgroup.value)) return true;
+            if (d.subgroup && d.subgroup === filterSubgroup.value) return true;
+            const sgName = getSubgroupName(d);
+            return sgName.includes(filterSubgroup.value);
+        });
     }
     
     if (filterCategory.value) {
@@ -286,7 +389,8 @@ const filteredAvailable = computed(() => {
     );
 });
 
-onMounted(() => {
+onMounted(async () => {
+    await fetchMasters();
     fetchDatasets();
 });
 </script>
@@ -364,9 +468,20 @@ onMounted(() => {
           <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
-          <input type="text" v-model="searchQuery" placeholder="ค้นหาชื่อชุดข้อมูล หรือ ID...">
+          <input type="text" v-model="searchQuery" placeholder="ค้นหาชื่อชุดข้อมูล, รหัส ID, กลุ่ม หรือกลุ่มย่อย...">
         </div>
         <div class="filter-group">
+          <!-- Filter by Group (ค้นหาด้วยกลุ่ม) -->
+          <select v-model="filterGroup" class="filter-select" title="ค้นหาด้วยกลุ่ม">
+            <option value="">ทุกกลุ่มข้อมูล</option>
+            <option v-for="g in groupsList" :key="g.group_id" :value="g.group_id">{{ g.group_name }}</option>
+            <option value="general">ทั่วไป (General)</option>
+          </select>
+          <!-- Filter by Subgroup (กลุ่มข้อมูลย่อย) -->
+          <select v-model="filterSubgroup" class="filter-select" title="ค้นหาด้วยกลุ่มย่อย">
+            <option value="">ทุกกลุ่มย่อย</option>
+            <option v-for="sg in subgroupsList" :key="sg.id" :value="sg.code || sg.id">{{ sg.name_th || sg.name_en }}</option>
+          </select>
           <select v-model="filterCategory" class="filter-select">
             <option value="">ทุกหมวดหมู่</option>
             <option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
@@ -399,6 +514,7 @@ onMounted(() => {
               <tr>
                 <th>Dataset ID</th>
                 <th>ชุดข้อมูล</th>
+                <th>กลุ่ม / กลุ่มย่อย</th>
                 <th>หมวดหมู่ / หน่วยงาน</th>
                 <th>สถานะ</th>
                 <th>ประเภทข้อมูล</th>
@@ -420,6 +536,17 @@ onMounted(() => {
                       </span>
                       <span class="tag-high-value" v-if="d.is_high_value === 'ใช่'">High Value</span>
                     </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="meta-cell">
+                    <span class="group-name-text" style="font-size: 0.875rem; font-weight: 600; color: #1e293b; display: flex; align-items: center; gap: 6px;">
+                      <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: var(--primary); flex-shrink: 0;"></span>
+                      {{ getGroupName(d) }}
+                    </span>
+                    <span class="subgroup-name-text" style="font-size: 0.78rem; color: #64748b; margin-top: 3px; padding-left: 12px; line-height: 1.3;">
+                      {{ getSubgroupName(d) }}
+                    </span>
                   </div>
                 </td>
                 <td>
@@ -786,6 +913,7 @@ h1 {
 .filter-group {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .filter-select {
@@ -797,6 +925,13 @@ h1 {
   outline: none;
   background: #f8fafc;
   cursor: pointer;
+  max-width: 220px;
+  transition: all 0.2s;
+}
+
+.filter-select:focus {
+  border-color: #3b82f6;
+  background: white;
 }
 
 /* Alerts */

@@ -2,15 +2,45 @@
 import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
-import apiClient, { postWithUser } from '../utils/api';
+import apiClient, { postWithUser, encodeUserData } from '../utils/api';
 
 const router = useRouter();
 const datasets = ref([]);
+const groupsList = ref([]);
+const subgroupsList = ref([]);
 const isLoading = ref(true);
 const searchQuery = ref('');
+const filterGroup = ref('');
+const filterSubgroup = ref('');
 const filterCategory = ref('');
 const filterStatus = ref('');
 const alertMessage = ref({ text: '', type: '' });
+
+const currentUser = computed(() => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || '{}');
+  } catch (e) {
+    return {};
+  }
+});
+
+const isSuperAdmin = computed(() => {
+  const role = String(currentUser.value.previlage_id || currentUser.value.role_id || '');
+  return role === '4';
+});
+
+const canManage = (dataset) => {
+  if (isSuperAdmin.value) return true;
+  if (!dataset) return false;
+  const uid = currentUser.value.user_id || currentUser.value.id;
+  if (dataset.created_by && uid && String(dataset.created_by) === String(uid)) {
+    return true;
+  }
+  if (!dataset.created_by && dataset.contact_email && currentUser.value.email) {
+    return dataset.contact_email.trim().toLowerCase() === currentUser.value.email.trim().toLowerCase();
+  }
+  return false;
+};
 
 const stats = ref({
     total: 0,
@@ -28,16 +58,92 @@ const availableItems = ref([]);
 const isProcessingAccess = ref(false);
 const modalSearchQuery = ref('');
 
+const fetchMasters = async () => {
+    try {
+        const userData = localStorage.getItem('user');
+        const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
+        
+        const [groupRes, subRes] = await Promise.allSettled([
+            apiClient.post('/getGroups', { user: userParam }),
+            apiClient.post('/getDatasetGroups', { user: userParam })
+        ]);
+        
+        if (groupRes.status === 'fulfilled' && groupRes.value.data?.status === 'success' && Array.isArray(groupRes.value.data.data)) {
+            groupsList.value = groupRes.value.data.data;
+        }
+        if (subRes.status === 'fulfilled') {
+            const data = subRes.value.data;
+            if (data?.status === 'success' && Array.isArray(data.data)) {
+                subgroupsList.value = data.data;
+            } else if (Array.isArray(data)) {
+                subgroupsList.value = data;
+            } else if (data?.data && Array.isArray(data.data)) {
+                subgroupsList.value = data.data;
+            }
+        }
+    } catch (e) {
+        console.error('Error fetching masters in DatasetManagementView:', e);
+    }
+};
+
+const getGroupName = (dataset) => {
+    if (!dataset) return '-';
+    if (dataset.l2e_group_id) {
+        const g = groupsList.value.find(group => 
+            group.group_id === dataset.l2e_group_id || 
+            String(group.group_id) === String(dataset.l2e_group_id)
+        );
+        if (g) return g.group_name;
+    }
+    if (dataset.group_name) return dataset.group_name;
+    return 'ทั่วไป (General)';
+};
+
+const getSubgroupName = (dataset) => {
+    if (!dataset) return '-';
+    if (dataset.subgroup_id) {
+        const s = subgroupsList.value.find(sg => 
+            sg.id === dataset.subgroup_id || 
+            String(sg.id) === String(dataset.subgroup_id)
+        );
+        if (s) return s.name_th || s.name_en;
+    }
+    if (dataset.subgroup) {
+        const s = subgroupsList.value.find(sg => 
+            sg.code === dataset.subgroup || 
+            (sg.code && sg.code.toLowerCase() === dataset.subgroup.toLowerCase())
+        );
+        if (s) return s.name_th || s.name_en;
+    }
+    // Prefix fallback
+    const dsId = (dataset.dataset_id || '').toUpperCase();
+    if (dsId.includes('CRS-') || dsId.includes('COURSES')) return 'กลุ่มข้อมูลหลักสูตร (Course Data)';
+    if (dsId.includes('CMP-')) return 'กลุ่มข้อมูลผลการเรียน (Completion Data)';
+    if (dsId.includes('COM-')) return 'กลุ่มข้อมูลสมรรถนะบุคคล (Competency Data)';
+    if (dsId.includes('JOB-')) return 'กลุ่มข้อมูลตลาดแรงงาน (Job / Labour Market Data)';
+    if (dsId.includes('SKL-')) return 'กลุ่มข้อมูลการวิเคราะห์ทักษะ (Skill Analytics Data)';
+    
+    // Category fallback
+    const cat = ((dataset.category || '') + ' ' + (dataset.sub_category || '')).toLowerCase();
+    if (cat.includes('course') || cat.includes('learning catalog') || cat.includes('หลักสูตร')) return 'กลุ่มข้อมูลหลักสูตร (Course Data)';
+    if (cat.includes('completion') || cat.includes('learning record') || cat.includes('ผลการเรียน')) return 'กลุ่มข้อมูลผลการเรียน (Completion Data)';
+    if (cat.includes('competency') || cat.includes('learner profile') || cat.includes('สมรรถนะ')) return 'กลุ่มข้อมูลสมรรถนะบุคคล (Competency Data)';
+    if (cat.includes('job') || cat.includes('labour') || cat.includes('labor') || cat.includes('ตลาดแรงงาน')) return 'กลุ่มข้อมูลตลาดแรงงาน (Job / Labour Market Data)';
+    if (cat.includes('skill') || cat.includes('analytics') || cat.includes('intelligence') || cat.includes('วิเคราะห์ทักษะ')) return 'กลุ่มข้อมูลการวิเคราะห์ทักษะ (Skill Analytics Data)';
+
+    return '-';
+};
+
 const fetchDatasets = async () => {
     isLoading.value = true;
     try {
         const userData = localStorage.getItem('user');
         const response = await apiClient.post('/getService', {
-            user: btoa(userData)
+            user: encodeUserData(JSON.parse(userData))
         });
         
         if (response.data.status === 'success') {
-            datasets.value = response.data.data;
+            datasets.value = (response.data.data || []).filter(d => d.status !== 'Deleted');
             updateStats();
         }
     } catch (error) {
@@ -49,23 +155,47 @@ const fetchDatasets = async () => {
 };
 
 const updateStats = () => {
+    const nonDeleted = datasets.value.filter(d => d.status !== 'Deleted');
     stats.value = {
-        total: datasets.value.length,
-        active: datasets.value.filter(d => d.status === 'Active').length,
-        inactive: datasets.value.filter(d => d.status !== 'Active').length,
-        highValue: datasets.value.filter(d => d.is_high_value === 'ใช่').length
+        total: nonDeleted.length,
+        active: nonDeleted.filter(d => d.status === 'Active').length,
+        inactive: nonDeleted.filter(d => d.status === 'Inactive').length,
+        highValue: nonDeleted.filter(d => d.is_high_value === 'ใช่').length
     };
 };
 
 const filteredDatasets = computed(() => {
-    let result = datasets.value;
+    let result = datasets.value.filter(d => d.status !== 'Deleted');
     
     if (searchQuery.value) {
-        const q = searchQuery.value.toLowerCase();
-        result = result.filter(d => 
-            (d.service_name && d.service_name.toLowerCase().includes(q)) || 
-            (d.dataset_id && d.dataset_id.toLowerCase().includes(q))
-        );
+        const q = searchQuery.value.toLowerCase().trim();
+        result = result.filter(d => {
+            const nameMatch = d.service_name && d.service_name.toLowerCase().includes(q);
+            const idMatch = d.dataset_id && d.dataset_id.toLowerCase().includes(q);
+            const groupMatch = getGroupName(d).toLowerCase().includes(q);
+            const subgroupMatch = getSubgroupName(d).toLowerCase().includes(q);
+            const orgMatch = d.organization && d.organization.toLowerCase().includes(q);
+            const catMatch = d.category && d.category.toLowerCase().includes(q);
+            return nameMatch || idMatch || groupMatch || subgroupMatch || orgMatch || catMatch;
+        });
+    }
+
+    if (filterGroup.value) {
+        result = result.filter(d => {
+            if (filterGroup.value === 'general') {
+                return !d.l2e_group_id;
+            }
+            return String(d.l2e_group_id) === String(filterGroup.value);
+        });
+    }
+
+    if (filterSubgroup.value) {
+        result = result.filter(d => {
+            if (d.subgroup_id && String(d.subgroup_id) === String(filterSubgroup.value)) return true;
+            if (d.subgroup && d.subgroup === filterSubgroup.value) return true;
+            const sgName = getSubgroupName(d);
+            return sgName.includes(filterSubgroup.value);
+        });
     }
     
     if (filterCategory.value) {
@@ -80,16 +210,20 @@ const filteredDatasets = computed(() => {
 });
 
 const categories = computed(() => {
-    const cats = datasets.value.map(d => d.category).filter(Boolean);
+    const cats = datasets.value.filter(d => d.status !== 'Deleted').map(d => d.category).filter(Boolean);
     return [...new Set(cats)];
 });
 
 const handleToggleStatus = async (dataset) => {
+    if (!canManage(dataset)) {
+        showAlert('คุณไม่มีสิทธิ์เปลี่ยนสถานะชุดข้อมูลนี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้', 'error');
+        return;
+    }
     const newStatus = dataset.status === 'Active' ? 'Inactive' : 'Active';
     try {
         const userData = localStorage.getItem('user');
         const fd = new FormData();
-        fd.append('user', btoa(userData));
+        fd.append('user', encodeUserData(JSON.parse(userData)));
         fd.append('service_id', dataset.service_id);
         fd.append('service_status', newStatus);
         
@@ -101,21 +235,25 @@ const handleToggleStatus = async (dataset) => {
             showAlert(`อัปเดตสถานะของ ${dataset.service_name} สำเร็จ`, 'success');
             fetchDatasets();
         } else {
-            showAlert('เกิดข้อผิดพลาดในการอัปเดตสถานะ', 'error');
+            showAlert(response.data.status || 'เกิดข้อผิดพลาดในการอัปเดตสถานะ', 'error');
         }
     } catch (error) {
         console.error('Error toggling status:', error);
-        showAlert('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error');
+        showAlert(error?.response?.data?.status || 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error');
     }
 };
 
 const handleDelete = async (dataset) => {
+    if (!canManage(dataset)) {
+        showAlert('คุณไม่มีสิทธิ์ลบชุดข้อมูลนี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้', 'error');
+        return;
+    }
     if (!confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบชุดข้อมูล "${dataset.service_name}"?`)) return;
     
     try {
         const userData = localStorage.getItem('user');
         const fd = new FormData();
-        fd.append('user', btoa(userData));
+        fd.append('user', encodeUserData(JSON.parse(userData)));
         fd.append('service_id', dataset.service_id);
         fd.append('service_status', 'Deleted'); // Soft delete pattern
         
@@ -125,15 +263,23 @@ const handleDelete = async (dataset) => {
         
         if (response.data.status && response.data.status.includes('success')) {
             showAlert(`ลบชุดข้อมูลสำเร็จ`, 'success');
+            datasets.value = datasets.value.filter(d => d.service_id !== dataset.service_id);
+            updateStats();
             fetchDatasets();
+        } else {
+            showAlert(response.data.status || 'เกิดข้อผิดพลาดในการลบชุดข้อมูล', 'error');
         }
     } catch (error) {
         console.error('Delete error:', error);
-        showAlert('เกิดข้อผิดพลาดในการลบ', 'error');
+        showAlert(error?.response?.data?.status || 'เกิดข้อผิดพลาดในการลบ', 'error');
     }
 };
 
 const goToEdit = (dataset) => {
+    if (!canManage(dataset)) {
+        showAlert('คุณไม่มีสิทธิ์แก้ไขชุดข้อมูลนี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้', 'error');
+        return;
+    }
     router.push({ 
         path: '/dataset-config', 
         query: { edit: dataset.service_id } 
@@ -142,11 +288,14 @@ const goToEdit = (dataset) => {
 
 const showAlert = (text, type) => {
     alertMessage.value = { text, type };
-    setTimeout(() => { alertMessage.value = { text: '', type: '' }; }, 3000);
 };
 
 // Access Management Methods
 const openAccessModal = (dataset) => {
+    if (!canManage(dataset)) {
+        showAlert('คุณไม่มีสิทธิ์จัดการสิทธิ์ชุดข้อมูลนี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้', 'error');
+        return;
+    }
     currentDataset.value = dataset;
     accessMode.value = 'select';
     isAccessModalOpen.value = true;
@@ -165,7 +314,7 @@ const fetchAccessData = async (mode) => {
         const userData = localStorage.getItem('user');
         const endpoint = mode === 'group' ? '/getDatasetAccessGroups' : '/getDatasetAccessUsers';
         const response = await apiClient.post(endpoint, {
-            user: btoa(userData),
+            user: encodeUserData(JSON.parse(userData)),
             service_id: currentDataset.value.service_id
         });
         
@@ -197,7 +346,7 @@ const saveAccessChanges = async () => {
         const userData = localStorage.getItem('user');
         const endpoint = accessMode.value === 'group' ? '/updateDatasetAccessGroups' : '/updateDatasetAccessUsers';
         const payload = {
-            user: btoa(userData),
+            user: encodeUserData(JSON.parse(userData)),
             service_id: currentDataset.value.service_id
         };
         
@@ -240,7 +389,8 @@ const filteredAvailable = computed(() => {
     );
 });
 
-onMounted(() => {
+onMounted(async () => {
+    await fetchMasters();
     fetchDatasets();
 });
 </script>
@@ -318,9 +468,20 @@ onMounted(() => {
           <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
-          <input type="text" v-model="searchQuery" placeholder="ค้นหาชื่อชุดข้อมูล หรือ ID...">
+          <input type="text" v-model="searchQuery" placeholder="ค้นหาชื่อชุดข้อมูล, รหัส ID, กลุ่ม หรือกลุ่มย่อย...">
         </div>
         <div class="filter-group">
+          <!-- Filter by Group (ค้นหาด้วยกลุ่ม) -->
+          <select v-model="filterGroup" class="filter-select" title="ค้นหาด้วยกลุ่ม">
+            <option value="">ทุกกลุ่มข้อมูล</option>
+            <option v-for="g in groupsList" :key="g.group_id" :value="g.group_id">{{ g.group_name }}</option>
+            <option value="general">ทั่วไป (General)</option>
+          </select>
+          <!-- Filter by Subgroup (กลุ่มข้อมูลย่อย) -->
+          <select v-model="filterSubgroup" class="filter-select" title="ค้นหาด้วยกลุ่มย่อย">
+            <option value="">ทุกกลุ่มย่อย</option>
+            <option v-for="sg in subgroupsList" :key="sg.id" :value="sg.code || sg.id">{{ sg.name_th || sg.name_en }}</option>
+          </select>
           <select v-model="filterCategory" class="filter-select">
             <option value="">ทุกหมวดหมู่</option>
             <option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
@@ -336,7 +497,7 @@ onMounted(() => {
       <!-- Alert -->
       <transition name="fade">
         <div v-if="alertMessage.text" :class="['alert-banner', alertMessage.type]">
-          {{ alertMessage.text }}
+          <div style="flex: 1;">{{ alertMessage.text }}</div><button @click="alertMessage = { text: '', type: '' }" class="alert-close-btn" aria-label="Close alert">&times;</button>
         </div>
       </transition>
 
@@ -353,6 +514,7 @@ onMounted(() => {
               <tr>
                 <th>Dataset ID</th>
                 <th>ชุดข้อมูล</th>
+                <th>กลุ่ม / กลุ่มย่อย</th>
                 <th>หมวดหมู่ / หน่วยงาน</th>
                 <th>สถานะ</th>
                 <th>ประเภทข้อมูล</th>
@@ -365,9 +527,26 @@ onMounted(() => {
                 <td>
                   <div class="dataset-cell">
                     <div class="dataset-name">{{ d.service_name }}</div>
-                    <div class="dataset-tags" v-if="d.is_high_value === 'ใช่'">
-                      <span class="tag-high-value">High Value</span>
+                    <div class="dataset-tags">
+                      <span v-if="d.access_type === 'pii'" class="tag-private" style="background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a; font-size: 0.7rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" style="width: 12px; height: 12px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                        เฉพาะเจ้าของ (Private)
+                      </span>
+                      <span class="tag-high-value" v-if="d.is_high_value === 'ใช่'">High Value</span>
                     </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="meta-cell">
+                    <span class="group-name-text" style="font-size: 0.875rem; font-weight: 600; color: #1e293b; display: flex; align-items: center; gap: 6px;">
+                      <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: var(--primary); flex-shrink: 0;"></span>
+                      {{ getGroupName(d) }}
+                    </span>
+                    <span class="subgroup-name-text" style="font-size: 0.78rem; color: #64748b; margin-top: 3px; padding-left: 12px; line-height: 1.3;">
+                      {{ getSubgroupName(d) }}
+                    </span>
                   </div>
                 </td>
                 <td>
@@ -376,9 +555,13 @@ onMounted(() => {
                     <span class="org-text">{{ d.organization || '-' }}</span>
                   </div>
                 </td>
-                <td>
-                  <span class="status-badge" :class="d.status?.toLowerCase()">
-                    {{ d.status }}
+                                <td>
+                  <label class="switch" :style="{ opacity: canManage(d) ? '1' : '0.45', cursor: canManage(d) ? 'pointer' : 'not-allowed' }">
+                    <input type="checkbox" :checked="d.status === 'Active'" :disabled="!canManage(d)" @change="handleToggleStatus(d)">
+                    <span class="slider round"></span>
+                  </label>
+                  <span style="font-size: 0.75rem; margin-left: 8px; font-weight: 600;" :style="{ color: d.status === 'Active' ? '#10b981' : '#94a3b8' }">
+                    {{ d.status === 'Active' ? 'Active' : 'Inactive' }}
                   </span>
                 </td>
                 <td>
@@ -386,22 +569,36 @@ onMounted(() => {
                 </td>
                 <td>
                   <div class="actions">
-                    <button class="action-btn access" @click="openAccessModal(d)" title="จัดการสิทธิ์">
+                    <button 
+                      class="action-btn access" 
+                      :class="{ 'disabled-action': !canManage(d) }"
+                      :disabled="!canManage(d)"
+                      @click="openAccessModal(d)" 
+                      :title="canManage(d) ? 'จัดการสิทธิ์' : 'เฉพาะเจ้าของชุดข้อมูลเท่านั้นที่มีสิทธิ์จัดการสิทธิ์'"
+                    >
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
                       </svg>
                     </button>
-                    <button class="action-btn edit" @click="goToEdit(d)" title="แก้ไข">
+                    <button 
+                      class="action-btn edit" 
+                      :class="{ 'disabled-action': !canManage(d) }"
+                      :disabled="!canManage(d)"
+                      @click="goToEdit(d)" 
+                      :title="canManage(d) ? 'แก้ไข' : 'เฉพาะเจ้าของชุดข้อมูลเท่านั้นที่มีสิทธิ์แก้ไข'"
+                    >
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                       </svg>
                     </button>
-                    <button class="action-btn toggle" @click="handleToggleStatus(d)" :title="d.status === 'Active' ? 'ปิดใช้งาน' : 'เปิดใช้งาน'">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                      </svg>
-                    </button>
-                    <button class="action-btn delete" @click="handleDelete(d)" title="ลบ">
+                    
+                    <button 
+                      class="action-btn delete" 
+                      :class="{ 'disabled-action': !canManage(d) }"
+                      :disabled="!canManage(d)"
+                      @click="handleDelete(d)" 
+                      :title="canManage(d) ? 'ลบ' : 'เฉพาะเจ้าของชุดข้อมูลเท่านั้นที่มีสิทธิ์ลบ'"
+                    >
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
@@ -716,6 +913,7 @@ h1 {
 .filter-group {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .filter-select {
@@ -727,15 +925,45 @@ h1 {
   outline: none;
   background: #f8fafc;
   cursor: pointer;
+  max-width: 220px;
+  transition: all 0.2s;
+}
+
+.filter-select:focus {
+  border-color: #3b82f6;
+  background: white;
 }
 
 /* Alerts */
 .alert-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
   padding: 12px 20px;
   border-radius: 12px;
   margin-bottom: 24px;
   font-weight: 600;
   font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.alert-close-btn {
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-size: 1.75rem;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.7;
+    padding: 0;
+    margin: -4px -8px -4px 0;
+    transition: opacity 0.2s;
+}
+.alert-close-btn:hover {
+    opacity: 1;
 }
 
 .alert-banner.success { background: var(--mso-pink-dark); color: #166534; border: 1px solid var(--mso-pink-dark); }
@@ -836,6 +1064,14 @@ h1 {
 .action-btn.toggle:hover { border-color: var(--primary); color: var(--primary); background: var(--mso-pink-dark); }
 .action-btn.delete:hover { border-color: #ef4444; color: #ef4444; background: #fef2f2; }
 .action-btn.access:hover { border-color: #6366f1; color: #6366f1; background: #eef2ff; }
+.action-btn.disabled-action {
+  opacity: 0.35;
+  cursor: not-allowed !important;
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  color: #94a3b8 !important;
+  pointer-events: none;
+}
 
 /* Modal Styles */
 .modal-overlay {
@@ -1179,4 +1415,49 @@ h1 {
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.5s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  vertical-align: middle;
+}
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #cbd5e1;
+  transition: .4s;
+}
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: .4s;
+}
+input:checked + .slider {
+  background-color: #10b981;
+}
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+.slider.round {
+  border-radius: 24px;
+}
+.slider.round:before {
+  border-radius: 50%;
+}
 </style>
