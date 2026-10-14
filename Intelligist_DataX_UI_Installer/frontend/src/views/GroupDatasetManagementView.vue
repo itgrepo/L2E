@@ -1,10 +1,80 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { encodeUserData } from '../utils/api';
 
 const groups = ref([]);
 const isLoading = ref(true);
+
+// 5 Hardcoded Subgroups according to requirement
+const SUBGROUPS = [
+  {
+    id: 'course',
+    code: 'course',
+    prefix: 'CRS',
+    title: 'กลุ่มข้อมูลหลักสูตร (Course Data)',
+    icon: '📚'
+  },
+  {
+    id: 'completion',
+    code: 'completion',
+    prefix: 'CMP',
+    title: 'กลุ่มข้อมูลผลการเรียน (Completion Data)',
+    icon: '🎓'
+  },
+  {
+    id: 'competency',
+    code: 'competency',
+    prefix: 'COM',
+    title: 'กลุ่มข้อมูลสมรรถนะบุคคล (Competency Data)',
+    icon: '🏆'
+  },
+  {
+    id: 'job_market',
+    code: 'job_market',
+    prefix: 'JOB',
+    title: 'กลุ่มข้อมูลตลาดแรงงาน (Job / Labour Market Data)',
+    icon: '💼'
+  },
+  {
+    id: 'skill_analytics',
+    code: 'skill_analytics',
+    prefix: 'SKL',
+    title: 'กลุ่มข้อมูลการวิเคราะห์ทักษะ (Skill Analytics Data)',
+    icon: '📊'
+  }
+];
+
+// Helper to determine which subgroup a dataset belongs to
+const getDatasetSubgroup = (dataset) => {
+  if (!dataset) return 'course';
+  
+  // 1. Check l2e_group_id (1..5)
+  if (dataset.l2e_group_id === 1) return 'course';
+  if (dataset.l2e_group_id === 2) return 'completion';
+  if (dataset.l2e_group_id === 3) return 'competency';
+  if (dataset.l2e_group_id === 4) return 'job_market';
+  if (dataset.l2e_group_id === 5) return 'skill_analytics';
+  
+  // 2. Check dataset_id prefix
+  const dsId = (dataset.dataset_id || '').toUpperCase();
+  if (dsId.includes('CRS-') || dsId.includes('COURSES')) return 'course';
+  if (dsId.includes('CMP-')) return 'completion';
+  if (dsId.includes('COM-')) return 'competency';
+  if (dsId.includes('JOB-')) return 'job_market';
+  if (dsId.includes('SKL-')) return 'skill_analytics';
+
+  // 3. Check category / sub_category
+  const cat = ((dataset.category || '') + ' ' + (dataset.sub_category || '')).toLowerCase();
+  if (cat.includes('course') || cat.includes('learning catalog') || cat.includes('หลักสูตร')) return 'course';
+  if (cat.includes('completion') || cat.includes('learning record') || cat.includes('ผลการเรียน')) return 'completion';
+  if (cat.includes('competency') || cat.includes('learner profile') || cat.includes('สมรรถนะ')) return 'competency';
+  if (cat.includes('job') || cat.includes('labour') || cat.includes('labor') || cat.includes('ตลาดแรงงาน')) return 'job_market';
+  if (cat.includes('skill') || cat.includes('analytics') || cat.includes('intelligence') || cat.includes('วิเคราะห์ทักษะ')) return 'skill_analytics';
+
+  // Default fallback
+  return 'course';
+};
 
 // Modal Data
 const showManageModal = ref(false);
@@ -12,6 +82,78 @@ const selectedGroup = ref(null);
 const assignedDatasets = ref([]);
 const availableDatasets = ref([]);
 const isSaving = ref(false);
+
+// Active Subgroup inside Modal (null = show subgroup table, object = show subgroup dataset editor)
+const activeSubgroup = ref(null);
+const subgroupSearchQuery = ref('');
+
+// Subgroup Datasets Helpers
+const getAvailableDatasetsForSubgroup = (subgroupId) => {
+  return availableDatasets.value.filter(d => getDatasetSubgroup(d) === subgroupId);
+};
+
+const getAssignedDatasetsForSubgroup = (subgroupId) => {
+  return assignedDatasets.value.filter(d => getDatasetSubgroup(d) === subgroupId);
+};
+
+// Total datasets in system for this subgroup (from dataset creation)
+const getSubgroupTotalCount = (subgroupId) => {
+  const assigned = getAssignedDatasetsForSubgroup(subgroupId).length;
+  const available = getAvailableDatasetsForSubgroup(subgroupId).length;
+  return assigned + available;
+};
+
+// Assigned datasets for this specific group in this subgroup
+const getSubgroupAssignedCount = (subgroupId) => {
+  return getAssignedDatasetsForSubgroup(subgroupId).length;
+};
+
+// Filtered lists for currently active subgroup (with search)
+const filteredAvailableForActiveSubgroup = computed(() => {
+  if (!activeSubgroup.value) return [];
+  const list = getAvailableDatasetsForSubgroup(activeSubgroup.value.id);
+  const q = subgroupSearchQuery.value.trim().toLowerCase();
+  if (!q) return list;
+  return list.filter(d => 
+    (d.service_name && d.service_name.toLowerCase().includes(q)) ||
+    (d.organization && d.organization.toLowerCase().includes(q)) ||
+    (d.dataset_id && d.dataset_id.toLowerCase().includes(q))
+  );
+});
+
+const filteredAssignedForActiveSubgroup = computed(() => {
+  if (!activeSubgroup.value) return [];
+  const list = getAssignedDatasetsForSubgroup(activeSubgroup.value.id);
+  const q = subgroupSearchQuery.value.trim().toLowerCase();
+  if (!q) return list;
+  return list.filter(d => 
+    (d.service_name && d.service_name.toLowerCase().includes(q)) ||
+    (d.organization && d.organization.toLowerCase().includes(q)) ||
+    (d.dataset_id && d.dataset_id.toLowerCase().includes(q))
+  );
+});
+
+const openSubgroupManage = (subgroup) => {
+  activeSubgroup.value = subgroup;
+  subgroupSearchQuery.value = '';
+};
+
+const backToSubgroups = () => {
+  activeSubgroup.value = null;
+  subgroupSearchQuery.value = '';
+};
+
+const assignAllInSubgroup = () => {
+  if (!activeSubgroup.value) return;
+  const toAssign = [...filteredAvailableForActiveSubgroup.value];
+  toAssign.forEach(dataset => assignDataset(dataset));
+};
+
+const removeAllInSubgroup = () => {
+  if (!activeSubgroup.value) return;
+  const toRemove = [...filteredAssignedForActiveSubgroup.value];
+  toRemove.forEach(dataset => removeDataset(dataset));
+};
 
 const showAddGroupModal = ref(false);
 const newGroupName = ref('');
@@ -47,6 +189,8 @@ const fetchGroups = async () => {
 
 const openManageModal = async (group) => {
   selectedGroup.value = group;
+  activeSubgroup.value = null;
+  subgroupSearchQuery.value = '';
   showManageModal.value = true;
   assignedDatasets.value = [];
   availableDatasets.value = [];
@@ -59,8 +203,8 @@ const openManageModal = async (group) => {
     });
     
     if (response.data.status === 'success') {
-      assignedDatasets.value = response.data.assigned;
-      availableDatasets.value = response.data.available;
+      assignedDatasets.value = response.data.assigned || [];
+      availableDatasets.value = response.data.available || [];
     }
   } catch (err) {
     console.error('Error fetching dataset access:', err);
@@ -70,6 +214,8 @@ const openManageModal = async (group) => {
 const closeManageModal = () => {
   showManageModal.value = false;
   selectedGroup.value = null;
+  activeSubgroup.value = null;
+  subgroupSearchQuery.value = '';
 };
 
 const assignDataset = (dataset) => {
@@ -96,8 +242,14 @@ const saveDatasetAccess = async () => {
     
     if (response.data.status === 'success') {
       alert('บันทึกข้อมูลเรียบร้อยแล้ว');
-      closeManageModal();
-      fetchGroups(); // Refresh count
+      // Update group card count
+      fetchGroups();
+      // If inside subgroup view, go back to table with updated counts
+      if (activeSubgroup.value) {
+        backToSubgroups();
+      } else {
+        closeManageModal();
+      }
     } else {
       alert('Error: ' + response.data.status);
     }
@@ -135,6 +287,30 @@ const handleAddGroup = async () => {
   }
 };
 
+const deleteGroup = async (group) => {
+  if (!confirm(`คุณต้องการลบกลุ่ม "${group.group_name}" หรือไม่?\n\nข้อมูลสมาชิกและชุดข้อมูลที่กำหนดไว้ในกลุ่มนี้จะถูกลบทั้งหมด`)) {
+    return;
+  }
+  
+  try {
+    const userParam = getUserParam();
+    const response = await apiClient.post('/deleteGroup', {
+      user: userParam,
+      group_id: group.group_id
+    });
+    
+    if (response.data.status === 'success') {
+      alert('ลบกลุ่มเรียบร้อยแล้ว');
+      fetchGroups();
+    } else {
+      alert('Error: ' + (response.data.message || 'ไม่สามารถลบกลุ่มได้'));
+    }
+  } catch (err) {
+    console.error('Error deleting group:', err);
+    alert('ไม่สามารถลบกลุ่มได้ กรุณาลองใหม่');
+  }
+};
+
 onMounted(() => {
   fetchGroups();
 });
@@ -146,7 +322,7 @@ onMounted(() => {
     <main class="content">
       <header class="page-header">
         <div>
-          <h1>Group Dataset Access</h1>
+          <h1>Group Dataset Management</h1>
           <p class="subtitle">จัดการสิทธิ์การเข้าถึงชุดข้อมูลของแต่ละกลุ่มผู้ใช้</p>
         </div>
         <button class="btn-primary" @click="showAddGroupModal = true">+ สร้างกลุ่มใหม่</button>
@@ -182,6 +358,10 @@ onMounted(() => {
             <button class="btn-manage" @click="openManageModal(group)">
               <span>⚙️</span> จัดการชุดข้อมูล
             </button>
+            <button class="btn-delete-group" @click="deleteGroup(group)" title="ลบกลุ่ม">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+              ลบกลุ่ม
+            </button>
           </div>
         </div>
       </div>
@@ -190,49 +370,158 @@ onMounted(() => {
       <div v-if="showManageModal" class="modal-overlay">
         <div class="modal">
           <div class="modal-header">
-            <h2>จัดการชุดข้อมูล - {{ selectedGroup?.group_name }}</h2>
+            <div>
+              <h2 v-if="!activeSubgroup">จัดการกลุ่มข้อมูลย่อย (Subgroup) - {{ selectedGroup?.group_name }}</h2>
+              <h2 v-else>จัดการชุดข้อมูล: {{ activeSubgroup.title }}</h2>
+              <p class="modal-subtitle" v-if="activeSubgroup">กลุ่มผู้ใช้: {{ selectedGroup?.group_name }}</p>
+            </div>
             <button class="btn-close" @click="closeManageModal">✕</button>
           </div>
           
-          <div class="modal-body access-layout">
-            <div class="access-panel">
-              <div class="panel-header">
-                <h3>ชุดข้อมูลทั้งหมด ({{ availableDatasets.length }})</h3>
+          <div class="modal-body">
+            <!-- 1. SUBGROUP TABLE VIEW (Default) -->
+            <div v-if="!activeSubgroup" class="subgroup-table-view">
+              <div class="subgroup-header-info">
+                <p class="subgroup-desc">
+                  จัดการสิทธิ์เข้าถึงชุดข้อมูลของกลุ่ม <strong>"{{ selectedGroup?.group_name }}"</strong> โดยจำแนกตามกลุ่มข้อมูลย่อย (Subgroup) ทั้ง 5 กลุ่ม
+                </p>
               </div>
-              <div class="panel-list">
-                <div v-if="availableDatasets.length === 0" class="empty-state">ไม่มีชุดข้อมูลเพิ่มเติม</div>
-                <div v-for="dataset in availableDatasets" :key="dataset.service_id" class="list-item">
-                  <div class="item-info">
-                    <strong>{{ dataset.service_name }}</strong>
-                    <small>{{ dataset.provider_name || 'N/A' }}</small>
-                  </div>
-                  <button class="btn-action add" @click="assignDataset(dataset)">+</button>
-                </div>
+
+              <div class="subgroup-table-card">
+                <table class="subgroup-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 45%;">ชื่อ subgroup (5 ตัวเลือก)</th>
+                      <th style="width: 30%; text-align: center;">จำนวนชุดข้อมูล</th>
+                      <th style="width: 25%; text-align: center;">จัดการเพิ่มชุดข้อมูล</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="subgroup in SUBGROUPS" :key="subgroup.id">
+                      <td>
+                        <div class="subgroup-name-cell">
+                          <span class="subgroup-icon">{{ subgroup.icon }}</span>
+                          <div class="subgroup-title-wrap">
+                            <span class="subgroup-title">{{ subgroup.title }}</span>
+                            <span class="subgroup-prefix-badge">Prefix: {{ subgroup.prefix }}-*</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td style="text-align: center;">
+                        <div class="count-badge-wrap">
+                          <span class="count-total">{{ getSubgroupTotalCount(subgroup.id) }} ชุดข้อมูล</span>
+                          <span class="count-assigned" v-if="getSubgroupAssignedCount(subgroup.id) > 0">
+                            (กำหนดสิทธิ์แล้ว {{ getSubgroupAssignedCount(subgroup.id) }} ชุด)
+                          </span>
+                          <span class="count-zero" v-else>
+                            (ยังไม่ได้กำหนดสิทธิ์)
+                          </span>
+                        </div>
+                      </td>
+                      <td style="text-align: center;">
+                        <button class="btn-subgroup-action" @click="openSubgroupManage(subgroup)">
+                          <span>⚙️ จัดการชุดข้อมูล</span>
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
 
-            <div class="access-panel assigned-panel">
-              <div class="panel-header">
-                <h3>ชุดข้อมูลที่เข้าถึงได้ ({{ assignedDatasets.length }})</h3>
+            <!-- 2. SUBGROUP DATASET MANAGEMENT VIEW (Drill-down) -->
+            <div v-else class="subgroup-detail-view">
+              <div class="subgroup-nav-bar">
+                <button class="btn-back-subgroup" @click="backToSubgroups">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                  กลับไปรายการ Subgroup
+                </button>
+                <div class="active-subgroup-stat-pill">
+                  กำหนดสิทธิ์แล้ว <strong>{{ getSubgroupAssignedCount(activeSubgroup.id) }}</strong> / {{ getSubgroupTotalCount(activeSubgroup.id) }} ชุด
+                </div>
               </div>
-              <div class="panel-list">
-                <div v-if="assignedDatasets.length === 0" class="empty-state">ยังไม่มีชุดข้อมูลที่กำหนด</div>
-                <div v-for="dataset in assignedDatasets" :key="dataset.service_id" class="list-item assigned">
-                  <div class="item-info">
-                    <strong>{{ dataset.service_name }}</strong>
-                    <small>{{ dataset.provider_name || 'N/A' }}</small>
+
+              <!-- Search in Subgroup -->
+              <div class="subgroup-search-box">
+                <input 
+                  v-model="subgroupSearchQuery" 
+                  type="text" 
+                  placeholder="🔍 ค้นหาชุดข้อมูลในกลุ่มย่อยนี้..." 
+                  class="subgroup-search-input"
+                />
+              </div>
+
+              <!-- Dual Listbox for Active Subgroup -->
+              <div class="access-layout">
+                <div class="access-panel">
+                  <div class="panel-header">
+                    <h3>ชุดข้อมูลที่เลือกได้ ({{ filteredAvailableForActiveSubgroup.length }})</h3>
+                    <button 
+                      v-if="filteredAvailableForActiveSubgroup.length > 0" 
+                      class="btn-bulk-action" 
+                      @click="assignAllInSubgroup"
+                    >
+                      + เพิ่มทั้งหมด
+                    </button>
                   </div>
-                  <button class="btn-action remove" @click="removeDataset(dataset)">✕</button>
+                  <div class="panel-list">
+                    <div v-if="filteredAvailableForActiveSubgroup.length === 0" class="empty-state">
+                      ไม่มีชุดข้อมูลเพิ่มเติมในกลุ่มย่อยนี้
+                    </div>
+                    <div v-for="dataset in filteredAvailableForActiveSubgroup" :key="dataset.service_id" class="list-item">
+                      <div class="item-info">
+                        <strong>{{ dataset.service_name }}</strong>
+                        <small>
+                          {{ dataset.organization || 'N/A' }} 
+                          <span v-if="dataset.dataset_id" class="item-ds-id">({{ dataset.dataset_id }})</span>
+                        </small>
+                      </div>
+                      <button class="btn-action add" @click="assignDataset(dataset)" title="เพิ่มสิทธิ์ชุดข้อมูล">+</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="access-panel assigned-panel">
+                  <div class="panel-header">
+                    <h3>ชุดข้อมูลที่เข้าถึงได้ ({{ filteredAssignedForActiveSubgroup.length }})</h3>
+                    <button 
+                      v-if="filteredAssignedForActiveSubgroup.length > 0" 
+                      class="btn-bulk-action remove" 
+                      @click="removeAllInSubgroup"
+                    >
+                      ✕ ลบทั้งหมด
+                    </button>
+                  </div>
+                  <div class="panel-list">
+                    <div v-if="filteredAssignedForActiveSubgroup.length === 0" class="empty-state">
+                      ยังไม่มีชุดข้อมูลที่กำหนดในกลุ่มย่อยนี้
+                    </div>
+                    <div v-for="dataset in filteredAssignedForActiveSubgroup" :key="dataset.service_id" class="list-item assigned">
+                      <div class="item-info">
+                        <strong>{{ dataset.service_name }}</strong>
+                        <small>
+                          {{ dataset.organization || 'N/A' }} 
+                          <span v-if="dataset.dataset_id" class="item-ds-id">({{ dataset.dataset_id }})</span>
+                        </small>
+                      </div>
+                      <button class="btn-action remove" @click="removeDataset(dataset)" title="ยกเลิกสิทธิ์ชุดข้อมูล">✕</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
           <div class="modal-footer">
-            <button class="btn-cancel" @click="closeManageModal">ยกเลิก</button>
-            <button class="btn-save" @click="saveDatasetAccess" :disabled="isSaving">
-              {{ isSaving ? 'กำลังบันทึก...' : 'บันทึกการเปลี่ยนแปลง' }}
-            </button>
+            <template v-if="!activeSubgroup">
+              <button class="btn-save" @click="closeManageModal">ปิดหน้าต่าง</button>
+            </template>
+            <template v-else>
+              <button class="btn-cancel" @click="backToSubgroups">กลับ</button>
+              <button class="btn-save" @click="saveDatasetAccess" :disabled="isSaving">
+                {{ isSaving ? 'กำลังบันทึก...' : 'บันทึกการเปลี่ยนแปลง' }}
+              </button>
+            </template>
           </div>
         </div>
       </div>
@@ -302,7 +591,7 @@ h1 {
 }
 
 .btn-primary {
-  background-color: var(--primary);
+  background-color: var(--primary, #4f46e5);
   color: white;
   border: none;
   padding: 12px 24px;
@@ -365,7 +654,7 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--mso-pink-dark);
+  background: #eef2ff;
   border-radius: 14px;
 }
 
@@ -409,10 +698,12 @@ h3 {
 
 .card-footer {
   margin-top: auto;
+  display: flex;
+  gap: 8px;
 }
 
 .btn-manage {
-  width: 100%;
+  flex: 1;
   padding: 12px;
   border-radius: 12px;
   background-color: #f8fafc;
@@ -430,6 +721,28 @@ h3 {
 .btn-manage:hover {
   background-color: #eff6ff;
   border-color: #bfdbfe;
+}
+
+.btn-delete-group {
+  padding: 12px;
+  border-radius: 12px;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.btn-delete-group:hover {
+  background-color: #fee2e2;
+  border-color: #f87171;
 }
 
 /* Modal Styles */
@@ -489,6 +802,7 @@ h3 {
   padding: 32px;
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
 }
 
 .access-layout {
@@ -507,7 +821,7 @@ h3 {
 
 .assigned-panel {
   border-color: #bbf7d0;
-  background-color: var(--mso-pink-dark);
+  background-color: #eef2ff;
 }
 
 .panel-header {
@@ -519,7 +833,7 @@ h3 {
 }
 
 .assigned-panel .panel-header {
-  background-color: var(--mso-pink-dark);
+  background-color: #eef2ff;
   border-bottom-color: #bbf7d0;
 }
 
@@ -659,5 +973,327 @@ h3 {
 .btn-save:disabled {
   opacity: 0.7;
   cursor: not-allowed;
+}
+
+/* ============================================
+   RESPONSIVE: Tablet (≤ 1024px)
+   ============================================ */
+@media (max-width: 1024px) {
+  .content { padding: 24px; }
+  .access-layout { flex-direction: column; min-height: 0; }
+  .access-panel { max-height: none; height: 350px; flex: none; min-height: 350px; }
+  .table-wrapper { overflow-x: auto; }
+}
+
+/* ============================================
+   RESPONSIVE: Mobile (≤ 768px)
+   ============================================ */
+@media (max-width: 768px) {
+  .content { padding: 16px; }
+  .page-header { flex-direction: column; align-items: flex-start; gap: 16px; }
+  .header-actions { width: 100%; justify-content: flex-start; }
+  .search-wrapper { width: 100%; max-width: none; }
+  .search-wrapper input { width: 100%; }
+}
+
+/* ============================================
+   RESPONSIVE: Small Mobile (≤ 480px)
+   ============================================ */
+@media (max-width: 480px) {
+  .content { padding: 12px; }
+  .modal { width: 95%; padding: 0; }
+  .modal-header { padding: 16px; }
+  .modal-body { padding: 16px; }
+  .modal-footer { padding: 16px; flex-direction: column; }
+  .btn-save, .btn-cancel { width: 100%; }
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  vertical-align: middle;
+}
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #cbd5e1;
+  transition: .4s;
+}
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: .4s;
+}
+input:checked + .slider {
+  background-color: #10b981;
+}
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+.slider.round {
+  border-radius: 24px;
+}
+.slider.round:before {
+  border-radius: 50%;
+}
+
+/* ============================================
+   SUBGROUP TABLE & DETAIL STYLES
+   ============================================ */
+.modal-subtitle {
+  color: #64748b;
+  font-size: 0.875rem;
+  margin: 4px 0 0 0;
+}
+
+.subgroup-table-view {
+  width: 100%;
+}
+
+.subgroup-header-info {
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  background: #f8fafc;
+  border-radius: 12px;
+  border-left: 4px solid var(--primary, #4f46e5);
+}
+
+.subgroup-desc {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.subgroup-table-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  overflow: hidden;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.subgroup-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.subgroup-table th {
+  background: #f8fafc;
+  padding: 14px 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #475569;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.subgroup-table td {
+  padding: 16px 20px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.subgroup-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.subgroup-table tbody tr:hover {
+  background: #fcfcfd;
+}
+
+.subgroup-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.subgroup-icon {
+  font-size: 1.5rem;
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #eef2ff;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.subgroup-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.subgroup-title {
+  font-weight: 600;
+  color: #1e293b;
+  font-size: 0.95rem;
+}
+
+.subgroup-prefix-badge {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-family: monospace;
+}
+
+.count-badge-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.count-total {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.count-assigned {
+  font-size: 0.8rem;
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.count-zero {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.btn-subgroup-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-subgroup-action:hover {
+  background: #dcfce7;
+  border-color: #86efac;
+  transform: translateY(-1px);
+}
+
+.subgroup-detail-view {
+  width: 100%;
+}
+
+.subgroup-nav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.btn-back-subgroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  color: #475569;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-back-subgroup:hover {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+.active-subgroup-stat-pill {
+  padding: 6px 14px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  color: #1e40af;
+}
+
+.subgroup-search-box {
+  margin-bottom: 16px;
+}
+
+.subgroup-search-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  box-sizing: border-box;
+}
+
+.subgroup-search-input:focus {
+  border-color: #3b82f6;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.btn-bulk-action {
+  background: white;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #3b82f6;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-bulk-action:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+.btn-bulk-action.remove {
+  color: #dc2626;
+}
+
+.btn-bulk-action.remove:hover {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
+.item-ds-id {
+  font-family: monospace;
+  color: #94a3b8;
+  font-size: 0.75rem;
 }
 </style>

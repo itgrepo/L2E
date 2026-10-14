@@ -3,25 +3,6 @@ from ServiceConfig import *
 import json
 import base64
 
-def platform_decode(data):
-    if not data:
-        return ""
-    try:
-        # Standard decode pattern used in this project
-        decoded = base64.b64decode(data[:-5][::-1]).decode('utf-8')
-        return decoded
-    except Exception as e:
-        print(f"Decode error: {e}")
-        return ""
-
-def safe_json_loads(data):
-    if not data:
-        return {}
-    try:
-        return json.loads(data)
-    except:
-        return {}
-
 @app.route('/getDatasetAccessGroups', methods=['POST'])
 def getDatasetAccessGroups():
     try:
@@ -207,7 +188,8 @@ def getGroupDatasetAccess():
         
         # 1. Get datasets currently assigned to this group
         sql_assigned = """
-            SELECT s.service_id, s.service_name, s.provider_name
+            SELECT s.service_id, s.service_name, s.organization,
+                   s.category, s.sub_category, s.dataset_id, s.l2e_group_id
             FROM service_group_access sga
             JOIN service s ON sga.service_id = s.service_id
             WHERE sga.group_id = %s AND s.status != 'Deleted'
@@ -219,7 +201,8 @@ def getGroupDatasetAccess():
         
         # 2. Get available datasets (not assigned to this group)
         sql_available = """
-            SELECT service_id, service_name, provider_name
+            SELECT service_id, service_name, organization,
+                   category, sub_category, dataset_id, l2e_group_id
             FROM service
             WHERE status != 'Deleted' AND service_id NOT IN (
                 SELECT service_id FROM service_group_access WHERE group_id = %s
