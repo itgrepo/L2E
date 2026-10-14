@@ -119,10 +119,31 @@ const fetchDatasets = async () => {
   }
 };
 
+const canEditItem = (item) => {
+  try {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const role = String(user.previlage_id || user.role_id || '');
+    if (role === '4') return true;
+    const uid = user.user_id || user.id;
+    if (item.created_by && uid && String(item.created_by) === String(uid)) return true;
+    if (!item.created_by && item.contact_email && user.email) {
+      return item.contact_email.trim().toLowerCase() === user.email.trim().toLowerCase();
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+};
+
 const checkEditQuery = () => {
   if (route.query.edit) {
     const item = datasets.value.find(d => String(d.service_id) === String(route.query.edit));
     if (item) {
+      if (!canEditItem(item)) {
+        alert('คุณไม่มีสิทธิ์แก้ไขชุดข้อมูลนี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้');
+        router.push('/dataset-management');
+        return;
+      }
       selectForEdit(item);
     }
   }

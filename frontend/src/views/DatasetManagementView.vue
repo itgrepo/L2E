@@ -12,6 +12,32 @@ const filterCategory = ref('');
 const filterStatus = ref('');
 const alertMessage = ref({ text: '', type: '' });
 
+const currentUser = computed(() => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || '{}');
+  } catch (e) {
+    return {};
+  }
+});
+
+const isSuperAdmin = computed(() => {
+  const role = String(currentUser.value.previlage_id || currentUser.value.role_id || '');
+  return role === '4';
+});
+
+const canManage = (dataset) => {
+  if (isSuperAdmin.value) return true;
+  if (!dataset) return false;
+  const uid = currentUser.value.user_id || currentUser.value.id;
+  if (dataset.created_by && uid && String(dataset.created_by) === String(uid)) {
+    return true;
+  }
+  if (!dataset.created_by && dataset.contact_email && currentUser.value.email) {
+    return dataset.contact_email.trim().toLowerCase() === currentUser.value.email.trim().toLowerCase();
+  }
+  return false;
+};
+
 const stats = ref({
     total: 0,
     active: 0,
@@ -86,6 +112,10 @@ const categories = computed(() => {
 });
 
 const handleToggleStatus = async (dataset) => {
+    if (!canManage(dataset)) {
+        showAlert('คุณไม่มีสิทธิ์เปลี่ยนสถานะชุดข้อมูลนี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้', 'error');
+        return;
+    }
     const newStatus = dataset.status === 'Active' ? 'Inactive' : 'Active';
     try {
         const userData = localStorage.getItem('user');
@@ -102,15 +132,19 @@ const handleToggleStatus = async (dataset) => {
             showAlert(`อัปเดตสถานะของ ${dataset.service_name} สำเร็จ`, 'success');
             fetchDatasets();
         } else {
-            showAlert('เกิดข้อผิดพลาดในการอัปเดตสถานะ', 'error');
+            showAlert(response.data.status || 'เกิดข้อผิดพลาดในการอัปเดตสถานะ', 'error');
         }
     } catch (error) {
         console.error('Error toggling status:', error);
-        showAlert('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error');
+        showAlert(error?.response?.data?.status || 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error');
     }
 };
 
 const handleDelete = async (dataset) => {
+    if (!canManage(dataset)) {
+        showAlert('คุณไม่มีสิทธิ์ลบชุดข้อมูลนี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้', 'error');
+        return;
+    }
     if (!confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบชุดข้อมูล "${dataset.service_name}"?`)) return;
     
     try {
@@ -139,6 +173,10 @@ const handleDelete = async (dataset) => {
 };
 
 const goToEdit = (dataset) => {
+    if (!canManage(dataset)) {
+        showAlert('คุณไม่มีสิทธิ์แก้ไขชุดข้อมูลนี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้', 'error');
+        return;
+    }
     router.push({ 
         path: '/dataset-config', 
         query: { edit: dataset.service_id } 
@@ -151,6 +189,10 @@ const showAlert = (text, type) => {
 
 // Access Management Methods
 const openAccessModal = (dataset) => {
+    if (!canManage(dataset)) {
+        showAlert('คุณไม่มีสิทธิ์จัดการสิทธิ์ชุดข้อมูลนี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้', 'error');
+        return;
+    }
     currentDataset.value = dataset;
     accessMode.value = 'select';
     isAccessModalOpen.value = true;
@@ -387,8 +429,8 @@ onMounted(() => {
                   </div>
                 </td>
                                 <td>
-                  <label class="switch">
-                    <input type="checkbox" :checked="d.status === 'Active'" @change="handleToggleStatus(d)">
+                  <label class="switch" :style="{ opacity: canManage(d) ? '1' : '0.45', cursor: canManage(d) ? 'pointer' : 'not-allowed' }">
+                    <input type="checkbox" :checked="d.status === 'Active'" :disabled="!canManage(d)" @change="handleToggleStatus(d)">
                     <span class="slider round"></span>
                   </label>
                   <span style="font-size: 0.75rem; margin-left: 8px; font-weight: 600;" :style="{ color: d.status === 'Active' ? '#10b981' : '#94a3b8' }">
@@ -400,18 +442,36 @@ onMounted(() => {
                 </td>
                 <td>
                   <div class="actions">
-                    <button class="action-btn access" @click="openAccessModal(d)" title="จัดการสิทธิ์">
+                    <button 
+                      class="action-btn access" 
+                      :class="{ 'disabled-action': !canManage(d) }"
+                      :disabled="!canManage(d)"
+                      @click="openAccessModal(d)" 
+                      :title="canManage(d) ? 'จัดการสิทธิ์' : 'เฉพาะเจ้าของชุดข้อมูลเท่านั้นที่มีสิทธิ์จัดการสิทธิ์'"
+                    >
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
                       </svg>
                     </button>
-                    <button class="action-btn edit" @click="goToEdit(d)" title="แก้ไข">
+                    <button 
+                      class="action-btn edit" 
+                      :class="{ 'disabled-action': !canManage(d) }"
+                      :disabled="!canManage(d)"
+                      @click="goToEdit(d)" 
+                      :title="canManage(d) ? 'แก้ไข' : 'เฉพาะเจ้าของชุดข้อมูลเท่านั้นที่มีสิทธิ์แก้ไข'"
+                    >
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                       </svg>
                     </button>
                     
-                    <button class="action-btn delete" @click="handleDelete(d)" title="ลบ">
+                    <button 
+                      class="action-btn delete" 
+                      :class="{ 'disabled-action': !canManage(d) }"
+                      :disabled="!canManage(d)"
+                      @click="handleDelete(d)" 
+                      :title="canManage(d) ? 'ลบ' : 'เฉพาะเจ้าของชุดข้อมูลเท่านั้นที่มีสิทธิ์ลบ'"
+                    >
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
@@ -869,6 +929,14 @@ h1 {
 .action-btn.toggle:hover { border-color: var(--primary); color: var(--primary); background: var(--mso-pink-dark); }
 .action-btn.delete:hover { border-color: #ef4444; color: #ef4444; background: #fef2f2; }
 .action-btn.access:hover { border-color: #6366f1; color: #6366f1; background: #eef2ff; }
+.action-btn.disabled-action {
+  opacity: 0.35;
+  cursor: not-allowed !important;
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  color: #94a3b8 !important;
+  pointer-events: none;
+}
 
 /* Modal Styles */
 .modal-overlay {

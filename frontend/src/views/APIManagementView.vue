@@ -46,7 +46,27 @@ const selectedService = ref(null);
 const credentials = ref([]);
 const showKey = ref(null);
 
+const canManageApi = (svc) => {
+  try {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const role = String(user.previlage_id || user.role_id || '');
+    if (role === '4') return true;
+    const uid = user.user_id || user.id;
+    if (svc.created_by && uid && String(svc.created_by) === String(uid)) return true;
+    if (!svc.created_by && svc.contact_email && user.email) {
+      return svc.contact_email.trim().toLowerCase() === user.email.trim().toLowerCase();
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+};
+
 const toggleMainServiceStatus = async (svc) => {
+  if (!canManageApi(svc)) {
+    alert('คุณไม่มีสิทธิ์เปลี่ยนสถานะ API นี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้');
+    return;
+  }
   const isCurrentlyEnabled = (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true);
   const newStatus = isCurrentlyEnabled ? 0 : 1;
   const newStatusStr = newStatus === 1 ? 'Enabled' : 'Disabled';
@@ -508,6 +528,10 @@ const tryParseJson = (str) => {
 };
 
 const editApiService = async (svc) => {
+  if (!canManageApi(svc)) {
+    alert('คุณไม่มีสิทธิ์แก้ไข API นี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้');
+    return;
+  }
   editingServiceId.value = svc.service_id;
   
   let originalServiceId = '';
@@ -560,6 +584,10 @@ const editApiService = async (svc) => {
 };
 
 const deleteApiService = async (svc) => {
+  if (!canManageApi(svc)) {
+    alert('คุณไม่มีสิทธิ์ลบ API นี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้');
+    return;
+  }
   if (!confirm(`Are you sure you want to delete API: ${svc.service_name}?`)) return;
   try {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');

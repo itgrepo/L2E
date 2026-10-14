@@ -55,7 +55,9 @@ def log_api_audit(action, target_user_id=None, service_id=None, credential_id=No
 
 def check_dataset_owner(cursor, service_id, user_data):
     """
-    Check if a service is private ('pii') and if the caller is the owner.
+    Check if the caller is the dataset owner or Super Admin (previlage_id == 4).
+    Dataset owner has supreme rights over the dataset.
+    Others who are not the owner or Super Admin are denied permission.
     Returns: (is_allowed, error_tuple)
     """
     if not service_id:
@@ -65,17 +67,23 @@ def check_dataset_owner(cursor, service_id, user_data):
     if not svc_row:
         return True, None
     access_type, created_by, contact_email = svc_row
-    if access_type == 'pii':
-        caller_id = user_data.get('user_id') if isinstance(user_data, dict) else None
-        caller_email = user_data.get('email') if isinstance(user_data, dict) else None
-        is_owner = False
-        if created_by is not None and caller_id is not None and str(created_by) == str(caller_id):
-            is_owner = True
-        elif not created_by and contact_email and caller_email and contact_email.strip().lower() == caller_email.strip().lower():
-            is_owner = True
-        if not is_owner:
-            err_msg = "คุณไม่มีสิทธิ์ดำเนินการกับชุดข้อมูลนี้ เนื่องจากเป็นชุดข้อมูลเฉพาะเจ้าของ (Private) มีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้"
-            return False, (jsonify({"status": "error", "message": err_msg}), 403)
+
+    caller_role = str(user_data.get('previlage_id', '')) if isinstance(user_data, dict) else ''
+    if caller_role == '4':
+        return True, None
+
+    caller_id = user_data.get('user_id') if isinstance(user_data, dict) else None
+    caller_email = user_data.get('email') if isinstance(user_data, dict) else None
+
+    is_owner = False
+    if created_by is not None and caller_id is not None and str(created_by) == str(caller_id):
+        is_owner = True
+    elif not created_by and contact_email and caller_email and contact_email.strip().lower() == caller_email.strip().lower():
+        is_owner = True
+
+    if not is_owner:
+        err_msg = "คุณไม่มีสิทธิ์ดำเนินการกับชุดข้อมูลนี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลหรือผู้ดูแลระบบสูงสุดเท่านั้นที่สามารถดำเนินการได้"
+        return False, (jsonify({"status": "error", "message": err_msg}), 403)
     return True, None
 
 @app.route('/addService', methods=['POST','PUT'])
@@ -421,18 +429,17 @@ def addService():
                     existing_created_by = svc_row_info[10] if len(svc_row_info) > 10 else None
                     existing_contact_email = svc_row_info[11] if len(svc_row_info) > 11 else None
 
+                    is_super_admin = str(user_data.get('previlage_id')) == '4'
                     is_owner = False
                     if existing_created_by is not None and current_user_id is not None and str(existing_created_by) == str(current_user_id):
                         is_owner = True
                     elif not existing_created_by and existing_contact_email and current_user_email and existing_contact_email.strip().lower() == current_user_email.strip().lower():
                         is_owner = True
-                    elif not existing_created_by and not existing_contact_email and str(user_data.get('previlage_id')) == '4':
-                        is_owner = True
 
-                    if (existing_access_type == 'pii' or access_type == 'pii') and not is_owner:
+                    if not is_owner and not is_super_admin:
                         cursor.close()
                         conn.close()
-                        return jsonify({"status": "คุณไม่มีสิทธิ์แก้ไขชุดข้อมูลนี้ เนื่องจากเป็นชุดข้อมูลเฉพาะเจ้าของ (Private) มีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถแก้ไขได้"}), 403
+                        return jsonify({"status": "คุณไม่มีสิทธิ์แก้ไขหรือลบชุดข้อมูลนี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลหรือผู้ดูแลระบบสูงสุดเท่านั้นที่สามารถดำเนินการได้"}), 403
 
                     # Construct update query dynamically for provided fields
                     fields = []
@@ -750,15 +757,17 @@ def getApiServices():
             org_name = org_row[0] if org_row else ''
             
             sql = """SELECT * FROM service 
-                     WHERE organization = %s 
-                       AND COALESCE(status, '') != 'Deleted'
-                       AND (
-                           COALESCE(access_type, '') != 'pii' 
-                           OR (%s IS NOT NULL AND created_by = %s)
-                           OR (%s IS NOT NULL AND created_by IS NULL AND LOWER(contact_email) = LOWER(%s))
-                       )
+                     WHERE (
+                         (%s IS NOT NULL AND created_by = %s)
+                         OR (organization = %s AND (
+                             COALESCE(access_type, '') != 'pii' 
+                             OR (%s IS NOT NULL AND created_by = %s)
+                             OR (%s IS NOT NULL AND created_by IS NULL AND LOWER(contact_email) = LOWER(%s))
+                         ))
+                     )
+                     AND COALESCE(status, '') != 'Deleted'
                      ORDER BY service_id DESC"""
-            cursor.execute(sql, (org_name, current_user_id, current_user_id, current_user_email, current_user_email))
+            cursor.execute(sql, (current_user_id, current_user_id, org_name, current_user_id, current_user_id, current_user_email, current_user_email))
         else:
             # Fetch all clones regardless of status, filtering pii for non-owner
             sql = """SELECT * FROM service 
@@ -2066,10 +2075,19 @@ def cloneServiceForApi():
         cursor.execute("SELECT * FROM service WHERE service_id = %s", (original_service_id,))
         row = cursor.fetchone()
         if not row:
+            cursor.close()
+            conn.close()
             return jsonify({'status': 'error', 'message': 'Original service not found'})
-            
+
         columns = [col[0] for col in cursor.description]
         orig_data = dict(zip(columns, row))
+
+        user_data = getattr(request, 'current_user', {})
+        is_allowed, err = check_dataset_owner(cursor, original_service_id, user_data)
+        if not is_allowed:
+            cursor.close()
+            conn.close()
+            return err
         
         # Prepare cloned data
         orig_data.pop('service_id', None)  # Let it auto-increment
@@ -3906,6 +3924,13 @@ def toggleApiEnabled():
             
         conn = mysql.connect()
         cursor = conn.cursor()
+
+        user_data = getattr(request, 'current_user', {})
+        is_allowed, err = check_dataset_owner(cursor, service_id, user_data)
+        if not is_allowed:
+            cursor.close()
+            conn.close()
+            return err
         
         sql = "UPDATE service SET api_enabled = %s WHERE service_id = %s"
         cursor.execute(sql, (api_enabled, service_id))
