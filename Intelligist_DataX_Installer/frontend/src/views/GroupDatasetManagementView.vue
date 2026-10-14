@@ -49,6 +49,21 @@ const SUBGROUPS = [
 const getDatasetSubgroup = (dataset) => {
   if (!dataset) return 'course';
   
+  // 0. Direct subgroup or subgroup_id check
+  if (dataset.subgroup) {
+    const sg = dataset.subgroup.toLowerCase();
+    if (sg.includes('course')) return 'course';
+    if (sg.includes('completion')) return 'completion';
+    if (sg.includes('competency')) return 'competency';
+    if (sg.includes('job')) return 'job_market';
+    if (sg.includes('skill')) return 'skill_analytics';
+  }
+  if (dataset.subgroup_id === 1) return 'course';
+  if (dataset.subgroup_id === 2) return 'completion';
+  if (dataset.subgroup_id === 3) return 'competency';
+  if (dataset.subgroup_id === 4) return 'job_market';
+  if (dataset.subgroup_id === 5) return 'skill_analytics';
+
   // 1. Check l2e_group_id (1..5)
   if (dataset.l2e_group_id === 1) return 'course';
   if (dataset.l2e_group_id === 2) return 'completion';

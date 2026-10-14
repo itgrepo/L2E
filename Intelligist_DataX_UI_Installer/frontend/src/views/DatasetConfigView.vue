@@ -18,6 +18,8 @@ const tabs = [
 const formData = ref({
   dataset_id: '',
   l2e_group_id: '',
+  subgroup: '',
+  subgroup_id: null,
   source_system_id: '',
   category: '',
   sub_category: '',
@@ -79,21 +81,36 @@ const successMessage = ref('');
 const errorMessage = ref('');
 const editingId = ref(null);
 const datasets = ref([]);
-const datasetGroups = ref([]);
+const groupsList = ref([]);
+const subgroupsList = ref([]);
+const datasetGroups = subgroupsList; // compatibility alias
 const sourceSystems = ref([]);
 
 const fetchMasters = async () => {
   try {
     const userData = localStorage.getItem('user');
     const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
+    
+    // Fetch Groups (ThaiMOOC, TPQI, BDE, etc.)
+    try {
+      const groupUserRes = await apiClient.post('/getGroups', { user: userParam });
+      if (groupUserRes.data && groupUserRes.data.status === 'success' && Array.isArray(groupUserRes.data.data)) {
+        groupsList.value = groupUserRes.data.data;
+      }
+    } catch (gErr) {
+      console.error('Error fetching groupsList:', gErr);
+    }
+
+    // Fetch Subgroups (Course Data, Completion Data, etc.)
     const groupRes = await apiClient.post('/getDatasetGroups', { user: userParam });
     if (groupRes.data && groupRes.data.status === 'success') {
-      datasetGroups.value = groupRes.data.data;
+      subgroupsList.value = groupRes.data.data;
     } else if (Array.isArray(groupRes.data)) {
-      datasetGroups.value = groupRes.data;
+      subgroupsList.value = groupRes.data;
     } else if (groupRes.data && groupRes.data.data) {
-      datasetGroups.value = groupRes.data.data;
+      subgroupsList.value = groupRes.data.data;
     }
+    
     const sysRes = await apiClient.post('/getSourceSystems', { user: userParam });
     if (sysRes.data && sysRes.data.status === 'success') {
       sourceSystems.value = sysRes.data.data;
@@ -169,12 +186,20 @@ watch(() => route.query.edit, () => {
 
 const selectForEdit = (item) => {
   editingId.value = item.service_id;
+  let detectedSubgroupId = item.subgroup_id || null;
+  if (!detectedSubgroupId && subgroupsList.value.length > 0) {
+    const dsId = (item.dataset_id || '').toUpperCase();
+    const sub = subgroupsList.value.find(s => s.code === item.subgroup || (s.prefix && dsId.startsWith(s.prefix)));
+    if (sub) detectedSubgroupId = sub.id;
+  }
   formData.value = {
     dataset_id: item.dataset_id || '',
     l2e_group_id: item.l2e_group_id || '',
+    subgroup: item.subgroup || '',
+    subgroup_id: detectedSubgroupId,
     source_system_id: item.source_system_id || '',
     category: item.category || '',
-    sub_category: item.sub_category || '',
+    sub_category: item.sub_category || item.category || '',
     status: item.status || 'Inactive',
     service_name: item.service_name || '',
     organization: item.organization || '',
@@ -231,6 +256,8 @@ const resetForm = () => {
   formData.value = {
     dataset_id: '',
     l2e_group_id: '',
+    subgroup: '',
+    subgroup_id: null,
     source_system_id: '',
     category: '',
     sub_category: '',
@@ -671,11 +698,77 @@ const availableSubCategories = computed(() => {
 });
 
 const onCategoryChange = () => {
-  const subs = categoryMap[formData.value.category];
-  if (subs && subs.length > 0) {
-    formData.value.sub_category = subs[0];
-  } else {
-    formData.value.sub_category = '';
+  formData.value.sub_category = formData.value.category;
+};
+
+const showAddGroupModal = ref(false);
+const newGroupName = ref('');
+const isAddingGroup = ref(false);
+
+const handleAddGroup = async () => {
+  if (!newGroupName.value.trim()) {
+    alert('กรุณากรอกชื่อกลุ่มข้อมูล');
+    return;
+  }
+  isAddingGroup.value = true;
+  try {
+    const userData = localStorage.getItem('user') || '';
+    const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
+    const res = await apiClient.post('/addGroup', {
+      user: userParam,
+      group_name: newGroupName.value.trim()
+    });
+    if (res.data && res.data.status === 'success') {
+      await fetchMasters();
+      if (res.data.group_id) {
+        formData.value.l2e_group_id = res.data.group_id;
+      }
+      showAddGroupModal.value = false;
+      newGroupName.value = '';
+      alert('เพิ่มกลุ่มข้อมูลสำเร็จ');
+    } else {
+      alert('Error: ' + (res.data?.status || 'ไม่สามารถเพิ่มกลุ่มข้อมูลได้'));
+    }
+  } catch (err) {
+    console.error('Error adding group:', err);
+    alert(err.response?.data?.status || 'ไม่สามารถเพิ่มกลุ่มข้อมูลได้');
+  } finally {
+    isAddingGroup.value = false;
+  }
+};
+
+const showAddCategoryModal = ref(false);
+const newCategoryName = ref('');
+const isAddingCategory = ref(false);
+
+const handleAddCategory = async () => {
+  if (!newCategoryName.value.trim()) {
+    alert('กรุณากรอกชื่อหมวดหมู่');
+    return;
+  }
+  isAddingCategory.value = true;
+  try {
+    const userData = localStorage.getItem('user') || '';
+    const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
+    const res = await apiClient.post('/addCategory', {
+      user: userParam,
+      name: newCategoryName.value.trim()
+    });
+    if (res.data && res.data.status === 'success') {
+      await fetchCategories();
+      formData.value.category = newCategoryName.value.trim();
+      formData.value.sub_category = formData.value.category;
+      showAddCategoryModal.value = false;
+      newCategoryName.value = '';
+      alert('เพิ่มหมวดหมู่สำเร็จ');
+    } else {
+      alert('Error: ' + (res.data?.status || 'ไม่สามารถเพิ่มหมวดหมู่ได้'));
+    }
+  } catch (err) {
+    console.error('Error adding category:', err);
+    alert(err.response?.data?.status || 'ไม่สามารถเพิ่มหมวดหมู่ได้');
+  } finally {
+    isAddingCategory.value = false;
   }
 };
 
@@ -702,8 +795,13 @@ const handleAddSubgroup = async () => {
     
     if (res.data && res.data.status === 'success') {
       await fetchMasters();
-      formData.value.l2e_group_id = res.data.data.id;
-      updateDatasetPrefix();
+      if (res.data.data && res.data.data.id) {
+        formData.value.subgroup_id = res.data.data.id;
+        formData.value.subgroup = res.data.data.code;
+        if (!editingId.value) {
+          formData.value.dataset_id = res.data.data.prefix;
+        }
+      }
       showAddSubgroupModal.value = false;
       newSubgroupName.value = '';
       newSubgroupPrefix.value = '';
@@ -719,16 +817,17 @@ const handleAddSubgroup = async () => {
   }
 };
 
-const updateDatasetPrefix = () => {
-  if (editingId.value) return; // ห้ามเขียนทับ Dataset ID เดิมอัตโนมัติ
-  const selectedGroup = datasetGroups.value.find(g => (g.id || g.group_id) === formData.value.l2e_group_id);
-  if (selectedGroup && selectedGroup.prefix) {
-    formData.value.dataset_id = selectedGroup.prefix;
-  }
-  // Auto-sync category if matching
-  if (selectedGroup) {
-    const code = (selectedGroup.code || '').toLowerCase();
-    const name = (selectedGroup.name_th || selectedGroup.name_en || '').toLowerCase();
+const onSubgroupChange = () => {
+  const selected = subgroupsList.value.find(s => (s.id === formData.value.subgroup_id || String(s.id) === String(formData.value.subgroup_id)));
+  if (selected) {
+    formData.value.subgroup = selected.code;
+    formData.value.subgroup_id = selected.id;
+    if (!editingId.value && selected.prefix) {
+      formData.value.dataset_id = selected.prefix;
+    }
+    // Auto-sync category if matching
+    const code = (selected.code || '').toLowerCase();
+    const name = (selected.name_th || selected.name_en || '').toLowerCase();
     if (code.includes('course') || name.includes('หลักสูตร')) {
       if (categoriesList.value.includes('Course Data')) formData.value.category = 'Course Data';
       else if (categoriesList.value.includes('Learning Catalog')) formData.value.category = 'Learning Catalog';
@@ -745,9 +844,11 @@ const updateDatasetPrefix = () => {
       if (categoriesList.value.includes('Skill Analytics Data')) formData.value.category = 'Skill Analytics Data';
       else if (categoriesList.value.includes('Skill Intelligence')) formData.value.category = 'Skill Intelligence';
     }
-    onCategoryChange();
+    formData.value.sub_category = formData.value.category;
   }
 };
+
+const updateDatasetPrefix = onSubgroupChange;
 
 </script>
 
@@ -837,32 +938,47 @@ const updateDatasetPrefix = () => {
               <!-- Section 1: Basic Information -->
               <div class="form-section-block">
                 <h3 class="block-title">1. ข้อมูลพื้นฐานชุดข้อมูล (Core Info)</h3>
+                <!-- Row 1: กลุ่มข้อมูล (Left) + กลุ่มข้อมูลย่อย (Right) -->
                 <div class="form-row">
                   <div class="form-group">
-                    <label>กลุ่มข้อมูลย่อย (Subgroup) *</label>
+                    <label>กลุ่มข้อมูล (Dataset Group) *</label>
                     <div style="display: flex; gap: 8px; width: 100%; min-width: 0;">
-                      <select v-model="formData.l2e_group_id" @change="updateDatasetPrefix" class="form-select-custom" required style="flex: 1 1 0; min-width: 0; width: 100%;">
-                        <option value="">เลือกกลุ่มข้อมูลย่อย</option>
-                        <option v-for="group in datasetGroups" :key="group.id || group.group_id" :value="group.id || group.group_id">
-                          {{ group.name_th || group.name_en || group.group_name }} ({{ group.prefix }})
+                      <select v-model="formData.l2e_group_id" class="form-select-custom" required style="flex: 1 1 0; min-width: 0; width: 100%;">
+                        <option value="">เลือกกลุ่มข้อมูล</option>
+                        <option v-for="g in groupsList" :key="g.group_id" :value="g.group_id">
+                          {{ g.group_name }}
                         </option>
                       </select>
-                      <button type="button" class="btn-add" @click="showAddSubgroupModal = true" style="padding: 0 16px; border-radius: 8px; height: 42px; flex-shrink: 0;" title="เพิ่มกลุ่มข้อมูลย่อย">
+                      <button type="button" class="btn-add" @click="showAddGroupModal = true" style="padding: 0 16px; border-radius: 8px; height: 42px; flex-shrink: 0;" title="เพิ่มกลุ่มข้อมูล">
                         <span class="icon" style="margin-right: 0;">+</span>
                       </button>
                     </div>
                   </div>
                   <div class="form-group">
-                    <label>รหัสชุดข้อมูล * (Dataset ID)</label>
-                    <input type="text" v-model="formData.dataset_id" placeholder="ตัวอย่าง Prefix ตามกลุ่มชุดข้อมูล เช่น CRS-" required>
+                    <label>กลุ่มข้อมูลย่อย (Subgroup) *</label>
+                    <select v-model="formData.subgroup_id" @change="onSubgroupChange" class="form-select-custom" required>
+                      <option :value="null">เลือกกลุ่มข้อมูลย่อย</option>
+                      <option v-for="sg in subgroupsList" :key="sg.id" :value="sg.id">
+                        {{ sg.name_th || sg.name_en }} ({{ sg.prefix }})
+                      </option>
+                    </select>
                   </div>
                 </div>
 
+                <!-- Row 2: รหัสชุดข้อมูล (Dataset ID) 100% full width -->
+                <div class="form-group">
+                  <label>รหัสชุดข้อมูล * (Dataset ID)</label>
+                  <input type="text" v-model="formData.dataset_id" placeholder="ตัวอย่าง Prefix ตามกลุ่มชุดข้อมูล เช่น CRS-" required style="width: 100%;">
+                </div>
+
+                <!-- Row 3: ชื่อชุดข้อมูล (Dataset Name) 100% full width -->
+                <div class="form-group">
+                  <label>ชื่อชุดข้อมูล * (Dataset Name)</label>
+                  <input type="text" v-model="formData.service_name" placeholder="ชื่อภาษาไทย หรือ ภาษาอังกฤษ" required style="width: 100%;">
+                </div>
+
+                <!-- Row 4: สถานะการเผยแพร่ (Left) + หมวดหมู่ (Right) -->
                 <div class="form-row">
-                  <div class="form-group">
-                    <label>ชื่อชุดข้อมูล * (Dataset Name)</label>
-                    <input type="text" v-model="formData.service_name" placeholder="ชื่อภาษาไทย หรือ ภาษาอังกฤษ" required>
-                  </div>
                   <div class="form-group">
                     <label>สถานะการเผยแพร่ *</label>
                     <div class="toggle-status-wrapper" style="display: flex; align-items: center; height: 42px;">
@@ -875,24 +991,14 @@ const updateDatasetPrefix = () => {
                       </span>
                     </div>
                   </div>
-                </div>
-
-                <div class="form-row">
                   <div class="form-group">
-                    <label>หมวดหมู่หลัก *</label>
-                    <select v-model="formData.category" @change="onCategoryChange" required class="form-select-custom">
-                      <option value="">เลือกหมวดหมู่ข้อมูลในหน้าหลัก</option>
-                      <option v-for="cat in categoriesList" :key="cat" :value="cat">{{ cat }}</option>
-                    </select>
-                  </div>
-                  <div class="form-group">
-                    <label>หมวดหมู่ย่อย *</label>
+                    <label>หมวดหมู่ *</label>
                     <div style="display: flex; gap: 8px; width: 100%; min-width: 0;">
-                      <select v-model="formData.sub_category" class="form-select-custom" required style="flex: 1 1 0; min-width: 0; width: 100%;">
-                        <option value="">เลือกหมวดหมู่ข้อมูลย่อยในหน้าหลัก</option>
-                        <option v-for="sub in availableSubCategories" :key="sub" :value="sub">{{ sub }}</option>
+                      <select v-model="formData.category" @change="onCategoryChange" required class="form-select-custom" style="flex: 1 1 0; min-width: 0; width: 100%;">
+                        <option value="">เลือกหมวดหมู่ข้อมูล</option>
+                        <option v-for="cat in categoriesList" :key="cat" :value="cat">{{ cat }}</option>
                       </select>
-                      <button type="button" class="btn-add" @click="showAddSubCatModal = true; modalSelectedCategory = formData.category" style="padding: 0 16px; border-radius: 8px; height: 42px; flex-shrink: 0;">
+                      <button type="button" class="btn-add" @click="showAddCategoryModal = true" style="padding: 0 16px; border-radius: 8px; height: 42px; flex-shrink: 0;" title="เพิ่มหมวดหมู่">
                         <span class="icon" style="margin-right: 0;">+</span>
                       </button>
                     </div>
@@ -1523,6 +1629,50 @@ const updateDatasetPrefix = () => {
           </div>
         </div>
       </div>
+      <!-- Add Group Modal -->
+      <div v-if="showAddGroupModal" class="modal-overlay">
+        <div class="modal">
+          <div class="modal-header">
+            <h2>เพิ่มกลุ่มข้อมูลใหม่ (Add Dataset Group)</h2>
+            <button class="btn-close" @click="showAddGroupModal = false">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label>ชื่อกลุ่มข้อมูล *</label>
+              <input v-model="newGroupName" type="text" placeholder="เช่น: ThaiMOOC, TPQI, BDE, กระทรวงแรงงาน" class="form-input-custom" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-cancel" @click="showAddGroupModal = false">ยกเลิก</button>
+            <button class="btn-save" @click="handleAddGroup" :disabled="isAddingGroup || !newGroupName.trim()">
+              {{ isAddingGroup ? 'กำลังบันทึก...' : 'บันทึกข้อมูล' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add Category Modal -->
+      <div v-if="showAddCategoryModal" class="modal-overlay">
+        <div class="modal">
+          <div class="modal-header">
+            <h2>เพิ่มหมวดหมู่ใหม่ (Add Category)</h2>
+            <button class="btn-close" @click="showAddCategoryModal = false">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label>ชื่อหมวดหมู่ *</label>
+              <input v-model="newCategoryName" type="text" placeholder="ระบุชื่อหมวดหมู่ใหม่ เช่น การศึกษาและทักษะ" class="form-input-custom" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-cancel" @click="showAddCategoryModal = false">ยกเลิก</button>
+            <button class="btn-save" @click="handleAddCategory" :disabled="isAddingCategory || !newCategoryName.trim()">
+              {{ isAddingCategory ? 'กำลังบันทึก...' : 'บันทึกข้อมูล' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Add Subgroup Modal -->
       <div v-if="showAddSubgroupModal" class="modal-overlay">
         <div class="modal">

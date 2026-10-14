@@ -124,6 +124,9 @@ def addService():
                 # Wave 2 Masters
                 l2e_group_id_raw = request.form.get('l2e_group_id', '')
                 l2e_group_id = int(l2e_group_id_raw) if l2e_group_id_raw else None
+                subgroup = request.form.get('subgroup', '')
+                subgroup_id_raw = request.form.get('subgroup_id', '')
+                subgroup_id = int(subgroup_id_raw) if subgroup_id_raw else None
                 source_system_id_raw = request.form.get('source_system_id', '')
                 source_system_id = int(source_system_id_raw) if source_system_id_raw else None
                 data_format = request.form.get('data_format', '')
@@ -275,8 +278,8 @@ def addService():
                         stat_official, geo_dataset_name, geo_scale, geo_west_bound,
                         geo_east_bound, geo_north_bound, geo_south_bound, geo_position_accuracy,
                         geo_reference_time, geo_published_date,
-                        l2e_group_id, source_system_id, created_by
-                    ) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                        l2e_group_id, subgroup, subgroup_id, source_system_id, created_by
+                    ) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
                     
                     creator_user_id = user_data.get('user_id')
                     cursor.execute(sql_insert, (
@@ -295,8 +298,11 @@ def addService():
                         stat_official, geo_dataset_name, geo_scale, geo_west_bound,
                         geo_east_bound, geo_north_bound, geo_south_bound, geo_position_accuracy,
                         geo_reference_time, geo_published_date,
-                        l2e_group_id, source_system_id, creator_user_id
+                        l2e_group_id, subgroup, subgroup_id, source_system_id, creator_user_id
                     ))
+                    new_service_id = cursor.lastrowid
+                    if l2e_group_id and new_service_id:
+                        cursor.execute("INSERT IGNORE INTO service_group_access (service_id, group_id, created_at) VALUES (%s, %s, NOW())", (new_service_id, l2e_group_id))
                     conn.commit()
                     
                     # Notify All Users about the new dataset
@@ -359,6 +365,9 @@ def addService():
                 # Wave 2 Masters
                 l2e_group_id_raw = request.form.get('l2e_group_id')
                 l2e_group_id = int(l2e_group_id_raw) if l2e_group_id_raw else None
+                subgroup = request.form.get('subgroup')
+                subgroup_id_raw = request.form.get('subgroup_id')
+                subgroup_id = int(subgroup_id_raw) if subgroup_id_raw else None
                 source_system_id_raw = request.form.get('source_system_id')
                 source_system_id = int(source_system_id_raw) if source_system_id_raw else None
                 data_format = request.form.get('data_format')
@@ -481,6 +490,8 @@ def addService():
                     if geo_scope is not None: fields.append("geo_scope = %s"); values.append(geo_scope)
                     if data_source is not None: fields.append("data_source = %s"); values.append(data_source)
                     if request.form.get('l2e_group_id') is not None: fields.append("l2e_group_id = %s"); values.append(l2e_group_id)
+                    if subgroup is not None: fields.append("subgroup = %s"); values.append(subgroup)
+                    if request.form.get('subgroup_id') is not None: fields.append("subgroup_id = %s"); values.append(subgroup_id)
                     if request.form.get('source_system_id') is not None: fields.append("source_system_id = %s"); values.append(source_system_id)
                     if data_format is not None: fields.append("data_format = %s"); values.append(data_format)
                     if gov_category is not None: fields.append("gov_category = %s"); values.append(gov_category)
@@ -697,6 +708,8 @@ def addService():
                     values.append(service_id)
                     
                     cursor.execute(sql_update, tuple(values))
+                    if l2e_group_id:
+                        cursor.execute("INSERT IGNORE INTO service_group_access (service_id, group_id, created_at) VALUES (%s, %s, NOW())", (service_id, l2e_group_id))
                     conn.commit()
                     
                     # Notify Admin and interested users about the dataset update
