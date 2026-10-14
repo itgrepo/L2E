@@ -93,7 +93,7 @@ const fetchMasters = async () => {
     
     // Fetch Groups (ThaiMOOC, TPQI, BDE, etc.)
     try {
-      const groupUserRes = await apiClient.post('/getGroups', { user: userParam });
+      const groupUserRes = await apiClient.post('/getGroups', { user: userParam, group_type: 'dataset_group' });
       if (groupUserRes.data && groupUserRes.data.status === 'success' && Array.isArray(groupUserRes.data.data)) {
         groupsList.value = groupUserRes.data.data;
       }
@@ -716,7 +716,8 @@ const handleAddGroup = async () => {
     const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
     const res = await apiClient.post('/addGroup', {
       user: userParam,
-      group_name: newGroupName.value.trim()
+      group_name: newGroupName.value.trim(),
+      group_type: 'dataset_group'
     });
     if (res.data && res.data.status === 'success') {
       await fetchMasters();

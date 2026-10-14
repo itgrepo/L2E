@@ -191,7 +191,7 @@ const fetchGroups = async () => {
   isLoading.value = true;
   try {
     const userParam = getUserParam();
-    const response = await apiClient.post('/getGroups', { user: userParam });
+    const response = await apiClient.post('/getGroups', { user: userParam, group_type: 'dataset_group' });
     if (response.data.status === 'success') {
       groups.value = response.data.data;
     }
@@ -284,7 +284,8 @@ const handleAddGroup = async () => {
     const userParam = getUserParam();
     const response = await apiClient.post('/addGroup', {
       user: userParam,
-      group_name: newGroupName.value.trim()
+      group_name: newGroupName.value.trim(),
+      group_type: 'dataset_group'
     });
     
     if (response.data.status === 'success') {

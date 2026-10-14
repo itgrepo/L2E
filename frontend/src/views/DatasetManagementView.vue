@@ -64,7 +64,7 @@ const fetchMasters = async () => {
         const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
         
         const [groupRes, subRes] = await Promise.allSettled([
-            apiClient.post('/getGroups', { user: userParam }),
+            apiClient.post('/getGroups', { user: userParam, group_type: 'dataset_group' }),
             apiClient.post('/getDatasetGroups', { user: userParam })
         ]);
         

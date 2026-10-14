@@ -42,15 +42,24 @@ const fetchBaseData = async () => {
         }
 
         // Fetch Groups
-        const groupRes = await apiClient.post('/getGroups', { user: tokenUser });
+        const groupRes = await apiClient.post('/getGroups', { user: tokenUser, group_type: 'user_group' });
         if (groupRes.data?.status === 'success') {
             groups.value = groupRes.data.data;
         }
 
-        // Fetch Datasets (Mocking datasets list or fetching from catalog if we can, but we'll extract from group dataset calls if needed. For now, fetch all catalogs)
-        const catalogRes = await apiClient.post('/getCatalog', { user: tokenUser });
-        if (catalogRes.data?.status === 'success') {
-            datasets.value = catalogRes.data.data;
+        // Fetch Datasets
+        try {
+            const datasetRes = await apiClient.post('/retrieveService', { user: tokenUser });
+            if (datasetRes.data?.status === 'success' && Array.isArray(datasetRes.data.data)) {
+                datasets.value = datasetRes.data.data;
+            } else {
+                const getServiceRes = await apiClient.post('/getService', { user: tokenUser });
+                if (getServiceRes.data?.status === 'success' && Array.isArray(getServiceRes.data.data)) {
+                    datasets.value = getServiceRes.data.data;
+                }
+            }
+        } catch (err) {
+            console.error('Error fetching datasets in monitor:', err);
         }
 
     } catch (e) {
@@ -560,7 +569,7 @@ h1 {
 
 /* User Selection Theme */
 .list-item.active { border-left: 4px solid #3b82f6; }
-.group-style.active { border-left: 4px solid #db2777; }
+.group-style.active { border-left: 4px solid var(--primary); }
 .dataset-style.active { border-left: 4px solid #8b5cf6; }
 
 .item-avatar {
@@ -684,7 +693,7 @@ h1 {
     box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
 }
 
-.group-node { border-left: 4px solid #db2777; }
+.group-node { border-left: 4px solid var(--primary); }
 .dataset-node { border-left: 4px solid #8b5cf6; }
 .user-node { border-left: 4px solid #3b82f6; }
 

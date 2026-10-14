@@ -42,7 +42,7 @@ const fetchBaseData = async () => {
         }
 
         // Fetch Groups
-        const groupRes = await apiClient.post('/getGroups', { user: tokenUser });
+        const groupRes = await apiClient.post('/getGroups', { user: tokenUser, group_type: 'user_group' });
         if (groupRes.data?.status === 'success') {
             groups.value = groupRes.data.data;
         }

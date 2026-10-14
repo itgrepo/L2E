@@ -241,3 +241,24 @@ CREATE TABLE IF NOT EXISTS service_user_access (
     INDEX idx_service_id (service_id),
     INDEX idx_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Migration v10: Separate User Groups from Dataset Groups
+ALTER TABLE `group_user` ADD COLUMN IF NOT EXISTS `group_type` VARCHAR(50) NOT NULL DEFAULT 'user_group' AFTER `group_name`;
+UPDATE `group_user` SET `group_type` = 'dataset_group' WHERE `group_id` IN (11, 12, 13, 14);
+INSERT INTO `group_user` (`group_name`, `group_type`, `create_at`) 
+SELECT 'กลุ่มผู้ใช้งานทั่วไป', 'user_group', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM `group_user` WHERE `group_name` = 'กลุ่มผู้ใช้งานทั่วไป' AND `group_type` = 'user_group');
+INSERT INTO `group_user` (`group_name`, `group_type`, `create_at`) 
+SELECT 'กลุ่มเจ้าหน้าที่ BDE', 'user_group', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM `group_user` WHERE `group_name` = 'กลุ่มเจ้าหน้าที่ BDE' AND `group_type` = 'user_group');
+INSERT INTO `group_user` (`group_name`, `group_type`, `create_at`) 
+SELECT 'กลุ่มเจ้าหน้าที่ ThaiMOOC', 'user_group', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM `group_user` WHERE `group_name` = 'กลุ่มเจ้าหน้าที่ ThaiMOOC' AND `group_type` = 'user_group');
+INSERT INTO `group_user` (`group_name`, `group_type`, `create_at`) 
+SELECT 'กลุ่มเจ้าหน้าที่ TPQI', 'user_group', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM `group_user` WHERE `group_name` = 'กลุ่มเจ้าหน้าที่ TPQI' AND `group_type` = 'user_group');
+INSERT INTO `group_user` (`group_name`, `group_type`, `create_at`) 
+SELECT 'กลุ่มผู้บริหารและวิเคราะห์ข้อมูล', 'user_group', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM `group_user` WHERE `group_name` = 'กลุ่มผู้บริหารและวิเคราะห์ข้อมูล' AND `group_type` = 'user_group');
+DELETE FROM `service_group_access` WHERE `group_id` IN (11, 12, 13, 14);
+

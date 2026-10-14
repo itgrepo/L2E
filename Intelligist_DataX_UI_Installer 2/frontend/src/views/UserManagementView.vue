@@ -1,10 +1,181 @@
 <script setup>
+import { encodePassword } from '../utils/crypto';
+
 import { ref, onMounted, computed } from 'vue';
 import AppSidebar from '../components/AppSidebar.vue';
 import { postWithUser } from '../utils/api';
 
 const users = ref([]);
 const roles = ref([]);
+
+const organizations = ref([]);
+const fetchOrganizations = async () => {
+    try {
+        const userStored = JSON.parse(localStorage.getItem('user') || '{}');
+        const response = await postWithUser('/getOrganizations', userStored);
+        if (response.data && response.data.status === 'success') {
+            organizations.value = response.data.data;
+        }
+    } catch (error) {
+        console.error('Error fetching organizations:', error);
+    }
+};
+
+const handleOrgChange = async (user, newOrgId) => {
+    try {
+        const userStored = JSON.parse(localStorage.getItem('user') || '{}');
+        const response = await postWithUser('/mgmt/updateUserById', userStored, {
+            target_user_id: user.user_id,
+            previlage_id: user.previlage_id,
+            org_id: newOrgId
+        });
+        
+        if (response.data.status === 'success') {
+            showAlert(`อัปเดตหน่วยงานสำเร็จ`, 'success');
+            fetchUsers(); 
+        } else {
+            alert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status));
+        }
+    } catch (error) {
+        console.error('Error updating org:', error);
+    }
+};
+
+
+const groups = ref([]);
+const showAddModal = ref(false);
+const formData = ref({
+    username: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+    previlage_id: 3,
+    org_id: '',
+    status_id: 4,
+    groups: []
+});
+
+const showPassword = ref(false);
+const showConfirmPassword = ref(false);
+
+const passwordStrength = computed(() => {
+  const p = formData.value.password;
+  if (!p) return { score: 0, label: '', color: '' };
+  let score = 0;
+  if (p.length >= 8) score++;
+  if (/[A-Z]/.test(p)) score++;
+  if (/[0-9]/.test(p)) score++;
+  if (/[^A-Za-z0-9]/.test(p)) score++;
+  
+  const levels = [
+    { score: 0, label: '', color: '' },
+    { score: 1, label: 'อ่อน', color: '#ef4444' },
+    { score: 2, label: 'ปานกลาง', color: '#f59e0b' },
+    { score: 3, label: 'ดี', color: '#22c55e' },
+    { score: 4, label: 'ดีมาก', color: '#16a34a' }
+  ];
+  return levels[score] || levels[0];
+});
+
+const isPasswordValid = computed(() => {
+  const p = formData.value.password;
+  const isStrong = p.length >= 8 && /[A-Z]/.test(p) && /[a-z]/.test(p) && /[0-9]/.test(p) && /[^A-Za-z0-9]/.test(p);
+  const isMatch = p === formData.value.confirmPassword;
+  return isStrong && isMatch;
+});
+
+const isSubmitting = ref(false);
+
+const fetchGroups = async () => {
+    try {
+        const userStored = JSON.parse(localStorage.getItem('user') || '{}');
+        const response = await postWithUser('/getGroups', userStored, { group_type: 'user_group' });
+        if (response.data && response.data.status === 'success') {
+            groups.value = response.data.data;
+        }
+    } catch (error) {
+        console.error('Error fetching groups:', error);
+    }
+};
+
+const openAddModal = () => {
+    formData.value = {
+        username: '',
+        email: '',
+        password: '',
+        confirmPassword: '',
+        previlage_id: 3,
+        status_id: 4,
+        groups: []
+    };
+    showPassword.value = false;
+    showConfirmPassword.value = false;
+    showAddModal.value = true;
+};
+
+const closeAddModal = () => {
+    showAddModal.value = false;
+};
+
+const handleSaveUser = async () => {
+    if (!formData.value.username || !formData.value.email || !formData.value.password) {
+        showAlert('กรุณากรอกข้อมูล Username, Email และ Password ให้ครบถ้วน', 'error');
+        return;
+    }
+
+    if (!isPasswordValid.value) {
+        showAlert('รหัสผ่านไม่ผ่านเกณฑ์ความปลอดภัย หรือรหัสผ่านไม่ตรงกัน', 'error');
+        return;
+    }
+
+    const invalidCharsRegex = /[<>"\'/;`%&]/;
+    if (invalidCharsRegex.test(formData.value.username)) {
+        showAlert('ชื่อผู้ใช้มีตัวอักษรพิเศษที่ไม่อนุญาต', 'error');
+        return;
+    }
+    if (invalidCharsRegex.test(formData.value.email)) {
+        showAlert('อีเมลมีตัวอักษรพิเศษที่ไม่อนุญาต', 'error');
+        return;
+    }
+    
+    
+    if (formData.value.previlage_id == 3 && !formData.value.org_id) {
+        showAlert('กรุณาเลือกหน่วยงานสำหรับ Role นี้', 'error');
+        return;
+    }
+
+    isSubmitting.value = true;
+    try {
+        const userStored = JSON.parse(localStorage.getItem('user') || '{}');
+        const submitData = { ...formData.value };
+        submitData.password = encodePassword(submitData.password);
+        submitData.link = window.location.origin;
+        const response = await postWithUser('/mgmt/createUser', userStored, submitData);
+        
+        if (response.data.status === 'success') {
+            showAlert(`สร้างผู้ใช้ ${formData.value.username} สำเร็จ`, 'success');
+            closeAddModal();
+            fetchUsers();
+        } else {
+            let errorMsg = response.data.message || response.data.status;
+            const errLower = errorMsg.toLowerCase();
+            if (errLower === 'username or email already exists') {
+                errorMsg = 'ชื่อผู้ใช้ หรือ อีเมล นี้ถูกใช้งานแล้ว';
+            } else if (errLower.includes('username already exists') || errorMsg.includes('Username ซ้ำ')) {
+                errorMsg = 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว (Username already exists)';
+            } else if (errLower.includes('email already exists') || errorMsg.includes('อีเมลซ้ำ')) {
+                errorMsg = 'อีเมลนี้ถูกใช้งานแล้ว (Email already exists)';
+            }
+            showAlert('เกิดข้อผิดพลาด: ' + errorMsg, 'error');
+        }
+    } catch (error) {
+        console.error('Error creating user:', error);
+        showAlert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error');
+    } finally {
+        isSubmitting.value = false;
+    }
+};
+
 const isLoading = ref(true);
 const searchQuery = ref('');
 const alertMessage = ref({ text: '', type: '' });
@@ -36,6 +207,18 @@ const fetchRoles = async () => {
     }
 };
 
+const getOrgName = (orgId) => {
+    if (!orgId) return 'เลือกหน่วยงาน';
+    const org = organizations.value.find(o => String(o.org_id) === String(orgId));
+    return org ? org.org_name : 'เลือกหน่วยงาน';
+};
+
+const getRoleName = (roleId) => {
+    if (!roleId) return '';
+    const r = roles.value.find(role => String(role.previlage_id) === String(roleId));
+    return r ? r.previlage_name : '';
+};
+
 const handleRoleChange = async (user, newRoleId) => {
     try {
         const userStored = JSON.parse(localStorage.getItem('user') || '{}');
@@ -48,11 +231,30 @@ const handleRoleChange = async (user, newRoleId) => {
             showAlert(`อัปเดตบทบาทของ ${user.username} สำเร็จ`, 'success');
             fetchUsers(); // Refresh list to get new role names
         } else {
-            showAlert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status), 'error');
+            alert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status));
         }
     } catch (error) {
         console.error('Error updating role:', error);
-        showAlert('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error');
+        alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
+    }
+};
+
+
+const handleUnlockUser = async (user) => {
+    if (confirm(`ยืนยันการปลดล็อคบัญชี ${user.username} หรือไม่?`)) {
+        try {
+            const userStored = JSON.parse(localStorage.getItem('user') || '{}');
+            const response = await postWithUser('/mgmt/unlockUserByAdmin', userStored, { target_user_id: user.user_id });
+            if (response.data && response.data.status === 'success') {
+                alert('ปลดล็อคบัญชีสำเร็จ');
+                fetchUsers();
+            } else {
+                alert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status));
+            }
+        } catch (error) {
+            console.error('Error unlocking user:', error);
+            alert('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
+        }
     }
 };
 
@@ -71,17 +273,16 @@ const handleDeleteUser = async (user) => {
             showAlert(`ลบผู้ใช้ ${user.username} สำเร็จ`, 'success');
             fetchUsers(); // Refresh list
         } else {
-            showAlert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status), 'error');
+            alert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status));
         }
     } catch (error) {
         console.error('Error deleting user:', error);
-        showAlert('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error');
+        alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
     }
 };
 
 const showAlert = (text, type) => {
     alertMessage.value = { text, type };
-    setTimeout(() => { alertMessage.value = { text: '', type: '' }; }, 3000);
 };
 
 const filteredUsers = computed(() => {
@@ -102,6 +303,8 @@ const formatDate = (dateStr) => {
 onMounted(() => {
     fetchUsers();
     fetchRoles();
+    fetchGroups();
+    fetchOrganizations();
 });
 </script>
 
@@ -114,18 +317,28 @@ onMounted(() => {
           <h1>User Management</h1>
           <p class="subtitle">จัดการข้อมูลผู้ใช้และกำหนดบทบาทการเข้าถึงระบบ</p>
         </div>
-        <div class="search-container">
-            <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input type="text" v-model="searchQuery" placeholder="ค้นหาด้วย Username หรือ Email...">
+        
+        <div class="header-actions">
+            <button class="btn-primary" @click="openAddModal">
+                <svg xmlns="http://www.w3.org/2000/svg" class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                Add User
+            </button>
+            <div class="search-container">
+                <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input type="text" v-model="searchQuery" placeholder="ค้นหาด้วย Username หรือ Email...">
+            </div>
         </div>
       </header>
 
       <!-- Alert Message -->
       <transition name="fade">
         <div v-if="alertMessage.text" :class="['alert-banner', alertMessage.type]">
-            {{ alertMessage.text }}
+            <div style="flex: 1;">{{ alertMessage.text }}</div>
+            <button @click="alertMessage = { text: '', type: '' }" class="alert-close-btn" aria-label="Close alert">&times;</button>
         </div>
       </transition>
 
@@ -136,7 +349,73 @@ onMounted(() => {
         </div>
 
         <div v-else class="table-container">
-          <table class="data-table">
+          <div class="mobile-cards-view">
+            <div v-for="(u, idx) in filteredUsers" :key="u.user_id" class="mobile-card">
+              <div class="mc-header">
+                <div class="user-info">
+                  <div class="user-avatar">{{ u.username.charAt(0).toUpperCase() }}</div>
+                  <div>
+                      <div class="username-text">{{ u.username }}</div>
+                      <div class="user-id-text">ID: #{{ u.user_id }}</div>
+                  </div>
+                </div>
+                <div class="actions-group">
+                  <button v-if="u.status_id == 6" class="unlock-btn" @click="handleUnlockUser(u)" title="ปลดล็อคบัญชี" style="background-color: #f59e0b; color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.75rem; font-weight: 600; margin-right: 8px;">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                      Unlock
+                  </button>
+                  <button class="delete-btn" @click="handleDeleteUser(u)" title="ลบผู้ใช้">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="mc-body">
+                <div class="mc-row">
+                  <span class="mc-label">อีเมล</span>
+                  <span class="mc-value">{{ u.email || '-' }}</span>
+                </div>
+                <div class="mc-row">
+                  <span class="mc-label">วันที่เข้าร่วม</span>
+                  <span class="mc-value">{{ formatDate(u.create_at) }}</span>
+                </div>
+                <div class="mc-row">
+                  <span class="mc-label">บทบาท</span>
+                  <div class="role-selector-box mobile-select">
+                    <select 
+                        :value="u.previlage_id" 
+                        @change="handleRoleChange(u, $event.target.value)"
+                        class="role-select"
+                        :title="getRoleName(u.previlage_id)"
+                    >
+                        <option v-for="role in roles" :key="role.previlage_id" :value="role.previlage_id" :title="role.previlage_name">
+                            {{ role.previlage_name }}
+                        </option>
+                    </select>
+                  </div>
+                </div>
+                <div class="mc-row">
+                  <span class="mc-label">หน่วยงาน</span>
+                  <div class="role-selector-box mobile-select" v-if="u.previlage_id == 3">
+                    <select 
+                        :value="u.org_id" 
+                        @change="handleOrgChange(u, $event.target.value)"
+                        class="role-select"
+                        :title="getOrgName(u.org_id)"
+                    >
+                        <option value="" disabled>เลือกหน่วยงาน</option>
+                        <option v-for="org in organizations" :key="org.org_id" :value="org.org_id" :title="org.org_name">
+                            {{ org.org_name }}
+                        </option>
+                    </select>
+                  </div>
+                  <span class="mc-value text-muted" v-else>-</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <table class="data-table desktop-table-view">
             <thead>
               <tr>
                 <th>#</th>
@@ -144,6 +423,7 @@ onMounted(() => {
                 <th>อีเมล</th>
                 <th>วันที่เข้าร่วม</th>
                 <th>บทบาทปัจจุบัน</th>
+                <th>หน่วยงาน (สำหรับเจ้าของข้อมูล)</th>
                 <th>ดำเนินการ</th>
               </tr>
             </thead>
@@ -154,7 +434,13 @@ onMounted(() => {
                   <div class="user-info">
                     <div class="user-avatar">{{ u.username.charAt(0).toUpperCase() }}</div>
                     <div>
-                        <div class="username-text">{{ u.username }}</div>
+                        <div class="username-text">
+                            {{ u.username }}
+                            <span v-if="u.status_id == 6" style="margin-left: 6px; background-color: #fee2e2; color: #ef4444; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #fca5a5; display: inline-flex; align-items: center; gap: 2px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0"></path></svg>
+                                Locked
+                            </span>
+                        </div>
                         <div class="user-id-text">ID: #{{ u.user_id }}</div>
                     </div>
                   </div>
@@ -162,23 +448,47 @@ onMounted(() => {
                 <td>{{ u.email || '-' }}</td>
                 <td>{{ formatDate(u.create_at) }}</td>
                 <td>
-                  <span class="role-badge" :class="u.previlage_name?.toLowerCase()">
+                  <span class="role-badge" :class="'role-' + u.previlage_id">
                     {{ u.previlage_name || 'No Role' }}
                   </span>
                 </td>
-                <td>
+                <td class="org-cell">
+                    <div class="role-selector-box">
+                      <select 
+                          :value="u.org_id" 
+                          @change="handleOrgChange(u, $event.target.value)"
+                          class="role-select org-select"
+                          :title="getOrgName(u.org_id)"
+                          v-if="u.previlage_id == 3"
+                      >
+                          <option value="" disabled>เลือกหน่วยงาน</option>
+                          <option v-for="org in organizations" :key="org.org_id" :value="org.org_id" :title="org.org_name">
+                              {{ org.org_name }}
+                          </option>
+                      </select>
+                      <span class="text-muted" v-else>-</span>
+                    </div>
+                </td>
+                <td class="actions-cell">
                   <div class="actions-group">
                     <div class="role-selector-box">
                       <select 
                           :value="u.previlage_id" 
                           @change="handleRoleChange(u, $event.target.value)"
-                          class="role-select"
+                          class="role-select action-role-select"
+                          :title="getRoleName(u.previlage_id)"
                       >
-                          <option v-for="role in roles" :key="role.previlage_id" :value="role.previlage_id">
+                          <option v-for="role in roles" :key="role.previlage_id" :value="role.previlage_id" :title="role.previlage_name">
                               {{ role.previlage_name }}
                           </option>
                       </select>
                     </div>
+
+                    <button v-if="u.status_id == 6" class="unlock-btn" @click="handleUnlockUser(u)" title="ปลดล็อคบัญชี" style="background-color: #f59e0b; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.85rem; font-weight: 600;">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                      Unlock
+                    </button>
+
                     <button class="delete-btn" @click="handleDeleteUser(u)" title="ลบผู้ใช้">
                       <svg xmlns="http://www.w3.org/2000/svg" class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -194,6 +504,112 @@ onMounted(() => {
           </div>
         </div>
       </div>
+    
+      <!-- Add User Modal (Dark Theme) -->
+      <transition name="fade">
+        <div class="modal-overlay" v-if="showAddModal" @click="closeAddModal">
+          <div class="modal-content dark-card" @click.stop>
+            <div class="modal-header">
+              <h2>Add New User</h2>
+              <button class="close-btn" @click="closeAddModal">&times;</button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label>Username <span class="required">*</span></label>
+                <input type="text" v-model="formData.username" class="dark-input" placeholder="Enter username" />
+              </div>
+              <div class="form-group">
+                <label>Email <span class="required">*</span></label>
+                <input type="email" v-model="formData.email" class="dark-input" placeholder="Enter email" />
+              </div>
+              <div class="form-group" style="margin-bottom: 16px;">
+                <label>Password <span class="required">*</span></label>
+                <div class="password-input-wrapper" style="position: relative;">
+                  <input :type="showPassword ? 'text' : 'password'" v-model="formData.password" class="dark-input" placeholder="ตั้งรหัสผ่าน 8 ตัวขึ้นไป" style="padding-right: 40px;" />
+                  <button class="toggle-password" @click="showPassword = !showPassword" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #94a3b8;">
+                    <span v-if="showPassword">🙈</span>
+                    <span v-else>👁️</span>
+                  </button>
+                </div>
+                <div class="password-strength-meter" v-if="formData.password" style="margin-top: 12px; display: flex; align-items: center; gap: 10px;">
+                  <div class="meter-bar" style="flex: 1; height: 6px; background: #334155; border-radius: 4px; overflow: hidden; display: flex;">
+                    <div :style="{ width: (passwordStrength.score * 25) + '%', backgroundColor: passwordStrength.color, transition: 'all 0.3s' }"></div>
+                  </div>
+                  <span :style="{ color: passwordStrength.color, fontWeight: 'bold', fontSize: '0.8rem', minWidth: '50px' }">
+                    {{ passwordStrength.label }}
+                  </span>
+                </div>
+                <ul v-if="formData.password" style="margin-top: 10px; font-size: 0.75rem; color: #94a3b8; padding-left: 20px;">
+                  <li :style="{ color: formData.password.length >= 8 ? '#22c55e' : '#ef4444' }">อย่างน้อย 8 ตัวอักษร</li>
+                  <li :style="{ color: /[A-Z]/.test(formData.password) ? '#22c55e' : '#ef4444' }">มีตัวอักษรพิมพ์ใหญ่ (A-Z)</li>
+                  <li :style="{ color: /[a-z]/.test(formData.password) ? '#22c55e' : '#ef4444' }">มีตัวอักษรพิมพ์เล็ก (a-z)</li>
+                  <li :style="{ color: /[0-9]/.test(formData.password) ? '#22c55e' : '#ef4444' }">มีตัวเลข (0-9)</li>
+                  <li :style="{ color: /[^A-Za-z0-9]/.test(formData.password) ? '#22c55e' : '#ef4444' }">มีอักขระพิเศษ (เช่น !@#$%)</li>
+                </ul>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 24px;">
+                <label>Confirm Password <span class="required">*</span></label>
+                <div class="password-input-wrapper" style="position: relative;">
+                  <input :type="showConfirmPassword ? 'text' : 'password'" v-model="formData.confirmPassword" class="dark-input" placeholder="พิมพ์รหัสผ่านใหม่อีกครั้ง" style="padding-right: 40px;" />
+                  <button class="toggle-password" @click="showConfirmPassword = !showConfirmPassword" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #94a3b8;">
+                    <span v-if="showConfirmPassword">🙈</span>
+                    <span v-else>👁️</span>
+                  </button>
+                </div>
+                <p v-if="formData.confirmPassword && formData.password !== formData.confirmPassword" style="color: #ef4444; font-size: 0.8rem; margin-top: 4px;">รหัสผ่านไม่ตรงกัน</p>
+                <p v-if="formData.confirmPassword && formData.password === formData.confirmPassword" style="color: #22c55e; font-size: 0.8rem; margin-top: 4px;">รหัสผ่านตรงกัน ✓</p>
+              </div>
+              
+              <div class="form-row">
+                <div class="form-group half">
+                  <label>Role</label>
+                  <select v-model="formData.previlage_id" class="dark-input">
+                    <option v-for="role in roles" :key="role.previlage_id" :value="role.previlage_id">
+                      {{ role.previlage_name }}
+                    </option>
+                  </select>
+                </div>
+                <div class="form-group half">
+                  <label>Status</label>
+                  <select v-model="formData.status_id" class="dark-input">
+                    <option :value="1">Active</option>
+                    <option :value="4">Pending Verification</option>
+                    <option :value="3">Suspended</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group" v-if="formData.previlage_id == 3">
+                <label>Organization <span class="required">*</span></label>
+                <select v-model="formData.org_id" class="dark-input">
+                  <option value="" disabled>Select Organization</option>
+                  <option v-for="org in organizations" :key="org.org_id" :value="org.org_id">
+                    {{ org.org_name }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label>Groups</label>
+                <select multiple v-model="formData.groups" class="dark-input multi-select">
+                  <option v-for="group in groups" :key="group.group_id" :value="group.group_id">
+                    {{ group.group_name }}
+                  </option>
+                </select>
+                <small class="help-text">Hold Cmd/Ctrl to select multiple</small>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn-cancel" @click="closeAddModal">Cancel</button>
+              <button class="btn-save" @click="handleSaveUser" :disabled="isSubmitting">
+                {{ isSubmitting ? 'Saving...' : 'Save User' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </transition>
+
     </main>
   </div>
 </template>
@@ -262,12 +678,24 @@ h1 {
 }
 
 /* Alert Banner */
+
 .alert-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
     padding: 14px 24px;
     border-radius: 12px;
-    margin-bottom: 24px;
     font-weight: 600;
     font-size: 0.95rem;
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 999999 !important; /* Fixed z-index to be above modal */
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    min-width: 300px;
+    text-align: center;
 }
 
 .alert-banner.success {
@@ -280,6 +708,20 @@ h1 {
     background: #fef2f2;
     color: #991b1b;
     border: 1px solid #fee2e2;
+}
+
+.alert-close-btn {
+    background: transparent;
+    border: none;
+    font-size: 1.75rem;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.7;
+    padding: 0;
+    margin-top: -4px;
+}
+.alert-close-btn:hover {
+    opacity: 1;
 }
 
 /* Table Card */
@@ -361,11 +803,16 @@ h1 {
     border-radius: 20px;
     font-size: 0.8rem;
     font-weight: 700;
+    display: inline-block;
+    white-space: nowrap;
+    text-align: center;
 }
 
-.role-badge.rootadmin { background: #fee2e2; color: #991b1b; }
-.role-badge.admin { background: #dbeafe; color: #1e40af; }
-.role-badge.user { background: #f1f5f9; color: #475569; }
+.role-badge.role-1 { background: #f3f4f6; color: #374151; } /* R1 ภายนอก */
+.role-badge.role-2 { background: #f1f5f9; color: #475569; } /* R2 ทั่วไป */
+.role-badge.role-3 { background: #fef3c7; color: #92400e; } /* R3 ดูแลข้อมูล */
+.role-badge.role-4 { background: #fee2e2; color: #991b1b; } /* R4 ดูแลระบบ */
+.role-badge.role-5 { background: #dcfce7; color: #166534; } /* R5 ภายในมีสิทธิ */
 
 /* Select Dropdown */
 /* Actions */
@@ -404,7 +851,19 @@ h1 {
     height: 18px;
 }
 
+.org-cell {
+    width: 260px;
+    min-width: 240px;
+}
+
+.actions-cell {
+    width: 320px;
+    min-width: 300px;
+}
+
 .role-select {
+    width: 240px;
+    max-width: 240px;
     padding: 8px 12px;
     border: 1px solid #e2e8f0;
     border-radius: 10px;
@@ -414,6 +873,14 @@ h1 {
     cursor: pointer;
     outline: none;
     transition: all 0.2s;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.mobile-select .role-select {
+    width: 100%;
+    max-width: 100%;
 }
 
 .role-select:hover {
@@ -458,5 +925,295 @@ h1 {
 }
 .fade-enter-from, .fade-leave-to {
     opacity: 0;
+}
+
+/* Modal Styles (Dark Game-like Theme) */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.modal-content.dark-card {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 20px;
+  width: 500px;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  color: #f8fafc;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.05);
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 24px 30px;
+  border-bottom: 1px solid #1e293b;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #0b1120;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.close-btn:hover {
+  color: #ef4444;
+}
+
+.modal-body {
+  padding: 30px;
+  overflow-y: auto;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-row {
+  display: flex;
+  gap: 20px;
+}
+
+.form-group.half {
+  flex: 1;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.required {
+  color: #ef4444;
+}
+
+.dark-input {
+  width: 100%;
+  padding: 12px 16px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+
+.dark-input:focus {
+  border-color: #004f3b;
+  box-shadow: 0 0 0 3px rgba(0, 79, 59, 0.2);
+}
+
+.multi-select {
+  height: 120px;
+  padding: 8px;
+}
+
+.multi-select option {
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 2px;
+}
+
+.multi-select option:checked {
+  background: #004f3b linear-gradient(0deg, #004f3b 0%, #004f3b 100%);
+  color: white;
+}
+
+.help-text {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.modal-footer {
+  padding: 20px 30px;
+  background: #0b1120;
+  border-top: 1px solid #1e293b;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.btn-cancel {
+  padding: 10px 20px;
+  border-radius: 10px;
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cancel:hover {
+  background: #1e293b;
+  color: #f8fafc;
+}
+
+.btn-save {
+  padding: 10px 24px;
+  border-radius: 10px;
+  background: #004f3b;
+  color: white;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(0, 79, 59, 0.3);
+}
+
+.btn-save:hover:not(:disabled) {
+  background: #003d2d;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 79, 59, 0.4);
+}
+
+.btn-save:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  margin-right: 16px;
+}
+
+.btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: #004f3b;
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(0, 79, 59, 0.2);
+}
+
+.btn-primary:hover {
+  background: #003d2d;
+  transform: translateY(-1px);
+}
+
+
+/* Responsive Overrides for User Management */
+.header-actions {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.search-container {
+  width: auto;
+  min-width: 350px;
+}
+.mobile-cards-view {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .header-actions {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    margin-top: 16px;
+  }
+  .search-container {
+    min-width: 0;
+    width: 100%;
+  }
+  .search-container input {
+    width: 100%;
+  }
+
+  .desktop-table-view {
+    display: none !important;
+  }
+  .mobile-cards-view {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .mobile-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .mc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #f1f5f9;
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+  }
+  .mc-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+  }
+  .mc-label {
+    color: #64748b;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+  .mc-value {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #334155;
+  }
+  .mobile-select select {
+    padding: 4px 8px;
+    font-size: 0.85rem;
+  }
+  .content {
+    padding: 16px !important;
+  }
+}
+</style>
+
+
+<style>
+/* Global style strictly for this swal instance to override z-index */
+.swal-top-modal {
+  z-index: 999999 !important;
 }
 </style>

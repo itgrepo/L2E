@@ -8,9 +8,10 @@ import sys
 @app.route('/getGroups', methods=['POST'])
 def getGroups():
     try:
-        dataInput = request.json
+        dataInput = request.json or {}
         decoded_user = platform_decode(dataInput.get('user'))
         user_data = safe_json_loads(decoded_user)
+        group_type = dataInput.get('group_type')
         
         if not user_data or not checkUserIsAdmin(user_data):
             return jsonify({"status": "Permission Denied"})
@@ -18,18 +19,47 @@ def getGroups():
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        # Select groups with member count and dataset count
-        sql = """
-            SELECT gu.group_id, gu.group_name, gu.create_at, 
-                   COUNT(DISTINCT gud.user_id) as member_count,
-                   COUNT(DISTINCT sga.service_id) as dataset_count
-            FROM group_user gu
-            LEFT JOIN group_user_detail gud ON gu.group_id = gud.group_id
-            LEFT JOIN service_group_access sga ON gu.group_id = sga.group_id
-            GROUP BY gu.group_id
-            ORDER BY gu.create_at DESC
-        """
-        cursor.execute(sql)
+        if group_type == 'dataset_group':
+            # Select dataset groups: dataset count is counted from service.l2e_group_id
+            sql = """
+                SELECT gu.group_id, gu.group_name, gu.group_type, gu.create_at, 
+                       0 as member_count,
+                       COUNT(DISTINCT s.service_id) as dataset_count
+                FROM group_user gu
+                LEFT JOIN service s ON gu.group_id = s.l2e_group_id AND s.status != 'Deleted'
+                WHERE gu.group_type = 'dataset_group'
+                GROUP BY gu.group_id
+                ORDER BY gu.create_at DESC
+            """
+            cursor.execute(sql)
+        elif group_type == 'user_group':
+            # Select user groups: member count from group_user_detail, dataset count from service_group_access
+            sql = """
+                SELECT gu.group_id, gu.group_name, gu.group_type, gu.create_at, 
+                       COUNT(DISTINCT gud.user_id) as member_count,
+                       COUNT(DISTINCT sga.service_id) as dataset_count
+                FROM group_user gu
+                LEFT JOIN group_user_detail gud ON gu.group_id = gud.group_id
+                LEFT JOIN service_group_access sga ON gu.group_id = sga.group_id
+                WHERE gu.group_type = 'user_group'
+                GROUP BY gu.group_id
+                ORDER BY gu.create_at DESC
+            """
+            cursor.execute(sql)
+        else:
+            # Fallback: all groups
+            sql = """
+                SELECT gu.group_id, gu.group_name, gu.group_type, gu.create_at, 
+                       COUNT(DISTINCT gud.user_id) as member_count,
+                       COUNT(DISTINCT sga.service_id) as dataset_count
+                FROM group_user gu
+                LEFT JOIN group_user_detail gud ON gu.group_id = gud.group_id
+                LEFT JOIN service_group_access sga ON gu.group_id = sga.group_id
+                GROUP BY gu.group_id
+                ORDER BY gu.create_at DESC
+            """
+            cursor.execute(sql)
+
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         results = toJson(data, columns)
@@ -42,10 +72,13 @@ def getGroups():
 @app.route('/addGroup', methods=['POST'])
 def addGroup():
     try:
-        dataInput = request.json
+        dataInput = request.json or {}
         decoded_user = platform_decode(dataInput.get('user'))
         user_data = safe_json_loads(decoded_user)
         group_name = dataInput.get('group_name')
+        group_type = dataInput.get('group_type', 'user_group')
+        if group_type not in ('user_group', 'dataset_group'):
+            group_type = 'user_group'
 
         if not user_data or not checkUserIsAdmin(user_data):
             return jsonify({"status": "Permission Denied"})
@@ -56,19 +89,20 @@ def addGroup():
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        # Check duplicate
-        sql_check = "SELECT group_id FROM group_user WHERE group_name = %s"
-        cursor.execute(sql_check, (group_name,))
+        # Check duplicate within the same group_type
+        sql_check = "SELECT group_id FROM group_user WHERE group_name = %s AND group_type = %s"
+        cursor.execute(sql_check, (group_name, group_type))
         if cursor.fetchone():
             conn.close()
             return jsonify({"status": "Group name already exists"})
 
-        sql_insert = "INSERT INTO group_user (group_name) VALUES (%s)"
-        cursor.execute(sql_insert, (group_name,))
+        sql_insert = "INSERT INTO group_user (group_name, group_type) VALUES (%s, %s)"
+        cursor.execute(sql_insert, (group_name, group_type))
+        new_gid = cursor.lastrowid
         conn.commit()
         conn.close()
         
-        return jsonify({'status': 'success', 'message': 'Group created successfully'})
+        return jsonify({'status': 'success', 'message': 'Group created successfully', 'group_id': new_gid})
     except Exception as e:
         return jsonify({"status": "Error: " + str(e)})
 

@@ -21,7 +21,7 @@ const availableSearchQuery = ref('');
 const fetchGroups = async () => {
     isLoading.value = true;
     try {
-        const response = await postWithUser('/getGroups', user.value);
+        const response = await postWithUser('/getGroups', user.value, { group_type: 'user_group' });
         if (response.data.status === 'success') {
             groups.value = response.data.data;
         }
@@ -41,7 +41,8 @@ const handleCreateGroup = async () => {
     if (!newGroupName.value) return;
     try {
         const response = await postWithUser('/addGroup', user.value, {
-            group_name: newGroupName.value
+            group_name: newGroupName.value,
+            group_type: 'user_group'
         });
         if (response.data.status === 'success') {
             isCreateModalOpen.value = false;

@@ -1,34 +1,17 @@
 from flask import request, jsonify
 from ServiceConfig import *
 import json
+from ServiceConfig.notification_util import notify_user
 import os
 import sys
-
-def platform_decode(data):
-    if not data:
-        return ""
-    try:
-        # Standard decode pattern used in this project
-        decoded = base64.b64decode(data[:-5][::-1]).decode('utf-8')
-        return decoded
-    except Exception as e:
-        print(f"Decode error: {e}")
-        return ""
-
-def safe_json_loads(data):
-    if not data:
-        return {}
-    try:
-        return json.loads(data)
-    except:
-        return {}
 
 @app.route('/getGroups', methods=['POST'])
 def getGroups():
     try:
-        dataInput = request.json
+        dataInput = request.json or {}
         decoded_user = platform_decode(dataInput.get('user'))
         user_data = safe_json_loads(decoded_user)
+        group_type = dataInput.get('group_type')
         
         if not user_data or not checkUserIsAdmin(user_data):
             return jsonify({"status": "Permission Denied"})
@@ -36,18 +19,47 @@ def getGroups():
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        # Select groups with member count and dataset count
-        sql = """
-            SELECT gu.group_id, gu.group_name, gu.create_at, 
-                   COUNT(DISTINCT gud.user_id) as member_count,
-                   COUNT(DISTINCT sga.service_id) as dataset_count
-            FROM group_user gu
-            LEFT JOIN group_user_detail gud ON gu.group_id = gud.group_id
-            LEFT JOIN service_group_access sga ON gu.group_id = sga.group_id
-            GROUP BY gu.group_id
-            ORDER BY gu.create_at DESC
-        """
-        cursor.execute(sql)
+        if group_type == 'dataset_group':
+            # Select dataset groups: dataset count is counted from service.l2e_group_id
+            sql = """
+                SELECT gu.group_id, gu.group_name, gu.group_type, gu.create_at, 
+                       0 as member_count,
+                       COUNT(DISTINCT s.service_id) as dataset_count
+                FROM group_user gu
+                LEFT JOIN service s ON gu.group_id = s.l2e_group_id AND s.status != 'Deleted'
+                WHERE gu.group_type = 'dataset_group'
+                GROUP BY gu.group_id
+                ORDER BY gu.create_at DESC
+            """
+            cursor.execute(sql)
+        elif group_type == 'user_group':
+            # Select user groups: member count from group_user_detail, dataset count from service_group_access
+            sql = """
+                SELECT gu.group_id, gu.group_name, gu.group_type, gu.create_at, 
+                       COUNT(DISTINCT gud.user_id) as member_count,
+                       COUNT(DISTINCT sga.service_id) as dataset_count
+                FROM group_user gu
+                LEFT JOIN group_user_detail gud ON gu.group_id = gud.group_id
+                LEFT JOIN service_group_access sga ON gu.group_id = sga.group_id
+                WHERE gu.group_type = 'user_group'
+                GROUP BY gu.group_id
+                ORDER BY gu.create_at DESC
+            """
+            cursor.execute(sql)
+        else:
+            # Fallback: all groups
+            sql = """
+                SELECT gu.group_id, gu.group_name, gu.group_type, gu.create_at, 
+                       COUNT(DISTINCT gud.user_id) as member_count,
+                       COUNT(DISTINCT sga.service_id) as dataset_count
+                FROM group_user gu
+                LEFT JOIN group_user_detail gud ON gu.group_id = gud.group_id
+                LEFT JOIN service_group_access sga ON gu.group_id = sga.group_id
+                GROUP BY gu.group_id
+                ORDER BY gu.create_at DESC
+            """
+            cursor.execute(sql)
+
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         results = toJson(data, columns)
@@ -60,10 +72,13 @@ def getGroups():
 @app.route('/addGroup', methods=['POST'])
 def addGroup():
     try:
-        dataInput = request.json
+        dataInput = request.json or {}
         decoded_user = platform_decode(dataInput.get('user'))
         user_data = safe_json_loads(decoded_user)
         group_name = dataInput.get('group_name')
+        group_type = dataInput.get('group_type', 'user_group')
+        if group_type not in ('user_group', 'dataset_group'):
+            group_type = 'user_group'
 
         if not user_data or not checkUserIsAdmin(user_data):
             return jsonify({"status": "Permission Denied"})
@@ -74,19 +89,20 @@ def addGroup():
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        # Check duplicate
-        sql_check = "SELECT group_id FROM group_user WHERE group_name = %s"
-        cursor.execute(sql_check, (group_name,))
+        # Check duplicate within the same group_type
+        sql_check = "SELECT group_id FROM group_user WHERE group_name = %s AND group_type = %s"
+        cursor.execute(sql_check, (group_name, group_type))
         if cursor.fetchone():
             conn.close()
             return jsonify({"status": "Group name already exists"})
 
-        sql_insert = "INSERT INTO group_user (group_name) VALUES (%s)"
-        cursor.execute(sql_insert, (group_name,))
+        sql_insert = "INSERT INTO group_user (group_name, group_type) VALUES (%s, %s)"
+        cursor.execute(sql_insert, (group_name, group_type))
+        new_gid = cursor.lastrowid
         conn.commit()
         conn.close()
         
-        return jsonify({'status': 'success', 'message': 'Group created successfully'})
+        return jsonify({'status': 'success', 'message': 'Group created successfully', 'group_id': new_gid})
     except Exception as e:
         return jsonify({"status": "Error: " + str(e)})
 
@@ -170,6 +186,7 @@ def getGroupMembers():
 @app.route('/updateGroupMembers', methods=['POST'])
 def updateGroupMembers():
     try:
+        from .email_service import notify_added_to_group
         dataInput = request.json
         decoded_user = platform_decode(dataInput.get('user'))
         user_data = safe_json_loads(decoded_user)
@@ -182,8 +199,18 @@ def updateGroupMembers():
         conn = mysql.connect()
         cursor = conn.cursor()
         
+        # 1. Fetch group name
+        cursor.execute("SELECT group_name FROM group_user WHERE group_id = %s", (group_id,))
+        group_res = cursor.fetchone()
+        group_name = group_res[0] if group_res else f"Group {group_id}"
+        
+        # 2. Fetch existing members to find who is newly added
+        cursor.execute("SELECT user_id FROM group_user_detail WHERE group_id = %s", (group_id,))
+        existing_users = {row[0] for row in cursor.fetchall()}
+        
+        new_users = set(user_ids) - existing_users
+        
         # Simple approach: Clear and refill
-        # (For production, a diff approach is better, but this is consistent with local uat)
         sql_clear = "DELETE FROM group_user_detail WHERE group_id = %s"
         cursor.execute(sql_clear, (group_id,))
         
@@ -191,6 +218,14 @@ def updateGroupMembers():
             sql_insert = "INSERT INTO group_user_detail (group_id, user_id) VALUES (%s, %s)"
             for uid in user_ids:
                 cursor.execute(sql_insert, (group_id, uid))
+                
+        # 3. If there are new users, fetch their emails and notify
+        if new_users:
+            format_strings = ','.join(['%s'] * len(new_users))
+            cursor.execute(f"SELECT email FROM user WHERE user_id IN ({format_strings}) AND status_account = 'active'", tuple(new_users))
+            emails = [row[0] for row in cursor.fetchall() if row[0]]
+            if emails:
+                notify_added_to_group(group_name, emails)
         
         conn.commit()
         conn.close()

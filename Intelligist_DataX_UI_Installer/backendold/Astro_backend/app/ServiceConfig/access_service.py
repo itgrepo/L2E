@@ -20,24 +20,27 @@ def getDatasetAccessGroups():
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        # 1. Get currently assigned groups
+        # 1. Get currently assigned groups (only user groups)
         sql_assigned = """
             SELECT gu.group_id, gu.group_name
             FROM service_group_access sga
             JOIN group_user gu ON sga.group_id = gu.group_id
-            WHERE sga.service_id = %s
+            WHERE sga.service_id = %s AND gu.group_type = 'user_group'
         """
         cursor.execute(sql_assigned, (service_id,))
         assigned_data = cursor.fetchall()
         assigned_cols = [col[0] for col in cursor.description]
         assigned_groups = toJson(assigned_data, assigned_cols)
         
-        # 2. Get available groups (not assigned to this service)
+        # 2. Get available groups (only user groups not assigned to this service)
         sql_available = """
             SELECT group_id, group_name
             FROM group_user
-            WHERE group_id NOT IN (
-                SELECT group_id FROM service_group_access WHERE service_id = %s
+            WHERE group_type = 'user_group' AND group_id NOT IN (
+                SELECT sga.group_id 
+                FROM service_group_access sga 
+                JOIN group_user gu ON sga.group_id = gu.group_id 
+                WHERE sga.service_id = %s AND gu.group_type = 'user_group'
             )
         """
         cursor.execute(sql_available, (service_id,))
@@ -69,8 +72,12 @@ def updateDatasetAccessGroups():
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        # Clear existing mappings
-        sql_clear = "DELETE FROM service_group_access WHERE service_id = %s"
+        # Clear existing user group mappings for this service
+        sql_clear = """
+            DELETE sga FROM service_group_access sga
+            JOIN group_user gu ON sga.group_id = gu.group_id
+            WHERE sga.service_id = %s AND gu.group_type = 'user_group'
+        """
         cursor.execute(sql_clear, (service_id,))
         
         # Insert new mappings
@@ -186,32 +193,62 @@ def getGroupDatasetAccess():
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        # 1. Get datasets currently assigned to this group
-        sql_assigned = """
-            SELECT s.service_id, s.service_name, s.organization,
-                   s.category, s.sub_category, s.dataset_id, s.l2e_group_id
-            FROM service_group_access sga
-            JOIN service s ON sga.service_id = s.service_id
-            WHERE sga.group_id = %s AND s.status != 'Deleted'
-        """
-        cursor.execute(sql_assigned, (group_id,))
-        assigned_data = cursor.fetchall()
-        assigned_cols = [col[0] for col in cursor.description]
-        assigned_datasets = toJson(assigned_data, assigned_cols)
+        # Check group type
+        cursor.execute("SELECT group_type FROM group_user WHERE group_id = %s", (group_id,))
+        g_row = cursor.fetchone()
+        g_type = g_row[0] if g_row else 'user_group'
         
-        # 2. Get available datasets (not assigned to this group)
-        sql_available = """
-            SELECT service_id, service_name, organization,
-                   category, sub_category, dataset_id, l2e_group_id
-            FROM service
-            WHERE status != 'Deleted' AND service_id NOT IN (
-                SELECT service_id FROM service_group_access WHERE group_id = %s
-            )
-        """
-        cursor.execute(sql_available, (group_id,))
-        available_data = cursor.fetchall()
-        available_cols = [col[0] for col in cursor.description]
-        available_datasets = toJson(available_data, available_cols)
+        if g_type == 'dataset_group':
+            # 1. Get datasets belonging to this dataset_group
+            sql_assigned = """
+                SELECT s.service_id, s.service_name, s.organization,
+                       s.category, s.sub_category, s.dataset_id, s.l2e_group_id
+                FROM service s
+                WHERE s.l2e_group_id = %s AND s.status != 'Deleted'
+            """
+            cursor.execute(sql_assigned, (group_id,))
+            assigned_data = cursor.fetchall()
+            assigned_cols = [col[0] for col in cursor.description]
+            assigned_datasets = toJson(assigned_data, assigned_cols)
+            
+            # 2. Get available datasets (not assigned to this dataset_group)
+            sql_available = """
+                SELECT s.service_id, s.service_name, s.organization,
+                       s.category, s.sub_category, s.dataset_id, s.l2e_group_id
+                FROM service s
+                WHERE (s.l2e_group_id IS NULL OR s.l2e_group_id != %s) AND s.status != 'Deleted'
+            """
+            cursor.execute(sql_available, (group_id,))
+            available_data = cursor.fetchall()
+            available_cols = [col[0] for col in cursor.description]
+            available_datasets = toJson(available_data, available_cols)
+        else:
+            # 1. Get datasets currently assigned to this user group
+            sql_assigned = """
+                SELECT s.service_id, s.service_name, s.organization,
+                       s.category, s.sub_category, s.dataset_id, s.l2e_group_id
+                FROM service_group_access sga
+                JOIN service s ON sga.service_id = s.service_id
+                WHERE sga.group_id = %s AND s.status != 'Deleted'
+            """
+            cursor.execute(sql_assigned, (group_id,))
+            assigned_data = cursor.fetchall()
+            assigned_cols = [col[0] for col in cursor.description]
+            assigned_datasets = toJson(assigned_data, assigned_cols)
+            
+            # 2. Get available datasets (not assigned to this user group)
+            sql_available = """
+                SELECT service_id, service_name, organization,
+                       category, sub_category, dataset_id, l2e_group_id
+                FROM service
+                WHERE status != 'Deleted' AND service_id NOT IN (
+                    SELECT service_id FROM service_group_access WHERE group_id = %s
+                )
+            """
+            cursor.execute(sql_available, (group_id,))
+            available_data = cursor.fetchall()
+            available_cols = [col[0] for col in cursor.description]
+            available_datasets = toJson(available_data, available_cols)
         
         conn.close()
         return jsonify({
@@ -237,15 +274,27 @@ def updateGroupDatasetAccess():
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        # Clear existing mappings for this GROUP
-        sql_clear = "DELETE FROM service_group_access WHERE group_id = %s"
-        cursor.execute(sql_clear, (group_id,))
-        
-        # Insert new mappings
-        if service_ids:
-            sql_insert = "INSERT INTO service_group_access (group_id, service_id) VALUES (%s, %s)"
-            for sid in service_ids:
-                cursor.execute(sql_insert, (group_id, sid))
+        # Check group type
+        cursor.execute("SELECT group_type FROM group_user WHERE group_id = %s", (group_id,))
+        g_row = cursor.fetchone()
+        g_type = g_row[0] if g_row else 'user_group'
+
+        if g_type == 'dataset_group':
+            # Reset existing datasets that had this l2e_group_id
+            cursor.execute("UPDATE service SET l2e_group_id = NULL WHERE l2e_group_id = %s", (group_id,))
+            if service_ids:
+                format_strings = ','.join(['%s'] * len(service_ids))
+                cursor.execute(f"UPDATE service SET l2e_group_id = %s WHERE service_id IN ({format_strings})", [group_id] + service_ids)
+        else:
+            # Clear existing mappings for this GROUP
+            sql_clear = "DELETE FROM service_group_access WHERE group_id = %s"
+            cursor.execute(sql_clear, (group_id,))
+            
+            # Insert new mappings
+            if service_ids:
+                sql_insert = "INSERT INTO service_group_access (group_id, service_id) VALUES (%s, %s)"
+                for sid in service_ids:
+                    cursor.execute(sql_insert, (group_id, sid))
         
         conn.commit()
         conn.close()

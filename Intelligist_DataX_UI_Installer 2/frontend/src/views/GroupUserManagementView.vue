@@ -21,7 +21,7 @@ const availableSearchQuery = ref('');
 const fetchGroups = async () => {
     isLoading.value = true;
     try {
-        const response = await postWithUser('/getGroups', user.value);
+        const response = await postWithUser('/getGroups', user.value, { group_type: 'user_group' });
         if (response.data.status === 'success') {
             groups.value = response.data.data;
         }
@@ -41,7 +41,8 @@ const handleCreateGroup = async () => {
     if (!newGroupName.value) return;
     try {
         const response = await postWithUser('/addGroup', user.value, {
-            group_name: newGroupName.value
+            group_name: newGroupName.value,
+            group_type: 'user_group'
         });
         if (response.data.status === 'success') {
             isCreateModalOpen.value = false;
@@ -424,7 +425,7 @@ h1 {
 }
 
 .bg-blue-soft { background-color: #eff6ff; }
-.bg-green-soft { background-color: #fdf2f8; }
+.bg-green-soft { background-color: var(--mso-pink-dark); }
 
 .stat-label {
   color: #64748b;
@@ -772,7 +773,7 @@ h1 {
 }
 
 .add-btn {
-  background-color: #fdf2f8;
+  background-color: var(--mso-pink-dark);
   color: var(--primary);
 }
 .add-btn:hover { background-color: var(--primary); color: white; }

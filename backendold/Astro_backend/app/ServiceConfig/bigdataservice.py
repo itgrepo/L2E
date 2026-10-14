@@ -301,8 +301,6 @@ def addService():
                         l2e_group_id, subgroup, subgroup_id, source_system_id, creator_user_id
                     ))
                     new_service_id = cursor.lastrowid
-                    if l2e_group_id and new_service_id:
-                        cursor.execute("INSERT IGNORE INTO service_group_access (service_id, group_id, created_at) VALUES (%s, %s, NOW())", (new_service_id, l2e_group_id))
                     conn.commit()
                     
                     # Notify All Users about the new dataset
@@ -708,8 +706,6 @@ def addService():
                     values.append(service_id)
                     
                     cursor.execute(sql_update, tuple(values))
-                    if l2e_group_id:
-                        cursor.execute("INSERT IGNORE INTO service_group_access (service_id, group_id, created_at) VALUES (%s, %s, NOW())", (service_id, l2e_group_id))
                     conn.commit()
                     
                     # Notify Admin and interested users about the dataset update

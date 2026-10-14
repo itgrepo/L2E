@@ -89,7 +89,7 @@ const isSubmitting = ref(false);
 const fetchGroups = async () => {
     try {
         const userStored = JSON.parse(localStorage.getItem('user') || '{}');
-        const response = await postWithUser('/getGroups', userStored);
+        const response = await postWithUser('/getGroups', userStored, { group_type: 'user_group' });
         if (response.data && response.data.status === 'success') {
             groups.value = response.data.data;
         }
