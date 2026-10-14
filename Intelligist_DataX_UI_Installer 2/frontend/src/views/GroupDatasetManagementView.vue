@@ -326,6 +326,171 @@ const deleteGroup = async (group) => {
   }
 };
 
+// Access Management Modal State (BY GROUP / BY USER from user diagram)
+const showAccessModal = ref(false);
+const selectedAccessGroup = ref(null);
+const accessMode = ref('select'); // 'select' | 'group' | 'user'
+const isProcessingAccess = ref(false);
+const modalSearchQuery = ref('');
+const assignedItems = ref([]);
+const availableItems = ref([]);
+
+const openAccessModal = (group) => {
+  selectedAccessGroup.value = group;
+  accessMode.value = 'select';
+  modalSearchQuery.value = '';
+  assignedItems.value = [];
+  availableItems.value = [];
+  showAccessModal.value = true;
+};
+
+const closeAccessModal = () => {
+  showAccessModal.value = false;
+  selectedAccessGroup.value = null;
+  accessMode.value = 'select';
+  modalSearchQuery.value = '';
+  assignedItems.value = [];
+  availableItems.value = [];
+};
+
+const fetchAccessData = async (mode) => {
+  accessMode.value = mode;
+  isProcessingAccess.value = true;
+  modalSearchQuery.value = '';
+  assignedItems.value = [];
+  availableItems.value = [];
+
+  try {
+    const userParam = getUserParam();
+    if (mode === 'user') {
+      const response = await apiClient.post('/getGroupMembers', {
+        user: userParam,
+        group_id: selectedAccessGroup.value.group_id
+      });
+      if (response.data.status === 'success') {
+        assignedItems.value = response.data.assigned || [];
+        availableItems.value = response.data.available || [];
+      } else {
+        alert(response.data.status || 'ไม่สามารถโหลดรายชื่อผู้ใช้ได้');
+      }
+    } else if (mode === 'group') {
+      const response = await apiClient.post('/getGroupDatasetAccess', {
+        user: userParam,
+        group_id: selectedAccessGroup.value.group_id
+      });
+      if (response.data.status === 'success') {
+        assignedItems.value = response.data.assigned || [];
+        availableItems.value = response.data.available || [];
+      } else {
+        alert(response.data.status || 'ไม่สามารถโหลดข้อมูลชุดข้อมูลของกลุ่มได้');
+      }
+    }
+  } catch (error) {
+    console.error(`Error fetching ${mode} access:`, error);
+    alert('ไม่สามารถโหลดข้อมูลสิทธิ์ได้ กรุณาลองใหม่');
+  } finally {
+    isProcessingAccess.value = false;
+  }
+};
+
+const handleAssign = (item) => {
+  if (accessMode.value === 'user') {
+    availableItems.value = availableItems.value.filter(i => i.user_id !== item.user_id);
+    assignedItems.value.push(item);
+  } else {
+    availableItems.value = availableItems.value.filter(i => i.service_id !== item.service_id);
+    assignedItems.value.push(item);
+  }
+};
+
+const handleUnassign = (item) => {
+  if (accessMode.value === 'user') {
+    assignedItems.value = assignedItems.value.filter(i => i.user_id !== item.user_id);
+    availableItems.value.push(item);
+  } else {
+    assignedItems.value = assignedItems.value.filter(i => i.service_id !== item.service_id);
+    availableItems.value.push(item);
+  }
+};
+
+const saveAccessChanges = async () => {
+  if (!selectedAccessGroup.value) return;
+  isProcessingAccess.value = true;
+  try {
+    const userParam = getUserParam();
+    if (accessMode.value === 'user') {
+      const userIds = assignedItems.value.map(i => i.user_id);
+      const response = await apiClient.post('/updateGroupMembers', {
+        user: userParam,
+        group_id: selectedAccessGroup.value.group_id,
+        user_ids: userIds
+      });
+      if (response.data.status === 'success') {
+        alert('บันทึกข้อมูลสมาชิกกลุ่มเรียบร้อยแล้ว');
+        fetchGroups();
+        accessMode.value = 'select';
+      } else {
+        alert('Error: ' + (response.data.status || 'ไม่สามารถบันทึกได้'));
+      }
+    } else if (accessMode.value === 'group') {
+      const serviceIds = assignedItems.value.map(i => i.service_id);
+      const response = await apiClient.post('/updateGroupDatasetAccess', {
+        user: userParam,
+        group_id: selectedAccessGroup.value.group_id,
+        service_ids: serviceIds
+      });
+      if (response.data.status === 'success') {
+        alert('บันทึกสิทธิ์ชุดข้อมูลของกลุ่มเรียบร้อยแล้ว');
+        fetchGroups();
+        accessMode.value = 'select';
+      } else {
+        alert('Error: ' + (response.data.status || 'ไม่สามารถบันทึกได้'));
+      }
+    }
+  } catch (error) {
+    console.error('Error saving access changes:', error);
+    alert('ไม่สามารถบันทึกข้อมูลได้ กรุณาลองใหม่');
+  } finally {
+    isProcessingAccess.value = false;
+  }
+};
+
+const filteredAssigned = computed(() => {
+  if (!modalSearchQuery.value) return assignedItems.value;
+  const q = modalSearchQuery.value.trim().toLowerCase();
+  return assignedItems.value.filter(item => {
+    if (accessMode.value === 'user') {
+      const name = `${item.firstname || ''} ${item.lastname || ''}`.toLowerCase();
+      const username = (item.username || '').toLowerCase();
+      const email = (item.email || '').toLowerCase();
+      return name.includes(q) || username.includes(q) || email.includes(q);
+    } else {
+      const sName = (item.service_name || '').toLowerCase();
+      const dsId = (item.dataset_id || '').toLowerCase();
+      const org = (item.organization || '').toLowerCase();
+      return sName.includes(q) || dsId.includes(q) || org.includes(q);
+    }
+  });
+});
+
+const filteredAvailable = computed(() => {
+  if (!modalSearchQuery.value) return availableItems.value;
+  const q = modalSearchQuery.value.trim().toLowerCase();
+  return availableItems.value.filter(item => {
+    if (accessMode.value === 'user') {
+      const name = `${item.firstname || ''} ${item.lastname || ''}`.toLowerCase();
+      const username = (item.username || '').toLowerCase();
+      const email = (item.email || '').toLowerCase();
+      return name.includes(q) || username.includes(q) || email.includes(q);
+    } else {
+      const sName = (item.service_name || '').toLowerCase();
+      const dsId = (item.dataset_id || '').toLowerCase();
+      const org = (item.organization || '').toLowerCase();
+      return sName.includes(q) || dsId.includes(q) || org.includes(q);
+    }
+  });
+});
+
 onMounted(() => {
   fetchGroups();
 });
@@ -360,22 +525,42 @@ onMounted(() => {
           <h3>{{ group.group_name }}</h3>
           <p class="owner">สร้างเมื่อ: {{ group.create_at }}</p>
           <div class="card-stats">
-            <div class="stat">
+            <div class="stat" :title="'จำนวนสมาชิกทั้งหมดในกลุ่ม โดยไม่นับจำนวนสมาชิกเนื่องจาก 1 user สามารถถืออยู่ได้มากกว่า 1 Group User'">
               <span class="stat-value">{{ group.member_count }}</span>
-              <span class="stat-label">สมาชิก</span>
+              <span class="stat-label">
+                สมาชิก
+                <span class="stat-info-badge" :title="'จำนวนสมาชิกทั้งหมดในกลุ่ม โดยไม่นับจำนวนสมาชิกเนื่องจาก 1 user สามารถถืออยู่ได้มากกว่า 1 Group User'">ℹ️</span>
+              </span>
             </div>
-            <div class="stat">
+            <div class="stat" :title="'จำนวนชุดข้อมูลทั้งหมดในกลุ่ม (ชุดข้อมูลสามารถถืออยู่ได้ 1 กลุ่มโดยถูกบังคับให้เลือก Group & Subgroup ตั้งแต่ตอนสร้างแต่สามารถมาปรับแก้ไขได้ภายหลังที่ Group manage)'">
               <span class="stat-value">{{ group.dataset_count || 0 }}</span>
-              <span class="stat-label">ชุดข้อมูล</span>
+              <span class="stat-label">
+                ชุดข้อมูล
+                <span class="stat-info-badge" :title="'จำนวนชุดข้อมูลทั้งหมดในกลุ่ม (ชุดข้อมูลสามารถถืออยู่ได้ 1 กลุ่มโดยถูกบังคับให้เลือก Group & Subgroup ตั้งแต่ตอนสร้างแต่สามารถมาปรับแก้ไขได้ภายหลังที่ Group manage)'">ℹ️</span>
+              </span>
             </div>
           </div>
           <div class="card-footer">
-            <button class="btn-manage" @click="openManageModal(group)">
-              <span>⚙️</span> จัดการชุดข้อมูล
+            <button class="btn-card-action btn-manage-access" @click="openAccessModal(group)" title="จัดการ user และกลุ่ม user">
+              <svg xmlns="http://www.w3.org/2000/svg" class="action-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+              <span>จัดการ user และกลุ่ม user</span>
+            </button>
+            <button class="btn-card-action btn-manage-subgroup" @click="openManageModal(group)" title="จัดการกลุ่มย่อย">
+              <svg xmlns="http://www.w3.org/2000/svg" class="action-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+              <span>จัดการกลุ่มย่อย</span>
             </button>
             <button class="btn-delete-group" @click="deleteGroup(group)" title="ลบกลุ่ม">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-              ลบกลุ่ม
+              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                <line x1="10" y1="11" x2="10" y2="17"></line>
+                <line x1="14" y1="11" x2="14" y2="17"></line>
+              </svg>
+              <span>ลบกลุ่ม</span>
             </button>
           </div>
         </div>
@@ -571,6 +756,133 @@ onMounted(() => {
           </div>
         </div>
       </div>
+
+      <!-- Manage Access Modal (BY GROUP & BY USER) -->
+      <div v-if="showAccessModal" class="modal-overlay">
+        <div class="modal modal-access">
+          <header class="modal-header">
+            <div class="modal-title-wrap">
+              <div class="title-with-badge">
+                <span class="modal-title-icon">🔐</span>
+                <h2>จัดการสิทธิ์การเข้าถึง</h2>
+              </div>
+              <p class="modal-subtitle">({{ selectedAccessGroup?.group_name }})</p>
+            </div>
+            <button class="btn-close" @click="closeAccessModal">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </header>
+
+          <div class="modal-body scrollbar-custom">
+            <!-- Mode Selection: 2 Cards (BY GROUP & BY USER) -->
+            <div v-if="accessMode === 'select'" class="selection-grid transition-fade">
+              <button class="selection-card group" @click="fetchAccessData('group')">
+                <div class="selection-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
+                <div class="selection-info">
+                  <h3>BY GROUP</h3>
+                  <p>จัดการสิทธิ์ตามกลุ่มผู้ใช้งาน</p>
+                </div>
+              </button>
+              
+              <button class="selection-card user" @click="fetchAccessData('user')">
+                <div class="selection-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+                <div class="selection-info">
+                  <h3>BY USER</h3>
+                  <p>จัดการสิทธิ์รายบุคคล</p>
+                </div>
+              </button>
+            </div>
+
+            <!-- Dual List Interface -->
+            <div v-else class="dual-list-container transition-fade">
+              <div class="dual-header">
+                <button class="btn-back" @click="accessMode = 'select'">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                  ย้อนกลับ
+                </button>
+                <div class="modal-search">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <input type="text" v-model="modalSearchQuery" :placeholder="accessMode === 'user' ? 'ค้นหาชื่อผู้ใช้หรืออีเมล...' : 'ค้นหาชื่อชุดข้อมูลหรือรหัส...'">
+                </div>
+              </div>
+
+              <div v-if="isProcessingAccess" class="loading-state" style="padding: 60px 0;">
+                <div class="spinner"></div>
+                <p style="color: #64748b; margin-top: 12px;">กำลังโหลดข้อมูล...</p>
+              </div>
+
+              <div v-else class="lists-wrapper">
+                <!-- Assigned Column -->
+                <div class="list-column assigned">
+                  <div class="column-title">
+                    <span class="dot red"></span>
+                    {{ accessMode === 'user' ? 'ผู้ใช้ที่ได้รับสิทธิ์ในกลุ่ม' : 'ชุดข้อมูลที่ได้รับสิทธิ์ในกลุ่ม' }}
+                    <span class="count-badge">{{ assignedItems.length }}</span>
+                  </div>
+                  <div class="list-items scrollbar-custom">
+                    <div v-for="item in filteredAssigned" :key="item.user_id || item.service_id" class="list-item">
+                      <div class="item-info">
+                        <span class="item-name">{{ accessMode === 'user' ? `${item.firstname || ''} ${item.lastname || ''}` : item.service_name }}</span>
+                        <span class="item-sub">{{ accessMode === 'user' ? (item.username || item.email) : (item.dataset_id || item.organization) }}</span>
+                      </div>
+                      <button class="item-action remove" @click="handleUnassign(item)" :title="accessMode === 'user' ? 'ลบผู้ใช้' : 'ลบชุดข้อมูล'">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </button>
+                    </div>
+                    <div v-if="filteredAssigned.length === 0" class="empty-list">ไม่มีรายการที่ถูกเลือก</div>
+                  </div>
+                </div>
+
+                <!-- Available Column -->
+                <div class="list-column available">
+                  <div class="column-title">
+                    <span class="dot green"></span>
+                    {{ accessMode === 'user' ? 'เพิ่มผู้ใช้งานในระบบ' : 'เพิ่มชุดข้อมูล' }}
+                    <span class="count-badge gray">{{ availableItems.length }}</span>
+                  </div>
+                  <div class="list-items scrollbar-custom">
+                    <div v-for="item in filteredAvailable" :key="item.user_id || item.service_id" class="list-item">
+                      <div class="item-info">
+                        <span class="item-name">{{ accessMode === 'user' ? `${item.firstname || ''} ${item.lastname || ''}` : item.service_name }}</span>
+                        <span class="item-sub">{{ accessMode === 'user' ? (item.username || item.email) : (item.dataset_id || item.organization) }}</span>
+                      </div>
+                      <button class="item-action add" @click="handleAssign(item)" :title="accessMode === 'user' ? 'เพิ่มเข้ากลุ่ม' : 'เพิ่มชุดข้อมูลเข้ากลุ่ม'">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </button>
+                    </div>
+                    <div v-if="filteredAvailable.length === 0" class="empty-list">ไม่พบรายการให้เลือกเพิ่ม</div>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="!isProcessingAccess" class="modal-footer" style="padding: 16px 0 0; background: none; border-top: 1px solid #e2e8f0; margin-top: 16px;">
+                <button class="btn-cancel" @click="accessMode = 'select'">ยกเลิก</button>
+                <button class="btn-save" @click="saveAccessChanges" :disabled="isProcessingAccess">
+                  บันทึกข้อมูล
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 </template>
@@ -714,32 +1026,58 @@ h3 {
 .card-footer {
   margin-top: auto;
   display: flex;
+  align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
-.btn-manage {
-  flex: 1;
-  padding: 12px;
+.btn-card-action {
+  flex: 1 1 130px;
+  padding: 10px 12px;
   border-radius: 12px;
-  background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
-  color: #3b82f6;
   font-weight: 600;
+  font-size: 0.8rem;
   cursor: pointer;
   transition: all 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
+  white-space: nowrap;
 }
 
-.btn-manage:hover {
+.btn-manage-access {
+  background-color: #f0fdf4;
+  border: 1.5px solid #bbf7d0;
+  color: #166534;
+}
+
+.btn-manage-access:hover {
+  background-color: #dcfce7;
+  border-color: #86efac;
+  transform: translateY(-1px);
+}
+
+.btn-manage-subgroup {
   background-color: #eff6ff;
-  border-color: #bfdbfe;
+  border: 1.5px solid #bfdbfe;
+  color: #1d4ed8;
+}
+
+.btn-manage-subgroup:hover {
+  background-color: #dbeafe;
+  border-color: #93c5fd;
+  transform: translateY(-1px);
+}
+
+.action-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .btn-delete-group {
-  padding: 12px;
+  padding: 10px 12px;
   border-radius: 12px;
   background-color: #fef2f2;
   border: 1px solid #fecaca;
@@ -750,14 +1088,355 @@ h3 {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  font-size: 0.85rem;
+  gap: 4px;
+  font-size: 0.8rem;
   white-space: nowrap;
 }
 
 .btn-delete-group:hover {
   background-color: #fee2e2;
   border-color: #f87171;
+  transform: translateY(-1px);
+}
+
+.stat-info-badge {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 0.8rem;
+  opacity: 0.6;
+  cursor: help;
+  transition: opacity 0.2s;
+}
+
+.stat-info-badge:hover {
+  opacity: 1;
+}
+
+/* Access Modal Specific Styles */
+.modal-access {
+  max-width: 860px;
+  width: 95%;
+}
+
+.modal-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title-with-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modal-title-icon {
+  font-size: 1.5rem;
+}
+
+.selection-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  padding: 24px 0;
+}
+
+.selection-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 40px 24px;
+  border-radius: 20px;
+  border: 2px solid #e2e8f0;
+  background: white;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.selection-card:hover {
+  border-color: #3b82f6;
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px -6px rgba(59, 130, 246, 0.15);
+}
+
+.selection-card.group:hover {
+  border-color: #3b82f6;
+}
+
+.selection-card.user:hover {
+  border-color: #10b981;
+}
+
+.selection-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+}
+
+.selection-icon svg {
+  width: 36px;
+  height: 36px;
+}
+
+.selection-card.group .selection-icon {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.selection-card.user .selection-icon {
+  background: #ecfdf5;
+  color: #10b981;
+}
+
+.selection-info {
+  text-align: center;
+}
+
+.selection-info h3 {
+  font-weight: 800;
+  font-size: 1.25rem;
+  color: #1e293b;
+  margin-bottom: 6px;
+}
+
+.selection-info p {
+  font-size: 0.9rem;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Dual List Layout */
+.dual-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dual-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.btn-back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  color: #64748b;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.btn-back:hover {
+  color: #1e293b;
+  background: #f1f5f9;
+}
+
+.modal-search {
+  position: relative;
+  width: 280px;
+}
+
+.modal-search input {
+  width: 100%;
+  padding: 8px 12px 8px 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  font-size: 0.8125rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.modal-search input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.modal-search .search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: #94a3b8;
+}
+
+.lists-wrapper {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  min-height: 380px;
+}
+
+.list-column {
+  background: white;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: 440px;
+}
+
+.column-title {
+  padding: 14px 18px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.dot.red { background: #ef4444; }
+.dot.green { background: #10b981; }
+
+.count-badge {
+  background: #0f172a;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  margin-left: auto;
+}
+
+.count-badge.gray {
+  background: #e2e8f0;
+  color: #64748b;
+}
+
+.list-items {
+  flex: 1;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 10px;
+  transition: all 0.15s;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.list-item:hover {
+  background: #f8fafc;
+}
+
+.item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+  padding-right: 8px;
+}
+
+.item-name {
+  font-weight: 600;
+  color: #1e293b;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-sub {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-action {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.item-action.remove {
+  background: #fef2f2;
+  color: #ef4444;
+}
+
+.item-action.remove:hover {
+  background: #ef4444;
+  color: white;
+}
+
+.item-action.add {
+  background: #ecfdf5;
+  color: #10b981;
+}
+
+.item-action.add:hover {
+  background: #10b981;
+  color: white;
+}
+
+.empty-list {
+  padding: 40px 20px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.8125rem;
+  font-style: italic;
+}
+
+.transition-fade {
+  animation: fadeIn 0.25s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.scrollbar-custom::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollbar-custom::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-custom::-webkit-scrollbar-thumb {
+  background: #e2e8f0;
+  border-radius: 10px;
+}
+
+.scrollbar-custom::-webkit-scrollbar-thumb:hover {
+  background: #cbd5e1;
 }
 
 /* Modal Styles */
