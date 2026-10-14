@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch, computed, onActivated } from 'vue';
+import { ref, onMounted, watch, computed, onActivated, reactive } from 'vue';
 import { useRoute } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { encodeUserData, postWithUser } from '../utils/api';
@@ -17,12 +17,14 @@ const tabs = [
 
 const formData = ref({
   dataset_id: '',
+  l2e_group_id: '',
+  source_system_id: '',
   category: '',
   sub_category: '',
   status: 'Inactive', // Match portal default
   service_name: '',
   organization: '',
-  access_type: 'เลือกการเข้าถึง',
+  access_type: '',
   contact_name: '', // Will be used for "ชื่อฝ่ายงานสำหรับติดต่อ"
   contact_email: '',
   tags: '',
@@ -47,35 +49,91 @@ const formData = ref({
   external_api_url: ''
 });
 
+const govConflictMessage = computed(() => {
+  const access = formData.value.access_type;
+  const gov = formData.value.gov_category;
+  
+  if (!access || !gov || gov === 'เลือกหมวดหมู่ข้อมูลตามธรรมาภิบาลข้อมูลภาครัฐ') return null;
+
+  const accessThMap = {
+    'public': 'สาธารณะ (Public)',
+    'internal': 'ภายในหน่วยงาน (Internal)',
+    'restricted': 'จำกัดสิทธิ์ (Restricted)',
+    'pii': 'เฉพาะเจ้าของ (Private)'
+  };
+
+  if (access === 'public' && ['ข้อมูลส่วนบุคคล', 'ข้อมูลลับ', 'ข้อมูลความมั่นคง'].includes(gov)) {
+    return `ข้อควรระวัง: การเข้าถึงเป็น "สาธารณะ" แต่หมวดหมู่ธรรมาภิบาลเป็น "${gov}" ซึ่งย้อนแย้งกัน`;
+  }
+  
+  if (['internal', 'restricted', 'pii'].includes(access) && gov === 'ข้อมูลสาธารณะ') {
+    return `ข้อควรระวัง: การเข้าถึงเป็น "${accessThMap[access]}" แต่หมวดหมู่ธรรมาภิบาลเป็น "ข้อมูลสาธารณะ" ซึ่งย้อนแย้งกัน`;
+  }
+  
+  return null;
+});
+
+
 const isSubmitting = ref(false);
 const successMessage = ref('');
 const errorMessage = ref('');
 const editingId = ref(null);
 const datasets = ref([]);
+const datasetGroups = ref([]);
+const sourceSystems = ref([]);
+
+const fetchMasters = async () => {
+  try {
+    const userData = localStorage.getItem('user');
+    const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
+    const groupRes = await apiClient.post('/getDatasetGroups', { user: userParam });
+    if (groupRes.data && groupRes.data.status === 'success') {
+      datasetGroups.value = groupRes.data.data;
+    } else if (Array.isArray(groupRes.data)) {
+      datasetGroups.value = groupRes.data;
+    } else if (groupRes.data && groupRes.data.data) {
+      datasetGroups.value = groupRes.data.data;
+    }
+    const sysRes = await apiClient.post('/getSourceSystems', { user: userParam });
+    if (sysRes.data && sysRes.data.status === 'success') {
+      sourceSystems.value = sysRes.data.data;
+    } else if (sysRes.data) {
+      sourceSystems.value = sysRes.data;
+    }
+  } catch (err) {
+    console.error('Error fetching masters:', err);
+  }
+};
 
 const fetchDatasets = async () => {
   try {
-    // Use retrieveService which works without admin auth
-    const response = await apiClient.get('/retrieveService');
-    if (response.data && response.data.data) {
+    const userData = localStorage.getItem('user');
+    const response = await apiClient.post('/getService', {
+      user: encodeUserData(JSON.parse(userData))
+    });
+    if (response.data.status === 'success') {
       datasets.value = response.data.data;
     } else if (Array.isArray(response.data)) {
       datasets.value = response.data;
     }
   } catch (error) {
     console.error('Fetch error:', error);
-    // Fallback to getService if retrieveService fails
-    try {
-      const userData = localStorage.getItem('user');
-      const res = await apiClient.post('/getService', {
-        user: btoa(userData)
-      });
-      if (res.data.status === 'success') {
-        datasets.value = res.data.data;
-      }
-    } catch (e) {
-      console.error('Fallback fetch also failed:', e);
+  }
+};
+
+const canEditItem = (item) => {
+  try {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const role = String(user.previlage_id || user.role_id || '');
+    if (role === '4') return true;
+    const uid = user.user_id || user.id;
+    if (item.created_by && uid && String(item.created_by) === String(uid)) return true;
+    if (!item.created_by && item.contact_email && user.email) {
+      return item.contact_email.trim().toLowerCase() === user.email.trim().toLowerCase();
     }
+    return false;
+  } catch (e) {
+    return false;
   }
 };
 
@@ -83,6 +141,11 @@ const checkEditQuery = () => {
   if (route.query.edit) {
     const item = datasets.value.find(d => String(d.service_id) === String(route.query.edit));
     if (item) {
+      if (!canEditItem(item)) {
+        alert('คุณไม่มีสิทธิ์แก้ไขชุดข้อมูลนี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้');
+        router.push('/dataset-management');
+        return;
+      }
       selectForEdit(item);
     }
   }
@@ -90,6 +153,8 @@ const checkEditQuery = () => {
 
 onMounted(async () => {
   await fetchCategories();
+  fetchOrganizations();
+  await fetchMasters();
   await fetchDatasets();
   checkEditQuery();
 });
@@ -106,12 +171,14 @@ const selectForEdit = (item) => {
   editingId.value = item.service_id;
   formData.value = {
     dataset_id: item.dataset_id || '',
+    l2e_group_id: item.l2e_group_id || '',
+    source_system_id: item.source_system_id || '',
     category: item.category || '',
     sub_category: item.sub_category || '',
     status: item.status || 'Inactive',
     service_name: item.service_name || '',
     organization: item.organization || '',
-    access_type: item.access_type || 'เลือกการเข้าถึง',
+    access_type: item.access_type || '',
     contact_name: item.contact_name || '',
     contact_email: item.contact_email || '',
     tags: item.tags || '',
@@ -133,8 +200,8 @@ const selectForEdit = (item) => {
     objective_type: item.objective_type || 'ภารกิจหน่วยงาน',
     external_dashboard_url: item.external_dashboard_url || '',
     external_api_url: item.external_api_url || '',
-    date_start: item.date_start || '',
-    date_updated: item.date_updated || '',
+    date_start: item.date_start ? item.date_start.split('T')[0] : '',
+    date_updated: new Date().toISOString().split('T')[0], // Default to today on edit
     is_high_value: item.is_high_value || 'ไม่ใช่',
     is_reference: item.is_reference || 'ไม่ใช่',
     dataset_type: item.dataset_type || 'record',
@@ -163,12 +230,14 @@ const resetForm = () => {
   editingId.value = null;
   formData.value = {
     dataset_id: '',
+    l2e_group_id: '',
+    source_system_id: '',
     category: '',
     sub_category: '',
     status: 'Inactive',
     service_name: '',
     organization: '',
-    access_type: 'เลือกการเข้าถึง',
+    access_type: '',
     contact_name: '',
     contact_email: '',
     tags: '',
@@ -190,6 +259,9 @@ const resetForm = () => {
     objective_type: '',
     external_dashboard_url: '',
     external_api_url: '',
+    date_start: '',
+    date_updated: new Date().toISOString().split('T')[0], // Default to today on create
+    is_high_value: 'ไม่ใช่',
     dataset_type: 'record',
     stat_year_start: '',
     stat_year_latest: '',
@@ -340,7 +412,7 @@ const handleApiConfigSubmit = async () => {
     }
   } catch(e) {
     console.error('API config error:', e);
-    errorMessage.value = 'เกิดข้อผิดพลาดในการบันทึก';
+    errorMessage.value = e.response?.data?.status || e.response?.data?.message || 'เกิดข้อผิดพลาดในการบันทึก';
   } finally {
     isSubmitting.value = false;
   }
@@ -358,7 +430,7 @@ const handleLinkSubmit = async () => {
   try {
     const userData = localStorage.getItem('user');
     const fd = new FormData();
-    fd.append('user', btoa(userData));
+    fd.append('user', encodeUserData(JSON.parse(userData)));
     fd.append('service_id', linkDatasetId.value);
     
     // We only update the specific link field
@@ -381,17 +453,32 @@ const handleLinkSubmit = async () => {
     }
   } catch (error) {
     console.error('Link update error:', error);
-    errorMessage.value = 'ไม่สามารถบันทึกลิงก์ได้';
+    errorMessage.value = error.response?.data?.status || error.response?.data?.message || 'ไม่สามารถบันทึกลิงก์ได้';
   } finally {
     isSubmitting.value = false;
   }
 };
 
+const acceptedExtensions = {
+  dictionary: ['csv', 'xls', 'xlsx'],
+  main: ['csv', 'xls', 'xlsx', 'xml', 'json'],
+  zip: ['zip']
+};
+
 const handleFileSelect = (event) => {
   const file = event.target.files[0];
-  if (file) {
-    selectedFile.value = file;
+  if (!file) return;
+  const ext = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : '';
+  const allowed = acceptedExtensions[fileType.value] || [];
+  if (!allowed.includes(ext)) {
+    errorMessage.value = `ไฟล์ "${file.name}" ไม่ตรงกับประเภทที่เลือก (รองรับเฉพาะ ${allowed.map(e => e.toUpperCase()).join(', ')})`;
+    selectedFile.value = null;
+    event.target.value = '';
+    return;
   }
+  errorMessage.value = '';
+  selectedFile.value = file;
+  event.target.value = '';
 };
 
 const triggerFileUpload = () => {
@@ -411,7 +498,7 @@ const handleFileUpload = async () => {
   try {
     const userData = localStorage.getItem('user');
     const fd = new FormData();
-    fd.append('user', btoa(userData));
+    fd.append('user', encodeUserData(JSON.parse(userData)));
     fd.append('service_id', uploadDatasetId.value);
     fd.append('data_file', selectedFile.value);
     fd.append('file_type', fileType.value);
@@ -429,7 +516,7 @@ const handleFileUpload = async () => {
     }
   } catch (error) {
     console.error('Upload error:', error);
-    errorMessage.value = 'ไม่สามารถอัปโหลดไฟล์ได้';
+    errorMessage.value = error.response?.data?.status || error.response?.data?.message || 'ไม่สามารถอัปโหลดไฟล์ได้';
   } finally {
     isSubmitting.value = false;
   }
@@ -443,7 +530,7 @@ const handleSubmit = async () => {
   try {
     const userData = localStorage.getItem('user');
     const fd = new FormData();
-    fd.append('user', btoa(userData)); 
+    fd.append('user', encodeUserData(JSON.parse(userData))); 
     
     // Add all metadata fields
     Object.keys(formData.value).forEach(key => {
@@ -476,28 +563,103 @@ const handleSubmit = async () => {
     }
   } catch (error) {
     console.error('Submit error:', error);
-    errorMessage.value = 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้';
+    errorMessage.value = error.response?.data?.status || error.response?.data?.message || error.message || 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้';
   } finally {
     isSubmitting.value = false;
   }
 };
 
 // L2E Category Mapping
-const categoryMap = {
+const categoryMap = reactive({
   'Learning Catalog': ['Course / Learning Offerings'],
   'Learning Record': ['Course Completion / Credit Earned'],
   'Learner Profile': ['Competency / Profile / Career Interest'],
   'Job Market': ['Vacancy / Labour Demand'],
   'Skill Intelligence': ['Skill Demand / Gap / Salary Insight']
+});
+
+const showAddSubCatModal = ref(false);
+const newSubCatName = ref('');
+
+const modalSelectedCategory = ref('');
+
+const handleAddSubCategory = async () => {
+  if (!newSubCatName.value.trim()) return;
+  const cat = modalSelectedCategory.value;
+  if (!cat) {
+    alert('กรุณาเลือกหมวดหมู่หลักก่อนเพิ่มหมวดหมู่ย่อย');
+    return;
+  }
+  
+  const subName = newSubCatName.value.trim();
+  
+  try {
+    const userData = localStorage.getItem('user') || '';
+    const res = await apiClient.post('/addSubCategory', {
+      user: userData ? encodeUserData(JSON.parse(userData)) : '',
+      category_name: cat,
+      sub_category_name: subName
+    });
+    
+    if (res.data && res.data.status === 'success') {
+      await fetchCategories();
+  fetchOrganizations(); // Refresh list
+      formData.value.category = cat;
+      setTimeout(() => {
+        formData.value.sub_category = subName;
+      }, 100);
+      showAddSubCatModal.value = false;
+      newSubCatName.value = '';
+    } else {
+      alert('Error: ' + (res.data.status || 'Failed'));
+    }
+  } catch (err) {
+    console.error(err);
+    alert('Failed to add sub-category');
+  }
 };
 
-const categoriesList = ref(['Learning Catalog', 'Learning Record', 'Learner Profile', 'Job Market', 'Skill Intelligence']);
+const organizations = ref([]);
+const categoriesList = ref([]);
+
+
+const fetchOrganizations = async () => {
+  try {
+    const userData = localStorage.getItem('user');
+    const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
+    const response = await apiClient.post('/getOrganizations', { user: userParam });
+    if (response.data.status === 'success') {
+      organizations.value = response.data.data;
+    }
+  } catch (error) {
+    console.error('Error fetching organizations:', error);
+  }
+};
+
+const availableOrganizations = computed(() => {
+  return organizations.value.filter(org => org.is_active || (formData.value.organization && org.org_name === formData.value.organization));
+});
 
 const fetchCategories = async () => {
   try {
     const response = await apiClient.get('/retrieveCategories');
     if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
       categoriesList.value = response.data.data.map(c => c.name || c.category_name);
+    }
+    
+    // Fetch Sub Categories
+    const subRes = await apiClient.get('/retrieveSubCategories');
+    if (subRes.data && subRes.data.status === 'success' && Array.isArray(subRes.data.data)) {
+      // Clear and rebuild map
+      for (let key in categoryMap) {
+        delete categoryMap[key];
+      }
+      subRes.data.data.forEach(item => {
+        if (!categoryMap[item.category_name]) categoryMap[item.category_name] = [];
+        if (!categoryMap[item.category_name].includes(item.sub_category_name)) {
+          categoryMap[item.category_name].push(item.sub_category_name);
+        }
+      });
     }
   } catch (error) {
     console.error('Fetch categories error:', error);
@@ -516,6 +678,77 @@ const onCategoryChange = () => {
     formData.value.sub_category = '';
   }
 };
+
+const showAddSubgroupModal = ref(false);
+const newSubgroupName = ref('');
+const newSubgroupPrefix = ref('');
+const isAddingSubgroup = ref(false);
+
+const handleAddSubgroup = async () => {
+  if (!newSubgroupName.value.trim() || !newSubgroupPrefix.value.trim()) {
+    alert('กรุณากรอกชื่อกลุ่มข้อมูลย่อยและรหัส Prefix (เช่น CRS-)');
+    return;
+  }
+  
+  isAddingSubgroup.value = true;
+  try {
+    const userData = localStorage.getItem('user') || '';
+    const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
+    const res = await apiClient.post('/addDatasetGroup', {
+      user: userParam,
+      name_th: newSubgroupName.value.trim(),
+      prefix: newSubgroupPrefix.value.trim()
+    });
+    
+    if (res.data && res.data.status === 'success') {
+      await fetchMasters();
+      formData.value.l2e_group_id = res.data.data.id;
+      updateDatasetPrefix();
+      showAddSubgroupModal.value = false;
+      newSubgroupName.value = '';
+      newSubgroupPrefix.value = '';
+      alert('เพิ่มกลุ่มข้อมูลย่อยสำเร็จ');
+    } else {
+      alert('Error: ' + (res.data?.status || 'Failed'));
+    }
+  } catch (err) {
+    console.error('Error adding subgroup:', err);
+    alert(err.response?.data?.status || 'ไม่สามารถเพิ่มกลุ่มข้อมูลย่อยได้');
+  } finally {
+    isAddingSubgroup.value = false;
+  }
+};
+
+const updateDatasetPrefix = () => {
+  if (editingId.value) return; // ห้ามเขียนทับ Dataset ID เดิมอัตโนมัติ
+  const selectedGroup = datasetGroups.value.find(g => (g.id || g.group_id) === formData.value.l2e_group_id);
+  if (selectedGroup && selectedGroup.prefix) {
+    formData.value.dataset_id = selectedGroup.prefix;
+  }
+  // Auto-sync category if matching
+  if (selectedGroup) {
+    const code = (selectedGroup.code || '').toLowerCase();
+    const name = (selectedGroup.name_th || selectedGroup.name_en || '').toLowerCase();
+    if (code.includes('course') || name.includes('หลักสูตร')) {
+      if (categoriesList.value.includes('Course Data')) formData.value.category = 'Course Data';
+      else if (categoriesList.value.includes('Learning Catalog')) formData.value.category = 'Learning Catalog';
+    } else if (code.includes('completion') || name.includes('ผลการเรียน')) {
+      if (categoriesList.value.includes('Completion Data')) formData.value.category = 'Completion Data';
+      else if (categoriesList.value.includes('Learning Record')) formData.value.category = 'Learning Record';
+    } else if (code.includes('competency') || name.includes('สมรรถนะ')) {
+      if (categoriesList.value.includes('Competency Data')) formData.value.category = 'Competency Data';
+      else if (categoriesList.value.includes('Learner Profile')) formData.value.category = 'Learner Profile';
+    } else if (code.includes('job') || name.includes('ตลาดแรงงาน')) {
+      if (categoriesList.value.includes('Job / Labour Market Data')) formData.value.category = 'Job / Labour Market Data';
+      else if (categoriesList.value.includes('Job Market')) formData.value.category = 'Job Market';
+    } else if (code.includes('skill') || name.includes('วิเคราะห์ทักษะ')) {
+      if (categoriesList.value.includes('Skill Analytics Data')) formData.value.category = 'Skill Analytics Data';
+      else if (categoriesList.value.includes('Skill Intelligence')) formData.value.category = 'Skill Intelligence';
+    }
+    onCategoryChange();
+  }
+};
+
 </script>
 
 <template>
@@ -550,7 +783,7 @@ const onCategoryChange = () => {
 
         <div class="header-titles">
           <h1>Dataset Configuration</h1>
-          <p>จัดการและตั้งค่าชุดข้อมูลในระบบ Intelligist DataX Portal</p>
+          <p>จัดการและตั้งค่าชุดข้อมูลในระบบ Data Portal</p>
         </div>
       </header>
 
@@ -578,10 +811,7 @@ const onCategoryChange = () => {
               <button v-if="editingId" @click="resetForm" class="btn-cancel-mini">คืนค่าสถานะสร้างใหม่</button>
             </div>
             
-            <div v-if="successMessage" class="alert alert-success">{{ successMessage }}</div>
-            <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
-
-            <form @submit.prevent="handleSubmit" class="config-form">
+                                    <form @submit.prevent="handleSubmit" class="config-form">
               <div class="dataset-type-selector mt-4 mb-6">
                 <label class="block text-slate-700 font-semibold mb-2" style="font-size: 1.1rem; border-bottom: 2px solid var(--primary); padding-bottom: 0.5rem; display: inline-block;">ประเภทชุดข้อมูล (Dataset Type) *</label>
                 <div class="flex flex-wrap gap-2 mt-2" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem;">
@@ -609,22 +839,42 @@ const onCategoryChange = () => {
                 <h3 class="block-title">1. ข้อมูลพื้นฐานชุดข้อมูล (Core Info)</h3>
                 <div class="form-row">
                   <div class="form-group">
-                    <label>รหัสชุดข้อมูล * (Dataset ID)</label>
-                    <input type="text" v-model="formData.dataset_id" placeholder="ตัวอย่าง A001" required>
+                    <label>กลุ่มข้อมูลย่อย (Subgroup) *</label>
+                    <div style="display: flex; gap: 8px; width: 100%; min-width: 0;">
+                      <select v-model="formData.l2e_group_id" @change="updateDatasetPrefix" class="form-select-custom" required style="flex: 1 1 0; min-width: 0; width: 100%;">
+                        <option value="">เลือกกลุ่มข้อมูลย่อย</option>
+                        <option v-for="group in datasetGroups" :key="group.id || group.group_id" :value="group.id || group.group_id">
+                          {{ group.name_th || group.name_en || group.group_name }} ({{ group.prefix }})
+                        </option>
+                      </select>
+                      <button type="button" class="btn-add" @click="showAddSubgroupModal = true" style="padding: 0 16px; border-radius: 8px; height: 42px; flex-shrink: 0;" title="เพิ่มกลุ่มข้อมูลย่อย">
+                        <span class="icon" style="margin-right: 0;">+</span>
+                      </button>
+                    </div>
                   </div>
                   <div class="form-group">
-                    <label>สถานะการเผยแพร่ *</label>
-                    <select v-model="formData.status" class="form-select-custom" required>
-                      <option value="Inactive">เลือกสถานะการใช้งาน(Inactive = ไม่แสดงผล / Active = แสดงผล )</option>
-                      <option value="Active">Active</option>
-                      <option value="Inactive">Inactive</option>
-                    </select>
+                    <label>รหัสชุดข้อมูล * (Dataset ID)</label>
+                    <input type="text" v-model="formData.dataset_id" placeholder="ตัวอย่าง Prefix ตามกลุ่มชุดข้อมูล เช่น CRS-" required>
                   </div>
                 </div>
 
-                <div class="form-group">
-                  <label>ชื่อชุดข้อมูล * (Dataset Name)</label>
-                  <input type="text" v-model="formData.service_name" placeholder="ชื่อภาษาไทย หรือ ภาษาอังกฤษ" required>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>ชื่อชุดข้อมูล * (Dataset Name)</label>
+                    <input type="text" v-model="formData.service_name" placeholder="ชื่อภาษาไทย หรือ ภาษาอังกฤษ" required>
+                  </div>
+                  <div class="form-group">
+                    <label>สถานะการเผยแพร่ *</label>
+                    <div class="toggle-status-wrapper" style="display: flex; align-items: center; height: 42px;">
+                      <label class="switch">
+                        <input type="checkbox" :checked="formData.status === 'Active'" @change="formData.status = $event.target.checked ? 'Active' : 'Inactive'">
+                        <span class="slider round"></span>
+                      </label>
+                      <span style="margin-left:12px; font-weight:600;" :style="{ color: formData.status === 'Active' ? '#10b981' : '#64748b' }">
+                        {{ formData.status === 'Active' ? 'เปิดใช้งาน (Active)' : 'ปิดใช้งาน (Inactive)' }}
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 <div class="form-row">
@@ -636,31 +886,49 @@ const onCategoryChange = () => {
                     </select>
                   </div>
                   <div class="form-group">
-                    <label>หมวดหมู่ย่อย</label>
-                    <select v-model="formData.sub_category" class="form-select-custom">
-                      <option value="">เลือกหมวดหมู่ข้อมูลย่อยในหน้าหลัก</option>
-                      <option v-for="sub in availableSubCategories" :key="sub" :value="sub">{{ sub }}</option>
+                    <label>หมวดหมู่ย่อย *</label>
+                    <div style="display: flex; gap: 8px; width: 100%; min-width: 0;">
+                      <select v-model="formData.sub_category" class="form-select-custom" required style="flex: 1 1 0; min-width: 0; width: 100%;">
+                        <option value="">เลือกหมวดหมู่ข้อมูลย่อยในหน้าหลัก</option>
+                        <option v-for="sub in availableSubCategories" :key="sub" :value="sub">{{ sub }}</option>
+                      </select>
+                      <button type="button" class="btn-add" @click="showAddSubCatModal = true; modalSelectedCategory = formData.category" style="padding: 0 16px; border-radius: 8px; height: 42px; flex-shrink: 0;">
+                        <span class="icon" style="margin-right: 0;">+</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>หน่วยงานที่รับผิดชอบ (Organization Owner) *</label>
+                    <select v-model="formData.organization" required class="form-select-custom">
+                      <option value="">เลือกหน่วยงาน</option>
+                      <option v-for="org in availableOrganizations" :key="org.org_id" :value="org.org_name">{{ org.org_name }}</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>ระบบต้นทาง (Source System) *</label>
+                    <select v-model="formData.source_system_id" required class="form-select-custom">
+                      <option value="">เลือกระบบต้นทาง</option>
+                      <option v-for="sys in sourceSystems" :key="sys.id" :value="sys.id">{{ sys.name_th }}</option>
                     </select>
                   </div>
                 </div>
 
                 <div class="form-group">
-                  <label>หน่วยงานที่รับผิดชอบ *</label>
-                  <select v-model="formData.organization" required class="form-select-custom">
-                    <option value="">เลือกหน่วยงาน</option>
-                    <option>สำนักงานปลัดกระทรวง พม. (OPS)</option>
-                    <option>ศูนย์เทคโนโลยีสารสนเทศ (IT Center)</option>
-                    <option>กรมพัฒนาสังคมและสวัสดิการ</option>
-                  </select>
-                </div>
-
-                <div class="form-group">
-                  <label>การเข้าถึง *</label>
+                  <label>การเข้าถึง (Sensitivity) *</label>
                   <select v-model="formData.access_type" class="form-select-custom" required>
-                    <option>เลือกการเข้าถึง</option>
-                    <option>สาธารณะ</option>
-                    <option>ภายในหน่วยงาน</option>
+                    <option value="" disabled selected>เลือกการเข้าถึง</option>
+                    <option value="public">สาธารณะ (Public)</option>
+                    <option value="internal">ภายในหน่วยงาน (Internal)</option>
+                    <option value="restricted">จำกัดสิทธิ์ (Restricted)</option>
+                    <option value="pii">เฉพาะเจ้าของ (Private)</option>
                   </select>
+                  <small v-if="formData.access_type === 'pii'" class="text-amber-600 mt-1 block font-medium" style="color: #d97706; font-size: 0.85rem;">
+                    <i class="fa fa-lock mr-1"></i> ชุดข้อมูลนี้จะมองเห็น อนุมัติคำขอ และแก้ไขได้เฉพาะคุณ (เจ้าของชุดข้อมูล) เท่านั้น โดยผู้ใช้อื่นจะไม่สามารถมองเห็นหรือแก้ไขได้
+                  </small>
+                  <small v-else class="text-gray-500 mt-1 block">ระบุระดับความอ่อนไหวของข้อมูลเพื่อใช้บังคับสิทธิ์การเข้าถึง</small>
                 </div>
 
                 <div class="form-group">
@@ -682,6 +950,12 @@ const onCategoryChange = () => {
                       <option>ข้อมูลลับ</option>
                       <option>ข้อมูลความมั่นคง</option>
                     </select>
+                    <small v-if="govConflictMessage" class="text-red-500 mt-2 block font-medium" style="color: #ef4444; font-size: 0.85rem;">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block mr-1 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      {{ govConflictMessage }}
+                    </small>
                   </div>
                   <div class="form-group">
                     <label>สัญญาอนุญาตให้ใช้ข้อมูล *</label>
@@ -721,7 +995,7 @@ const onCategoryChange = () => {
                 <div class="form-row">
                   <div class="form-group">
                     <label>วันที่เริ่มต้นสร้าง *</label>
-                    <input type="date" v-model="formData.date_start" class="form-input-custom" required>
+                    <input type="date" v-model="formData.date_start" class="form-input-custom" required disabled>
                   </div>
                   <div class="form-group">
                     <label>วันที่ปรับปรุงข้อมูลล่าสุด *</label>
@@ -941,12 +1215,12 @@ const onCategoryChange = () => {
 
                 <div class="form-row">
                   <div class="form-group">
-                    <label>แหล่งที่มา * (Data Source)</label>
-                    <input type="text" v-model="formData.data_source" placeholder="แหล่งที่มาของข้อมูลที่นำมาจัดทำข้อมูล" required>
+                    <label>แหล่งที่มาเพิ่มเติม (Legacy Data Source Fallback)</label>
+                    <input type="text" v-model="formData.data_source" placeholder="ข้อมูลแหล่งที่มาเพิ่มเติม (หากไม่มีใน Dropdown ระบบต้นทาง)">
                   </div>
                   <div class="form-group">
                     <label>URL รายละเอียดชุดข้อมูล *</label>
-                    <input type="url" v-model="formData.url" placeholder="URL ที่สามารถเข้าถึงรายละเอียดของชุดข้อมูลได้" required>
+                    <input type="text" v-model="formData.url" placeholder="URL ที่สามารถเข้าถึงรายละเอียดของชุดข้อมูลได้" required>
                   </div>
                 </div>
 
@@ -965,15 +1239,23 @@ const onCategoryChange = () => {
                 <h3 class="block-title">4. แดชบอร์ดและ API หน้าบ้าน (Visualization & API)</h3>
                 <div class="form-group">
                   <label>ลิงก์ Dashboard (Tableau, PowerBI, ฯลฯ)</label>
-                  <input type="url" v-model="formData.external_dashboard_url" placeholder="https://public.tableau.com/...">
+                  <input type="text" v-model="formData.external_dashboard_url" placeholder="https://public.tableau.com/...">
                 </div>
                 <div class="form-group">
                   <label>ลิงก์ API ภายนอก</label>
-                  <input type="url" v-model="formData.external_api_url" placeholder="https://api.org.go.th/...">
+                  <input type="text" v-model="formData.external_api_url" placeholder="https://api.org.go.th/...">
                 </div>
               </div>
 
-              <div class="form-actions">
+              
+
+                
+                <div v-if="showGovConflict" style="margin-bottom: 20px; padding: 12px 16px; background: #fff3cd; border-left: 4px solid #ffc107; color: #856404; border-radius: 4px; font-size: 0.9rem;">
+                  <strong>ข้อควรระวัง (Data Governance Conflict):</strong> การตั้งค่าสิทธิ์เข้าถึงเป็นข้อมูลปิด (Private/Restricted) ขัดแย้งกับการระบุธรรมาภิบาลข้อมูลให้เป็น "ข้อมูลสาธารณะ" โปรดตรวจสอบให้แน่ใจก่อนทำการบันทึก
+                </div>
+                <div class="form-actions">
+
+
                 <button type="button" @click="resetForm" class="btn-cancel">ล้างค่า</button>
                 <button type="submit" class="btn-save" :disabled="isSubmitting">
                   {{ isSubmitting ? 'กำลังบันทึก...' : (editingId ? 'บันทึกการแก้ไข' : 'สร้างชุดข้อมูล') }}
@@ -1036,21 +1318,21 @@ const onCategoryChange = () => {
 
             <div class="file-type-selector">
               <label class="radio-card">
-                <input type="radio" value="dictionary" v-model="fileType">
+                <input type="radio" value="dictionary" v-model="fileType" @change="selectedFile = null">
                 <div class="radio-card-content">
                   <span class="radio-circle"></span>
                   <span>Add Data Dictionary</span>
                 </div>
               </label>
               <label class="radio-card">
-                <input type="radio" value="excel" v-model="fileType">
+                <input type="radio" value="main" v-model="fileType" @change="selectedFile = null">
                 <div class="radio-card-content">
                   <span class="radio-circle"></span>
-                  <span>Add Excel File For API</span>
+                  <span>Add Data File (Excel/CSV/XML/JSON)</span>
                 </div>
               </label>
               <label class="radio-card">
-                <input type="radio" value="zip" v-model="fileType">
+                <input type="radio" value="zip" v-model="fileType" @change="selectedFile = null">
                 <div class="radio-card-content">
                   <span class="radio-circle"></span>
                   <span>Add Zip File (Data Sampling)</span>
@@ -1058,18 +1340,17 @@ const onCategoryChange = () => {
               </label>
             </div>
 
-            <div v-if="successMessage" class="alert alert-success">{{ successMessage }}</div>
-            <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
-
-            <div class="upload-zone" @click="triggerFileUpload">
-              <input type="file" id="fileInput" @change="handleFileSelect" style="display: none;">
+                                    <div class="upload-zone" @click="triggerFileUpload">
+              <input type="file" id="fileInput" @change="handleFileSelect" style="display: none;" :accept="acceptedExtensions[fileType].map(e => '.' + e).join(',')">
               <div class="upload-inner">
                 <svg xmlns="http://www.w3.org/2000/svg" style="width: 48px; height: 48px; margin: 0 auto; color: #475569;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
                 <p v-if="!selectedFile">ลากไฟล์มาวางที่นี่ หรือ <span>คลิกเพื่อเลือกไฟล์</span></p>
                 <p v-else class="text-green-600 font-bold">เลือกไฟล์แล้ว: {{ selectedFile.name }}</p>
-                <span class="text-xs text-slate-400">รองรับไฟล์ CSV, XLS, XLSX, ZIP (สูงสุด 500MB)</span>
+                <span class="text-xs text-slate-400" v-if="fileType === 'dictionary'">รองรับไฟล์ CSV, XLS, XLSX (เฉพาะพจนานุกรมข้อมูล)</span>
+                <span class="text-xs text-slate-400" v-else-if="fileType === 'main'">รองรับไฟล์ CSV, XLS, XLSX, XML, JSON (สำหรับให้บริการข้อมูล และนำไปเปิด API ผ่านเมนู API Management)</span>
+                <span class="text-xs text-slate-400" v-else-if="fileType === 'zip'">รองรับเฉพาะไฟล์ ZIP (สำหรับการดาวน์โหลดข้อมูลสุ่ม/ตัวอย่าง)</span>
               </div>
             </div>
 
@@ -1082,10 +1363,7 @@ const onCategoryChange = () => {
 
           <!-- LINK TAB -->
           <div v-else-if="activeTab === 'link'" class="link-section" style="max-width: 800px; padding-top: 2rem;">
-            <div v-if="successMessage" class="alert alert-success">{{ successMessage }}</div>
-            <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
-
-            <div class="flex items-center p-1 bg-slate-100 rounded-xl w-fit mb-10 mt-2 border border-slate-200 shadow-inner">
+                                    <div class="flex items-center p-1 bg-slate-100 rounded-xl w-fit mb-10 mt-2 border border-slate-200 shadow-inner">
               <button 
                 @click="linkType = 'api'" 
                 class="flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold transition-all duration-200"
@@ -1124,7 +1402,7 @@ const onCategoryChange = () => {
 
             <div class="form-group mb-12">
               <label class="text-sm text-slate-700 font-bold mb-2">{{ linkType === 'api' ? 'ลิงก์ API' : 'ลิงก์ DashBoard' }}</label>
-              <input type="url" v-model="linkUrl" class="w-full bg-transparent border border-slate-200 rounded-xl focus:ring-0 focus:border-slate-400 text-slate-800 py-3 px-4 transition-colors" style="outline: none;" placeholder="https://example.com/api/v1/data">
+              <input type="text" v-model="linkUrl" class="w-full bg-transparent border border-slate-200 rounded-xl focus:ring-0 focus:border-slate-400 text-slate-800 py-3 px-4 transition-colors" style="outline: none;" placeholder="https://example.com/api/v1/data">
             </div>
 
             <div class="flex justify-start">
@@ -1139,10 +1417,7 @@ const onCategoryChange = () => {
 
           <!-- API TAB -->
           <div v-else-if="activeTab === 'api'" class="api-section">
-            <div v-if="successMessage" class="alert alert-success">{{ successMessage }}</div>
-            <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
-
-            <div class="form-group mb-8">
+                                    <div class="form-group mb-8">
               <label class="text-xs text-slate-500 font-bold tracking-wide uppercase">รหัสชุดข้อมูล</label>
               <select v-model="apiDatasetId" @change="fetchDatabases()" style="width:100%;padding:10px 16px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:0.9375rem;outline:none;">
                 <option value="">-- เลือกชุดข้อมูล --</option>
@@ -1248,6 +1523,81 @@ const onCategoryChange = () => {
           </div>
         </div>
       </div>
+      <!-- Add Subgroup Modal -->
+      <div v-if="showAddSubgroupModal" class="modal-overlay">
+        <div class="modal">
+          <div class="modal-header">
+            <h2>เพิ่มกลุ่มข้อมูลย่อยใหม่ (Add Subgroup)</h2>
+            <button class="btn-close" @click="showAddSubgroupModal = false">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label>ชื่อกลุ่มข้อมูลย่อย (Subgroup Name) *</label>
+              <input v-model="newSubgroupName" type="text" placeholder="เช่น: กลุ่มข้อมูลการวิจัย (Research Data)" class="form-input-custom" />
+            </div>
+            <div class="form-group" style="margin-top: 16px;">
+              <label>รหัส Prefix ประจำกลุ่มย่อย (Dataset ID Prefix) *</label>
+              <input v-model="newSubgroupPrefix" type="text" placeholder="เช่น: RES- (ตัวย่อภาษาอังกฤษ 3-4 ตัวอักษร)" class="form-input-custom" style="text-transform: uppercase;" />
+              <small style="color: #64748b; margin-top: 4px; display: block;">รหัส Prefix จะถูกนำไปใช้อัตโนมัติในรหัสชุดข้อมูล เช่น RES-</small>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-cancel" @click="showAddSubgroupModal = false">ยกเลิก</button>
+            <button class="btn-save" @click="handleAddSubgroup" :disabled="isAddingSubgroup || !newSubgroupName.trim() || !newSubgroupPrefix.trim()">
+              {{ isAddingSubgroup ? 'กำลังบันทึก...' : 'บันทึกข้อมูล' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add Sub Category Modal -->
+      <div v-if="showAddSubCatModal" class="modal-overlay">
+        <div class="modal">
+          <div class="modal-header">
+            <h2>เพิ่มหมวดหมู่ย่อยใหม่</h2>
+            <button class="btn-close" @click="showAddSubCatModal = false">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label>หมวดหมู่หลัก</label>
+              <select v-model="modalSelectedCategory" class="form-select-custom">
+                <option value="">-- เลือกหมวดหมู่หลัก --</option>
+                <option v-for="cat in categoriesList" :key="cat" :value="cat">{{ cat }}</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-top: 16px;">
+              <label>ชื่อหมวดหมู่ย่อย</label>
+              <input v-model="newSubCatName" type="text" placeholder="ระบุชื่อหมวดหมู่ย่อย" class="form-input-custom" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-cancel" @click="showAddSubCatModal = false">ยกเลิก</button>
+            <button class="btn-save" @click="handleAddSubCategory">บันทึกข้อมูล</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Notification Modal -->
+      <div v-if="successMessage || errorMessage" class="modal-overlay" style="z-index: 10000; display: flex; align-items: center; justify-content: center; background-color: rgba(0,0,0,0.5);">
+        <div class="modal" style="max-width: 400px; text-align: center; border-radius: 12px; overflow: hidden; background: white; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+          <div style="padding: 32px 24px;">
+            <!-- Success Icon -->
+            <div v-if="successMessage" style="width: 64px; height: 64px; border-radius: 50%; background: #d4edda; color: #28a745; display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 16px;">&#10003;</div>
+            <!-- Error Icon -->
+            <div v-if="errorMessage" style="width: 64px; height: 64px; border-radius: 50%; background: #f8d7da; color: #dc3545; display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 16px;">&#10005;</div>
+            
+            <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 8px; color: #333;">
+              {{ successMessage ? 'สำเร็จ' : 'ข้อผิดพลาด' }}
+            </h3>
+            <p style="color: #666; margin-bottom: 24px; font-size: 16px; line-height: 1.5;">
+              {{ successMessage || errorMessage }}
+            </p>
+            <button type="button" @click="successMessage = ''; errorMessage = ''" style="background-color: var(--primary); color: white; border: none; border-radius: 8px; padding: 10px 32px; font-size: 16px; font-weight: 500; cursor: pointer; transition: background 0.2s;">
+              ตกลง
+            </button>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 </template>
@@ -1341,9 +1691,12 @@ const onCategoryChange = () => {
 
 .form-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 24px;
   margin-bottom: 24px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .form-group {
@@ -1351,12 +1704,19 @@ const onCategoryChange = () => {
   flex-direction: column;
   gap: 8px;
   margin-bottom: 24px;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .form-group label {
   font-size: 0.875rem;
   font-weight: 600;
   color: #475569;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .form-group input, 
@@ -1368,6 +1728,10 @@ const onCategoryChange = () => {
   font-size: 0.9375rem;
   transition: border-color 0.2s;
   outline: none;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .form-group input:focus, 
@@ -1378,6 +1742,13 @@ const onCategoryChange = () => {
 
 .form-select-custom {
   background-color: white;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .radio-group {
@@ -1435,10 +1806,24 @@ const onCategoryChange = () => {
 .checkbox-label {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
+  text-align: left;
   gap: 8px;
   font-size: 0.9375rem;
   color: #475569;
   cursor: pointer;
+  width: auto;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+  flex-shrink: 0 !important;
+}
+
+.checkbox-label span {
+  text-align: left !important;
 }
 
 .mt-8 { margin-top: 2rem; }
@@ -1456,11 +1841,25 @@ const onCategoryChange = () => {
 .radio-label-v {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
+  text-align: left;
   gap: 12px;
   cursor: pointer;
   font-size: 0.9375rem;
   color: #475569;
   transition: color 0.2s;
+  width: auto;
+}
+
+.radio-label-v input[type="radio"] {
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+  flex-shrink: 0 !important;
+}
+
+.radio-label-v span {
+  text-align: left !important;
 }
 
 .radio-label-v:hover {
@@ -1477,13 +1876,13 @@ const onCategoryChange = () => {
   border: 1px solid #f1f5f9;
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1023px) {
   .checkbox-grid-3 {
     grid-template-columns: repeat(2, 1fr);
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   .checkbox-grid-3 {
     grid-template-columns: 1fr;
   }
@@ -1817,4 +2216,141 @@ input:checked + .toggle-slider:before {
     padding: 24px;
   }
 }
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  background-color: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.modal {
+  background: white;
+  width: 100%;
+  max-width: 440px;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  border-radius: 16px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.modal-header h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.modal-body {
+  padding: 24px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.modal-footer {
+  padding: 16px 24px;
+  background-color: #f8fafc;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
+  flex-shrink: 0;
+}
+
+.btn-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--primary);
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-add:hover {
+  background-color: var(--primary-hover);
+}
+
+/* Toggle Switch */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 28px;
+}
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #cbd5e1;
+  transition: .4s;
+}
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: .4s;
+}
+input:checked + .slider {
+  background-color: #10b981;
+}
+input:checked + .slider:before {
+  transform: translateX(22px);
+}
+.slider.round {
+  border-radius: 34px;
+}
+.slider.round:before {
+  border-radius: 50%;
+}
+
 </style>

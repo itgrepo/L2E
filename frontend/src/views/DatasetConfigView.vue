@@ -86,11 +86,13 @@ const fetchMasters = async () => {
   try {
     const userData = localStorage.getItem('user');
     const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
-    const groupRes = await apiClient.post('/getGroups', { user: userParam });
+    const groupRes = await apiClient.post('/getDatasetGroups', { user: userParam });
     if (groupRes.data && groupRes.data.status === 'success') {
       datasetGroups.value = groupRes.data.data;
-    } else if (groupRes.data) {
+    } else if (Array.isArray(groupRes.data)) {
       datasetGroups.value = groupRes.data;
+    } else if (groupRes.data && groupRes.data.data) {
+      datasetGroups.value = groupRes.data.data;
     }
     const sysRes = await apiClient.post('/getSourceSystems', { user: userParam });
     if (sysRes.data && sysRes.data.status === 'success') {
@@ -677,11 +679,73 @@ const onCategoryChange = () => {
   }
 };
 
+const showAddSubgroupModal = ref(false);
+const newSubgroupName = ref('');
+const newSubgroupPrefix = ref('');
+const isAddingSubgroup = ref(false);
+
+const handleAddSubgroup = async () => {
+  if (!newSubgroupName.value.trim() || !newSubgroupPrefix.value.trim()) {
+    alert('กรุณากรอกชื่อกลุ่มข้อมูลย่อยและรหัส Prefix (เช่น CRS-)');
+    return;
+  }
+  
+  isAddingSubgroup.value = true;
+  try {
+    const userData = localStorage.getItem('user') || '';
+    const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
+    const res = await apiClient.post('/addDatasetGroup', {
+      user: userParam,
+      name_th: newSubgroupName.value.trim(),
+      prefix: newSubgroupPrefix.value.trim()
+    });
+    
+    if (res.data && res.data.status === 'success') {
+      await fetchMasters();
+      formData.value.l2e_group_id = res.data.data.id;
+      updateDatasetPrefix();
+      showAddSubgroupModal.value = false;
+      newSubgroupName.value = '';
+      newSubgroupPrefix.value = '';
+      alert('เพิ่มกลุ่มข้อมูลย่อยสำเร็จ');
+    } else {
+      alert('Error: ' + (res.data?.status || 'Failed'));
+    }
+  } catch (err) {
+    console.error('Error adding subgroup:', err);
+    alert(err.response?.data?.status || 'ไม่สามารถเพิ่มกลุ่มข้อมูลย่อยได้');
+  } finally {
+    isAddingSubgroup.value = false;
+  }
+};
+
 const updateDatasetPrefix = () => {
   if (editingId.value) return; // ห้ามเขียนทับ Dataset ID เดิมอัตโนมัติ
-  const selectedGroup = datasetGroups.value.find(g => g.group_id === formData.value.l2e_group_id);
+  const selectedGroup = datasetGroups.value.find(g => (g.id || g.group_id) === formData.value.l2e_group_id);
   if (selectedGroup && selectedGroup.prefix) {
     formData.value.dataset_id = selectedGroup.prefix;
+  }
+  // Auto-sync category if matching
+  if (selectedGroup) {
+    const code = (selectedGroup.code || '').toLowerCase();
+    const name = (selectedGroup.name_th || selectedGroup.name_en || '').toLowerCase();
+    if (code.includes('course') || name.includes('หลักสูตร')) {
+      if (categoriesList.value.includes('Course Data')) formData.value.category = 'Course Data';
+      else if (categoriesList.value.includes('Learning Catalog')) formData.value.category = 'Learning Catalog';
+    } else if (code.includes('completion') || name.includes('ผลการเรียน')) {
+      if (categoriesList.value.includes('Completion Data')) formData.value.category = 'Completion Data';
+      else if (categoriesList.value.includes('Learning Record')) formData.value.category = 'Learning Record';
+    } else if (code.includes('competency') || name.includes('สมรรถนะ')) {
+      if (categoriesList.value.includes('Competency Data')) formData.value.category = 'Competency Data';
+      else if (categoriesList.value.includes('Learner Profile')) formData.value.category = 'Learner Profile';
+    } else if (code.includes('job') || name.includes('ตลาดแรงงาน')) {
+      if (categoriesList.value.includes('Job / Labour Market Data')) formData.value.category = 'Job / Labour Market Data';
+      else if (categoriesList.value.includes('Job Market')) formData.value.category = 'Job Market';
+    } else if (code.includes('skill') || name.includes('วิเคราะห์ทักษะ')) {
+      if (categoriesList.value.includes('Skill Analytics Data')) formData.value.category = 'Skill Analytics Data';
+      else if (categoriesList.value.includes('Skill Intelligence')) formData.value.category = 'Skill Intelligence';
+    }
+    onCategoryChange();
   }
 };
 
@@ -775,11 +839,18 @@ const updateDatasetPrefix = () => {
                 <h3 class="block-title">1. ข้อมูลพื้นฐานชุดข้อมูล (Core Info)</h3>
                 <div class="form-row">
                   <div class="form-group">
-                    <label>กลุ่มชุดข้อมูล (Dataset Group) *</label>
-                    <select v-model="formData.l2e_group_id" @change="updateDatasetPrefix" class="form-select-custom" required>
-                      <option value="">เลือกกลุ่มชุดข้อมูล</option>
-                      <option v-for="group in datasetGroups" :key="group.group_id" :value="group.group_id">{{ group.group_name }}</option>
-                    </select>
+                    <label>กลุ่มข้อมูลย่อย (Subgroup) *</label>
+                    <div style="display: flex; gap: 8px; width: 100%; min-width: 0;">
+                      <select v-model="formData.l2e_group_id" @change="updateDatasetPrefix" class="form-select-custom" required style="flex: 1 1 0; min-width: 0; width: 100%;">
+                        <option value="">เลือกกลุ่มข้อมูลย่อย</option>
+                        <option v-for="group in datasetGroups" :key="group.id || group.group_id" :value="group.id || group.group_id">
+                          {{ group.name_th || group.name_en || group.group_name }} ({{ group.prefix }})
+                        </option>
+                      </select>
+                      <button type="button" class="btn-add" @click="showAddSubgroupModal = true" style="padding: 0 16px; border-radius: 8px; height: 42px; flex-shrink: 0;" title="เพิ่มกลุ่มข้อมูลย่อย">
+                        <span class="icon" style="margin-right: 0;">+</span>
+                      </button>
+                    </div>
                   </div>
                   <div class="form-group">
                     <label>รหัสชุดข้อมูล * (Dataset ID)</label>
@@ -1452,6 +1523,33 @@ const updateDatasetPrefix = () => {
           </div>
         </div>
       </div>
+      <!-- Add Subgroup Modal -->
+      <div v-if="showAddSubgroupModal" class="modal-overlay">
+        <div class="modal">
+          <div class="modal-header">
+            <h2>เพิ่มกลุ่มข้อมูลย่อยใหม่ (Add Subgroup)</h2>
+            <button class="btn-close" @click="showAddSubgroupModal = false">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label>ชื่อกลุ่มข้อมูลย่อย (Subgroup Name) *</label>
+              <input v-model="newSubgroupName" type="text" placeholder="เช่น: กลุ่มข้อมูลการวิจัย (Research Data)" class="form-input-custom" />
+            </div>
+            <div class="form-group" style="margin-top: 16px;">
+              <label>รหัส Prefix ประจำกลุ่มย่อย (Dataset ID Prefix) *</label>
+              <input v-model="newSubgroupPrefix" type="text" placeholder="เช่น: RES- (ตัวย่อภาษาอังกฤษ 3-4 ตัวอักษร)" class="form-input-custom" style="text-transform: uppercase;" />
+              <small style="color: #64748b; margin-top: 4px; display: block;">รหัส Prefix จะถูกนำไปใช้อัตโนมัติในรหัสชุดข้อมูล เช่น RES-</small>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-cancel" @click="showAddSubgroupModal = false">ยกเลิก</button>
+            <button class="btn-save" @click="handleAddSubgroup" :disabled="isAddingSubgroup || !newSubgroupName.trim() || !newSubgroupPrefix.trim()">
+              {{ isAddingSubgroup ? 'กำลังบันทึก...' : 'บันทึกข้อมูล' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Add Sub Category Modal -->
       <div v-if="showAddSubCatModal" class="modal-overlay">
         <div class="modal">

@@ -13,9 +13,9 @@ def validate_dataset_masters(cursor, category_name, org_name, access_type, l2e_g
             return False, f"Organization '{org_name}' not found."
 
     if l2e_group_id:
-        cursor.execute("SELECT 1 FROM group_user WHERE group_id = %s", (l2e_group_id,))
+        cursor.execute("SELECT 1 FROM l2e_dataset_group WHERE id = %s UNION SELECT 1 FROM group_user WHERE group_id = %s", (l2e_group_id, l2e_group_id))
         if not cursor.fetchone():
-            return False, f"Group ID '{l2e_group_id}' not found in group_user."
+            return False, f"Group ID '{l2e_group_id}' not found in l2e_dataset_group or group_user."
 
     if source_system_id:
         cursor.execute("SELECT 1 FROM source_system WHERE id = %s AND active = 1", (source_system_id,))
