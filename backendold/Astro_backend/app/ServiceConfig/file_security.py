@@ -63,7 +63,8 @@ CATEGORY_ALLOWLIST = {
     'service_image': {'png', 'jpg', 'jpeg', 'webp'},
     'data_file': {'csv', 'xlsx', 'xls', 'json', 'xml'},
     'dictionary_file': {'csv', 'xlsx', 'xls'},
-    'sampling_file': {'zip'}
+    'sampling_file': {'zip'},
+    'system_manual': {'pdf'}
 }
 
 # MIME Types Allowlist

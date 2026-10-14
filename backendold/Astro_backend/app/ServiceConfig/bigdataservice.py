@@ -4027,3 +4027,201 @@ def updateApiService():
         import traceback
         current_app.logger.error(f"Update API Error: {traceback.format_exc()}")
         return jsonify({'status': 'error', 'message': str(e)})
+
+
+# ==============================================================================
+# System User Manual (PDF) Management - Restricted to Super Admin (Role 4)
+# ==============================================================================
+
+@app.route('/uploadSystemManual', methods=['POST'])
+def upload_system_manual():
+    """
+    Upload and replace the official system user manual (PDF only).
+    Strictly restricted to Super Admin (previlage_id == 4).
+    Enforces deep anti-attack file inspection (magic bytes, AST, polyglot, scripts).
+    """
+    try:
+        user_param = request.form.get('user') or request.headers.get('x-user')
+        if not user_param:
+            return jsonify({'status': 'error', 'message': 'กรุณาเข้าสู่ระบบก่อนทำรายการ'}), 401
+
+        try:
+            user_data = safe_json_loads(platform_decode(user_param))
+            user_id = user_data.get('user_id')
+        except Exception:
+            return jsonify({'status': 'error', 'message': 'ข้อมูลการยืนยันตัวตนไม่ถูกต้อง'}), 401
+
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'ไม่พบรหัสผู้ใช้งาน'}), 401
+
+        # 1. Authoritative DB Verification: Must be active Super Admin (previlage_id == 4)
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id, previlage_id, firstname, lastname, status_account FROM user WHERE user_id = %s", (user_id,))
+        user_row = cursor.fetchone()
+
+        if not user_row or str(user_row[1]) != '4' or user_row[4] != 'active':
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': 'เฉพาะผู้ดูแลระบบสูงสุด (Super Admin) เท่านั้นที่มีสิทธิ์อัปโหลดเอกสารคู่มือระบบ'}), 403
+
+        # 2. File extraction & presence check
+        if 'file' not in request.files:
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': 'ไม่พบไฟล์ที่ต้องการอัปโหลด'}), 400
+
+        file_obj = request.files['file']
+        if not file_obj or not file_obj.filename:
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': 'กรุณาเลือกไฟล์ PDF สำหรับอัปโหลด'}), 400
+
+        # 3. Comprehensive Anti-Attack & File Security Validation
+        # Category 'system_manual' enforces:
+        # - Strict .pdf extension only (checks against double extensions, null bytes)
+        # - Real magic byte signature (%PDF-)
+        # - Anti-polyglot and embedded script detection (no PHP/HTML/JS)
+        # - PDF AST object inspection (disallows /OpenAction /JavaScript /Launch /AA, etc.)
+        # - Max size 20MB, max pages 200
+        ok, clean_bytes, saved_filename, clean_orig_name, err = validate_and_sanitize_upload(
+            file_obj, category='system_manual', max_size_mb=20, user_id=user_id
+        )
+
+        if not ok or not clean_bytes:
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': f'การตรวจสอบไฟล์ล้มเหลว (ปฏิเสธเพื่อความปลอดภัย): {err}'}), 400
+
+        # 4. Save sanitized file to disk using secure UUID
+        manual_filename = f"manual_system_{saved_filename}"
+        save_path = os.path.join(UPLOAD_FOLDER, manual_filename)
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        with open(save_path, 'wb') as f:
+            f.write(clean_bytes)
+
+        # 5. Clean up previous manual file
+        meta_path = os.path.join(UPLOAD_FOLDER, 'system_manual_info.json')
+        old_file = None
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path, 'r', encoding='utf-8') as mf:
+                    old_meta = json.load(mf)
+                    old_file = old_meta.get('filename')
+            except Exception:
+                pass
+
+        if old_file and old_file != manual_filename:
+            safe_remove_uploaded_file(old_file)
+
+        # 6. Save metadata
+        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        user_full_name = f"{user_row[2] or ''} {user_row[3] or ''}".strip() or 'Super Admin'
+        manual_info = {
+            'has_manual': True,
+            'filename': manual_filename,
+            'original_name': clean_orig_name,
+            'file_size': len(clean_bytes),
+            'uploaded_by': user_id,
+            'uploaded_by_name': user_full_name,
+            'updated_at': now_str
+        }
+
+        with open(meta_path, 'w', encoding='utf-8') as mf:
+            json.dump(manual_info, mf, ensure_ascii=False, indent=2)
+
+        # 7. Audit Logging
+        try:
+            logAction(user_id, '/uploadSystemManual', f'Super Admin uploaded system user manual PDF: {clean_orig_name} ({len(clean_bytes)} bytes)', 'info')
+        except Exception:
+            pass
+
+        cursor.close()
+        conn.close()
+        return jsonify({
+            'status': 'success',
+            'message': 'อัปโหลดเอกสารคู่มือการใช้งานระบบ (PDF) สำเร็จ',
+            'data': manual_info
+        })
+
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Upload Manual Error: {traceback.format_exc()}")
+        return jsonify({'status': 'error', 'message': f'เกิดข้อผิดพลาดในการอัปโหลดไฟล์: {str(e)}'}), 500
+
+
+@app.route('/getSystemManualInfo', methods=['GET', 'POST'])
+def get_system_manual_info():
+    """
+    Returns metadata about the active system manual.
+    Accessible to all users to determine if a manual PDF is available.
+    """
+    try:
+        meta_path = os.path.join(UPLOAD_FOLDER, 'system_manual_info.json')
+        if os.path.exists(meta_path):
+            with open(meta_path, 'r', encoding='utf-8') as mf:
+                info = json.load(mf)
+            
+            # Verify file exists on disk
+            real_file = os.path.join(UPLOAD_FOLDER, info.get('filename', ''))
+            if info.get('has_manual') and os.path.exists(real_file):
+                return jsonify({
+                    'status': 'success',
+                    'data': {
+                        'has_manual': True,
+                        'original_name': info.get('original_name', 'DataX_User_Manual.pdf'),
+                        'file_size': info.get('file_size', 0),
+                        'updated_at': info.get('updated_at', '')
+                    }
+                })
+
+        return jsonify({'status': 'success', 'data': {'has_manual': False}})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/downloadSystemManual', methods=['GET'])
+def download_system_manual():
+    """
+    Securely serves the system manual PDF to users.
+    Applies security headers to prevent XSS / MIME-sniffing.
+    """
+    try:
+        import re
+        meta_path = os.path.join(UPLOAD_FOLDER, 'system_manual_info.json')
+        if not os.path.exists(meta_path):
+            return jsonify({'status': 'error', 'message': 'ยังไม่มีเอกสารคู่มือการใช้งานระบบในขณะนี้'}), 404
+
+        with open(meta_path, 'r', encoding='utf-8') as mf:
+            info = json.load(mf)
+
+        filename = info.get('filename')
+        original_name = info.get('original_name', 'DataX_User_Manual.pdf')
+        if not filename or not re.match(r'^[a-zA-Z0-9_\.\-]+$', filename):
+            return jsonify({'status': 'error', 'message': 'ชื่อไฟล์คู่มือไม่ถูกต้อง'}), 400
+
+        full_path = os.path.join(UPLOAD_FOLDER, filename)
+        # Prevent Path Traversal
+        if not os.path.commonpath([UPLOAD_FOLDER, full_path]) == UPLOAD_FOLDER or not os.path.exists(full_path):
+            return jsonify({'status': 'error', 'message': 'ไม่พบไฟล์เอกสารคู่มือบนเซิร์ฟเวอร์'}), 404
+
+        from flask import send_file, make_response
+        response = make_response(send_file(
+            full_path,
+            mimetype='application/pdf',
+            as_attachment=False
+        ))
+
+        # Security Headers
+        response.headers['Content-Disposition'] = f'inline; filename="{original_name}"'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'"
+        response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+        return response
+
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Download Manual Error: {traceback.format_exc()}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+

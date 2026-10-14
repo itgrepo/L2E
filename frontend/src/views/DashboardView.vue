@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
-import apiClient from '../utils/api';
+import apiClient, { encodeUserData } from '../utils/api';
 
 const router = useRouter();
 
@@ -14,6 +14,91 @@ const showHelpModal = ref(false);
 const activeHelpTab = ref('catalog');
 const toastMessage = ref('');
 const toastTimeout = ref(null);
+
+// System Manual (PDF) State & Handlers
+const manualInfo = ref({
+  has_manual: false,
+  original_name: '',
+  file_size: 0,
+  updated_at: ''
+});
+const isUploadingManual = ref(false);
+const manualFileInput = ref(null);
+
+const isSuperAdmin = computed(() => {
+  try {
+    const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+    return String(savedUser.previlage_id) === '4' || String(savedUser.role_id) === '4';
+  } catch (e) {
+    return false;
+  }
+});
+
+const fetchManualInfo = async () => {
+  try {
+    const res = await apiClient.get('/getSystemManualInfo');
+    if (res.data?.status === 'success' && res.data.data) {
+      manualInfo.value = res.data.data;
+    }
+  } catch (err) {
+    console.error('Failed to fetch system manual info:', err);
+  }
+};
+
+const handleManualUpload = async (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  // 1. Client-side sanity check
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext !== 'pdf' && file.type !== 'application/pdf') {
+    alert('กรุณาเลือกเฉพาะไฟล์ PDF เท่านั้น');
+    if (event.target) event.target.value = '';
+    return;
+  }
+
+  const maxSizeMb = 20;
+  if (file.size > maxSizeMb * 1024 * 1024) {
+    alert(`ขนาดไฟล์เกินกำหนด (สูงสุดไม่เกิน ${maxSizeMb} MB)`);
+    if (event.target) event.target.value = '';
+    return;
+  }
+
+  if (file.size === 0) {
+    alert('ไฟล์เอกสารไม่มีข้อมูล (0 Bytes)');
+    if (event.target) event.target.value = '';
+    return;
+  }
+
+  isUploadingManual.value = true;
+  try {
+    const userRaw = localStorage.getItem('user') || '{}';
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('user', encodeUserData(JSON.parse(userRaw)));
+
+    const res = await apiClient.post('/uploadSystemManual', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+        'x-user': encodeUserData(JSON.parse(userRaw))
+      }
+    });
+
+    if (res.data?.status === 'success') {
+      manualInfo.value = res.data.data;
+      triggerToast('อัปโหลดคู่มือการใช้งานระบบ (PDF) สำเร็จเรียบร้อยแล้ว');
+    } else {
+      alert('อัปโหลดไม่สำเร็จ: ' + (res.data?.message || 'เกิดข้อผิดพลาด'));
+    }
+  } catch (err) {
+    console.error('Error uploading manual:', err);
+    const errMsg = err.response?.data?.message || err.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์';
+    alert('เกิดข้อผิดพลาดในการอัปโหลด: ' + errMsg);
+  } finally {
+    isUploadingManual.value = false;
+    if (event.target) event.target.value = '';
+  }
+};
 
 const triggerToast = (msg) => {
   toastMessage.value = msg;
@@ -347,6 +432,7 @@ const handleStorageEvent = (e) => {
 
 onMounted(() => {
   fetchDashboardData(false);
+  fetchManualInfo();
   
   // Real-time polling every 5 seconds (silent background refresh)
   pollInterval = setInterval(() => {
@@ -632,13 +718,77 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- Status Bar showing current manual name if uploaded -->
+        <div v-if="manualInfo && manualInfo.has_manual" class="manual-info-bar">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="color: #0284c7; flex-shrink: 0;">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span style="font-size: 0.8rem; color: #0369a1;">
+              เอกสารคู่มือระบบล่าสุด: <strong>{{ manualInfo.original_name }}</strong>
+              <span v-if="manualInfo.updated_at" style="color: #64748b; font-size: 0.75rem; margin-left: 6px;">(อัปเดตเมื่อ {{ manualInfo.updated_at }})</span>
+            </span>
+          </div>
+        </div>
+
         <div class="modal-footer">
-          <router-link to="/about" class="btn-secondary" @click="showHelpModal = false" style="text-decoration: none; font-size: 0.85rem;">
-            อ่านเอกสารเพิ่มเติมเกี่ยวกับระบบ &rarr;
-          </router-link>
-          <button class="btn-primary" @click="showHelpModal = false" style="font-size: 0.85rem;">
-            เข้าใจแล้ว
-          </button>
+          <div class="modal-footer-left">
+            <!-- If manual exists, open PDF directly in new tab. If not, link to /about -->
+            <a 
+              v-if="manualInfo && manualInfo.has_manual" 
+              href="/api/downloadSystemManual" 
+              target="_blank" 
+              class="btn-secondary" 
+              style="text-decoration: none; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 6px;"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="color: #ef4444;">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+              อ่านเอกสารเพิ่มเติมเกี่ยวกับระบบ (PDF) &rarr;
+            </a>
+            <router-link 
+              v-else 
+              to="/about" 
+              class="btn-secondary" 
+              @click="showHelpModal = false" 
+              style="text-decoration: none; font-size: 0.85rem;"
+            >
+              อ่านเอกสารเพิ่มเติมเกี่ยวกับระบบ &rarr;
+            </router-link>
+
+            <!-- Super Admin Only PDF Upload Button -->
+            <template v-if="isSuperAdmin">
+              <input 
+                type="file" 
+                ref="manualFileInput" 
+                style="display: none;" 
+                accept=".pdf,application/pdf"
+                @change="handleManualUpload"
+              >
+              <button 
+                class="btn-upload-manual" 
+                :disabled="isUploadingManual"
+                @click="$refs.manualFileInput.click()"
+                type="button"
+                title="อัปโหลดเอกสารคู่มือระบบ (เฉพาะ Super Admin)"
+              >
+                <svg v-if="!isUploadingManual" xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                <svg v-else class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none" viewBox="0 0 24 24" style="animation: spin 1s linear infinite;">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                </svg>
+                <span>{{ isUploadingManual ? 'กำลังอัปโหลด...' : (manualInfo?.has_manual ? 'เปลี่ยนไฟล์คู่มือ (PDF)' : 'อัปโหลดคู่มือ PDF') }}</span>
+              </button>
+            </template>
+          </div>
+
+          <div class="modal-footer-right">
+            <button class="btn-primary" @click="showHelpModal = false" style="font-size: 0.85rem;">
+              เข้าใจแล้ว
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1260,6 +1410,15 @@ onUnmounted(() => {
   margin-bottom: 8px;
 }
 
+.manual-info-bar {
+  padding: 10px 24px;
+  background: #f0f9ff;
+  border-top: 1px solid #e0f2fe;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .modal-footer {
   padding: 16px 24px;
   border-top: 1px solid #f1f5f9;
@@ -1267,6 +1426,47 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.modal-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.modal-footer-right {
+  display: flex;
+  align-items: center;
+}
+
+.btn-upload-manual {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  color: white;
+  border: none;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(2, 132, 199, 0.2);
+  transition: all 0.2s ease;
+}
+
+.btn-upload-manual:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
+  box-shadow: 0 4px 6px rgba(2, 132, 199, 0.3);
+  transform: translateY(-1px);
+}
+
+.btn-upload-manual:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 
 /* Toast Notification */
