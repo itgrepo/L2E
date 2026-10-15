@@ -3568,6 +3568,13 @@ def approve_dataset_request():
                     else:
                         cursor.execute("INSERT INTO api_scopes (credential_id, scope_json) VALUES (%s, %s)", (cred_id, scope_str))
 
+        # Auto-promote user from R2 (2) to R5 (5) upon dataset approval
+        cursor.execute("SELECT previlage_id FROM user WHERE user_id = %s", (target_user_id,))
+        u_priv_row = cursor.fetchone()
+        if u_priv_row and u_priv_row[0] == 2:
+            cursor.execute("UPDATE user SET previlage_id = 5 WHERE user_id = %s", (target_user_id,))
+            logAction(user_data.get('user_id'), '/approveDatasetRequest', f'Auto-promoted user {target_user_id} from R2 to R5 upon dataset approval', 'info')
+
         conn.commit()
         
         # Log action

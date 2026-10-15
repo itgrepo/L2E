@@ -1,3 +1,4 @@
+from .email_service import notify_verification_email
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
@@ -6,25 +7,9 @@ import uuid
 import os
 import smtplib
 import json
+from ServiceConfig.notification_util import notify_user
 import base64
 import time
-
-def platform_decode(data):
-    if not data:
-        return data
-    if isinstance(data, str) and data.strip().startswith('{'):
-        return data
-    try:
-        padded_data = data
-        missing_padding = len(padded_data) % 4
-        if missing_padding:
-            padded_data += '=' * (4 - missing_padding)
-        return base64.b64decode(padded_data).decode('utf-8')
-    except:
-        try:
-            return decode(data).decode('utf-8')
-        except:
-            return data
 
 # from email.MIMEMultipart import MIMEMultipart
 # from email.MIMEText import MIMEText
@@ -34,14 +19,14 @@ from email.mime.text import MIMEText
 #import socks
 
 # SMTP Configuration (Configurable via Environment Variables)
-SERVER = os.environ.get('MAIL_SERVER', 'outgoing.mail.go.th')
+SERVER = os.environ.get('MAIL_SERVER', 'outgoing.workd.go.th')
 MAIL_PORT = int(os.environ.get('MAIL_PORT', 465))
-username_mail = os.environ.get('MAIL_USERNAME', 'adminbd@customs.go.th')
-password_mail = os.environ.get('MAIL_PASSWORD', 'P@ssw0rd')
+username_mail = os.environ.get('MAIL_USERNAME', 'learn2earn@bde.go.th')
+password_mail = os.environ.get('MAIL_PASSWORD', 'L2E@Start2026!')
 MAIL_USE_SSL = os.environ.get('MAIL_USE_SSL', 'true').lower() == 'true'
-MAIL_FROM = os.environ.get('MAIL_FROM', "Department Operation Center <adminbd@customs.go.th>")
+MAIL_FROM = os.environ.get('MAIL_FROM', "DEX Data Exchange <learn2earn@bde.go.th>").strip('"')
 
-LINK = os.environ.get('FRONTEND_URL', 'http://110.78.210.128:3001')
+LINK = os.environ.get('FRONTEND_URL', 'http://134.185.172.127:3003')
 LINK_V = '10.20.11.91/api' # Internal API link
 ###############################
 #os.environ['http_proxy'] = "http://920181:zxcvbnm@proxy.customs.net:3128"
@@ -58,16 +43,27 @@ LINK_V = '10.20.11.91/api' # Internal API link
 
 
 def sendMailConfirmRegister(id, token, email, link, firstname, lastname):
-    fromaddr = "Department Operation Center <adminbd@customs.go.th>"
+    fromaddr = MAIL_FROM
     toaddr = email
     msg = MIMEMultipart()
     msg['From'] = fromaddr
     msg['To'] = toaddr
-    msg['Subject'] = "Verify Email Address for Department Operation Center"
-    link = str(link) + "/verify/" + str(token)
-    footer = "<br><br><br>Department Operation Center" + "<br>Call Center: +66 " + "<br>Email: adminbd@customs.go.th"
-    body = "<p style='font-size: 14px;width: 550px;'>Hi&nbsp;&nbsp;" + firstname + "&nbsp;" + lastname + "<br>Thank you for signing up with Department Operation Center.<br> Please click the \"Verify Email\" button below to verify your email address.</p> <a href='" + str(
-        link) + "' style='margin: 0 auto;display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #19b5fe;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Verify Email</a>" + footer
+    msg['Subject'] = "ยืนยันอีเมลของคุณ - Data Exchange"
+    verify_url = str(link) + "/verify/" + str(token)
+    fullname = f"{firstname} {lastname}".strip()
+    body = f"""
+    <div style="font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
+        <h2 style="color: #008236; margin-top: 0; font-size: 20px; font-weight: 700;">ยืนยันอีเมลของคุณ</h2>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 8px;">สวัสดีคุณ {fullname}</p>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 8px;">ขอบคุณที่สมัครสมาชิก Data Exchange</p>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 24px;">กรุณาคลิกปุ่มด้านล่างเพื่อยืนยันอีเมลและเปิดใช้งานบัญชีของคุณ</p>
+        <div style="text-align: center; margin: 28px 0;">
+            <a href="{verify_url}" style="display: inline-block; padding: 12px 32px; background-color: #008236; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">ยืนยันอีเมล</a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 0;">หากคุณไม่ได้ลงทะเบียนบัญชีนี้ โปรดเพิกเฉยต่ออีเมลฉบับนี้</p>
+    </div>
+    """
 
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
@@ -75,6 +71,7 @@ def sendMailConfirmRegister(id, token, email, link, firstname, lastname):
             server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=5)
         else:
             server = smtplib.SMTP(SERVER, MAIL_PORT, timeout=5)
+            server.starttls()
         
         if username_mail and password_mail:
             server.login(username_mail, password_mail)
@@ -91,7 +88,7 @@ def sendMailConfirmRegister(id, token, email, link, firstname, lastname):
 def sendMailWelcomeForRegister(id,email, firstname, lastname,QRstr):
     # email = ''
 
-    fromaddr = "Department Operation Center <adminbd@customs.go.th>"
+    fromaddr = MAIL_FROM
     toaddr = email
     msg = MIMEMultipart()
     msg['From'] = fromaddr
@@ -106,6 +103,7 @@ def sendMailWelcomeForRegister(id,email, firstname, lastname,QRstr):
             server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=5)
         else:
             server = smtplib.SMTP(SERVER, MAIL_PORT, timeout=5)
+            server.starttls()
         
         if username_mail and password_mail:
             server.login(username_mail, password_mail)
@@ -276,7 +274,7 @@ def firstStepRegister():
             resultCheckPolicy = toJson(data, columns)
             cursor.close()
             conn.close()
-            default_level = 3  # user level
+            default_level = 2  # general user
             status = 4  # Status = Pending
             status_account = "active"
             count_login = 0
@@ -294,8 +292,20 @@ def firstStepRegister():
 
             # M&M DB_1
 
-            sql = "INSERT INTO user VALUES (NULL, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s,'off')" # off -> 2FA status off  
-            cursor.execute(sql, (username, email, firstname, lastname, national_id, national_id_book, national_id_mode, policy_id,usage_objective, other_object, default_level, count_login, status, status_account,1))
+            sql = """INSERT INTO user (
+                username, password, email, firstname, lastname, job_title, 
+                previlage_id, status_id, status_account, national_id, national_id_book, 
+                national_id_mode, policy_id, usage_objective, other_object, count_login, 2fa_status
+            ) VALUES (
+                %s, '', %s, %s, %s, '', 
+                %s, %s, %s, %s, %s, 
+                %s, %s, %s, %s, %s, 'off'
+            )"""
+            cursor.execute(sql, (
+                username, email, firstname, lastname, 
+                default_level, status, status_account, national_id, national_id_book, 
+                national_id_mode, policy_id, usage_objective, other_object, count_login
+            ))
             conn.commit()
             cursor.close()
             conn.close()
@@ -349,7 +359,7 @@ def firstStepRegister():
 
             conn = mysql.connect()
             cursor = conn.cursor()
-            sql = "INSERT INTO user_agreement VALUES (NULL, %s, %s, %s, UNIX_TIMESTAMP())"
+            sql = "INSERT INTO user_agreement (ip, user_id, consent_agreement_id, date_time) VALUES (%s, %s, %s, UNIX_TIMESTAMP())"
             cursor.execute(sql, (ip, id, result_id[0]['consent_agreement_id']))
             # cursor.execute(sql, (request.remote_addr, id, result_id[0]['consent_agreement_id']))
             conn.commit()
@@ -415,7 +425,7 @@ def firstStepRegister():
 #         resultCheckPolicy = toJson(data, columns)
 #         cursor.close()
 #         conn.close()
-#         default_level = 3  # user level
+#         default_level = 2  # general user
 #         status = 4  # Status = Pending
 #         status_account = "active"
 #         count_login = 0
@@ -488,7 +498,7 @@ def firstStepRegister():
 
 #         conn = mysql.connect()
 #         cursor = conn.cursor()
-#         sql = "INSERT INTO user_agreement VALUES (NULL, %s, %s, %s, UNIX_TIMESTAMP())"
+#         sql = "INSERT INTO user_agreement (ip, user_id, consent_agreement_id, date_time) VALUES (%s, %s, %s, UNIX_TIMESTAMP())"
 #         cursor.execute(sql, (ip, id, result_id[0]['consent_agreement_id']))
 #         # cursor.execute(sql, (request.remote_addr, id, result_id[0]['consent_agreement_id']))
 #         conn.commit()
@@ -555,10 +565,7 @@ def getEmailFromToken():
         # 3. Check for link expiration
         cursor.execute("SELECT duration FROM timetable_activity WHERE activity_desc = 'LinkExpire' LIMIT 1")
         link_ex_data = cursor.fetchall()
-        duration = 259200 # Default 3 days
-        if link_ex_data:
-            duration = int(link_ex_data[0][0])
-
+        duration = int(link_ex_data[0][0]) if link_ex_data else 86400
         current_time = int(time.time()) # Use python time to be safe
         if current_time - create_date >= duration:
             # Cleanup expired user
@@ -573,101 +580,29 @@ def getEmailFromToken():
             conn.close()
             return jsonify({'status': 'link expire', 'message': 'ลิงก์ยืนยันตัวตนหมดอายุแล้ว ระบบได้ลบข้อมูลเดิมเพื่อให้คุณสามารถสมัครใหม่ได้'})
 
-        # 4. Success: Directly activate user account (1)
-        # Previously set to 8 (Pending Admin Approval), but now skipping that step
-        cursor.execute("UPDATE user SET status_id = 1, status_account = 'active' WHERE user_id = %s", (user_id,))
+        # 4. Success: Promote user to Pending Admin Approval / Onboarding (8) with External role (1)
+        cursor.execute("UPDATE user SET status_id = 8, previlage_id = 1 WHERE user_id = %s", (user_id,))
         cursor.execute("UPDATE user_activity SET status_account = '1' WHERE user_id = %s", (user_id,))
         cursor.execute("DELETE FROM token_register WHERE token = %s", (token,))
-        
-        # Get user details for welcome email
-        cursor.execute("SELECT email, firstname, lastname FROM user WHERE user_id = %s", (user_id,))
-        user_info = cursor.fetchone()
         
         conn.commit()
         cursor.close()
         conn.close()
 
-        # Send welcome email
-        if user_info:
-            try:
-                sendMailWelcomeForRegister(user_id, user_info[0], user_info[1], user_info[2], '-')
-            except Exception as mail_err:
-                current_app.logger.warning(f"Could not send welcome email: {mail_err}")
-
-        logAction(user_id, '/getEmailFromToken', f'User {username} email verified and activated directly', 'info')
+        logAction(user_id, '/getEmailFromToken', f'User {username} email verified, pending admin approval', 'info')
 
         return jsonify({
             'status': 'found', 
             'email': token_res['email'], 
             'username': username, 
-            'pending_approval': False,
-            'active': True
+            'pending_approval': False
         })
 
     except Exception as e:
         if conn:
-            try:
-                conn.close()
-            except:
-                pass
+            conn.close()
         current_app.logger.error(f"Error in getEmailFromToken: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)})
-
-
-@app.route('/secondStepRegister', methods=['POST'])
-def secondStepRegister():
-    try:
-        dataInput = request.json
-        username = dataInput['username']
-        email = dataInput['email']
-
-        conn = mysql.connect()
-        cursor = conn.cursor()
-        sql = "SELECT * FROM user WHERE username = %s AND status_id != '7' AND status_account='active'"
-        cursor.execute(sql, username)
-        data = cursor.fetchall()
-        columns = [column[0] for column in cursor.description]
-        result = toJson(data, columns)
-        conn.commit()
-        cursor.close()
-        conn.close()
-
-        if len(result) == 0:
-            return 'Username not found.'
-
-        if str(result[0]['status_id']) == '4':  # check status is pending
-            conn = mysql.connect()
-            cursor = conn.cursor()
-            status = 1  # Status = Offline
-
-            # user_id, email, password, firstname, lastname, create_at, privilege_level, job_title, status, last_updated
-            sql = "UPDATE user SET status_id = %s, create_at = CURRENT_TIMESTAMP WHERE username = %s AND status_id != '7' AND status_account='active'"
-            cursor.execute(sql, (status, username))
-
-            sql = "UPDATE token_register SET status = %s, create_at = CURRENT_TIMESTAMP WHERE username = %s AND status = 'active'"
-            cursor.execute(sql, ('inactive', username))
-            conn.commit()
-            cursor.close()
-            conn.close()
-            # user = { 'firstname': dataInput['firstname'], 'lastname': dataInput['lastname'], 'email': dataInput['email'] }
-            # addPreRoles(user)
-            # addPreGroups(user)
-            # addPreOwnerUser(user)
-            # removeOldPreAddOwner(dataInput['email'])
-            #================================== Generate Secret key ============================================================
-            QRcode = createSecretKeyTwoFactor(username,2)
-            #==============================================================================================
-            if(QRcode != "Error"):
-                sendMailWelcomeForRegister(result[0]['user_id'],email, result[0]['firstname'], result[0]['lastname'],QRcode)
-                return(jsonify({"status": "Success"}))
-        else:
-            return(jsonify({"status": "Your Username is duplicated."}))
-            # return 'Your Username is duplicated.'
-    except Exception as e:
-        current_app.logger.info(e)
-        return jsonify({"status": "Error"})
-        # return "Error: " + str(e)
-
 
 @app.route('/editProfileUser', methods=['POST']) 
 def editProfileUser():
@@ -716,8 +651,13 @@ def editProfileUser():
                     # M&M ��� editProfileUser (1)
                     conn = mysql.connect()
                     cursor = conn.cursor()
-                    sql = "UPDATE user SET firstname = %s , lastname = %s ,usage_objective = %s , other_object = %s WHERE user_id = %s"
-                    cursor.execute(sql, (firstname, lastname, usage_objective, other_object, user_id))
+                    org_id = dataInput.get('org_id')
+                    if org_id is not None:
+                        sql = "UPDATE user SET firstname = %s, lastname = %s, usage_objective = %s, other_object = %s, org_id = %s WHERE user_id = %s"
+                        cursor.execute(sql, (firstname, lastname, usage_objective, other_object, org_id, user_id))
+                    else:
+                        sql = "UPDATE user SET firstname = %s, lastname = %s, usage_objective = %s, other_object = %s WHERE user_id = %s"
+                        cursor.execute(sql, (firstname, lastname, usage_objective, other_object, user_id))
                     conn.commit()
                     cursor.close()
                     conn.close()
@@ -823,7 +763,7 @@ def sendMailEditProfileOld(result):
     # token = ''
     # email = ''
     # token = str(result[0]['user_id'])
-    fromaddr = "Department Operation Center <adminbd@customs.go.th>"
+    fromaddr = MAIL_FROM
     toaddr = result[0]['email']
     msg = MIMEMultipart()
     msg['From'] = fromaddr
@@ -853,7 +793,7 @@ def sendMailEditProfile(dataInput, dataInputLink, firstname, lastname):
     # token = ''
     # email = ''
     # token = str(dataInput['user_id'])
-    fromaddr = "Department Operation Center <adminbd@customs.go.th>"
+    fromaddr = MAIL_FROM
     toaddr = dataInput['email']
     msg = MIMEMultipart()
     msg['From'] = fromaddr
@@ -881,7 +821,7 @@ def sendMailEditEmail(dataInput, dataInputLink, firstname, lastname):
     # token = ''
     # email = ''
     token = str(dataInput['user_id'])
-    fromaddr = "Department Operation Center <adminbd@customs.go.th>"
+    fromaddr = MAIL_FROM
     toaddr = dataInput['email']
     link = LINK_V + '/verifyEditProfile/' + token
     msg = MIMEMultipart()
@@ -890,7 +830,7 @@ def sendMailEditEmail(dataInput, dataInputLink, firstname, lastname):
     msg['Subject'] = "Edit your email for Department Operation Center"
     footer = "<br><br><br>Department Operation Center Team" + "<br>Call Center: +66" + "<br>Email: adminbd@customs.go.th"
     body = "<p style='font-size: 14px'>Hi&nbsp;&nbsp;" + firstname + "&nbsp;" + lastname + "<br>Your member profile was changed on the Department Operation Center account.<br>If this was your action, then you can safely ignore this email.<br>If this was not yours, a malicious user may have your password.Please review your profile at <br>and change your password.If you need any help, please contact Contact Center at /contactcenter Tel: +66.</p><a href='" + str(
-        link) + "' style='margin: 0 auto;display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #19b5fe;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Verify Email</a>" + footer
+        link) + "' style='margin: 0 auto;display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #008236;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>ยืนยันอีเมล</a>" + footer
 
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
@@ -906,7 +846,7 @@ def sendMailEditEmail(dataInput, dataInputLink, firstname, lastname):
         return "error"
 
 def sendMailUnlockAccountByAdmin(email, firstname, lastname):
-    fromaddr = "Department Operation Center <adminbd@customs.go.th>"
+    fromaddr = MAIL_FROM
     toaddr = email
     msg = MIMEMultipart()
     msg['From'] = fromaddr
@@ -917,7 +857,12 @@ def sendMailUnlockAccountByAdmin(email, firstname, lastname):
 
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
-        server = smtplib.SMTP_SSL(SERVER, 465)
+        if MAIL_USE_SSL:
+            server = smtplib.SMTP_SSL(SERVER, int(os.environ.get('MAIL_PORT', 465)), timeout=5)
+        else:
+            server = smtplib.SMTP(SERVER, int(os.environ.get('MAIL_PORT', 587)), timeout=5)
+            server.starttls()
+            
         ##Login Mail server##
         server.login(username_mail,password_mail)
         #-------------------#
@@ -1163,6 +1108,34 @@ def debugUserSchema():
         return jsonify({'error': str(e)})
 
 
+def decode_raw_password(pwd_str):
+    if not pwd_str:
+        return ""
+    if isinstance(pwd_str, str) and pwd_str.startswith('$e$'):
+        try:
+            import base64
+            b64_str = pwd_str[3:][::-1]
+            return base64.b64decode(b64_str.encode('utf-8')).decode('utf-8')
+        except Exception:
+            return pwd_str
+    return pwd_str
+
+
+def validate_password_rules(raw_pwd):
+    import re
+    if not raw_pwd or len(raw_pwd) < 8:
+        return False, "รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร"
+    if not re.search(r'[A-Z]', raw_pwd):
+        return False, "รหัสผ่านต้องมีตัวอักษรภาษาอังกฤษตัวพิมพ์ใหญ่ (A-Z) อย่างน้อย 1 ตัว"
+    if not re.search(r'[a-z]', raw_pwd):
+        return False, "รหัสผ่านต้องมีตัวอักษรภาษาอังกฤษตัวพิมพ์เล็ก (a-z) อย่างน้อย 1 ตัว"
+    if not re.search(r'[0-9]', raw_pwd):
+        return False, "รหัสผ่านต้องมีตัวเลขอารบิก (0-9) อย่างน้อย 1 ตัว"
+    if not re.search(r'[^A-Za-z0-9]', raw_pwd):
+        return False, "รหัสผ่านต้องมีอักขระพิเศษอย่างน้อย 1 ตัว (เช่น @, #, $, %, !, _)"
+    return True, ""
+
+
 @app.route('/registerSimple', methods=['POST'])
 def registerSimple():
     """Simplified registration endpoint for the Intelligist DataX platform.
@@ -1170,15 +1143,29 @@ def registerSimple():
     Uses the exact same INSERT pattern as seed.py (named columns) which is proven to work.
     """
     try:
-        dataInput = request.json
-        username = dataInput['username']
-        password = dataInput['password']
-        email = dataInput['email']
+        dataInput = request.json or {}
+        username = dataInput.get('username')
+        password = dataInput.get('password')
+        email = dataInput.get('email')
         firstname = dataInput.get('firstname', '')
         lastname = dataInput.get('lastname', '')
         organization = dataInput.get('organization', '')
-        link = dataInput.get('link', 'http://110.78.210.128:3001')
+        link = dataInput.get('link')
 
+        if not username or not password or not email:
+            return jsonify({"status": "Failed", "message": "กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน"})
+
+        import re
+        if re.search(r'[<>"\'/;`%&]', username):
+            return jsonify({"status": "Failed", "message": "Invalid characters in username"})
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email) or re.search(r'[<>"\'/;`%&]', email):
+            return jsonify({"status": "Failed", "message": "Invalid email format"})
+
+        # Validate password complexity
+        raw_pwd = decode_raw_password(password)
+        is_valid, err_msg = validate_password_rules(raw_pwd)
+        if not is_valid:
+            return jsonify({"status": "error", "message": err_msg})
         # Check for duplicate username or email
         conn = mysql.connect()
         cursor = conn.cursor()
@@ -1234,7 +1221,7 @@ def registerSimple():
         cursor.execute(sql_user, (
             username, password, email, firstname, lastname,
             username, '', 1,        # national_id=username, national_id_book='', mode=1
-            4, 'active', 3, '',     # status=4(pending), active, privilege=3(user), job_title=''
+            4, 'active', 1, '',     # status=4(pending), active, privilege=1(external/unapproved), job_title=''
             policy_id, organization  # policy_id, usage_objective=organization
         ))
         conn.commit()
@@ -1294,7 +1281,7 @@ def registerSimple():
                 cresult = toJson(cdata, columns)
                 if cresult:
                     ip = request.headers.get('X-FORWARDED-FOR', '127.0.0.1')
-                    sql_agree = "INSERT INTO user_agreement VALUES (NULL, %s, %s, %s, UNIX_TIMESTAMP())"
+                    sql_agree = "INSERT INTO user_agreement (ip, user_id, consent_agreement_id, date_time) VALUES (%s, %s, %s, UNIX_TIMESTAMP())"
                     cursor.execute(sql_agree, (ip, user_id, cresult[0]['consent_agreement_id']))
             conn.commit()
             cursor.close()
@@ -1304,11 +1291,9 @@ def registerSimple():
 
         # Try to send verification email (silently fail if SMTP not available)
         try:
-            # Construct the verification link
-            # Use provided link or fallback to global LINK
             base_link = link if link else LINK
-            sendMailConfirmRegister(user_id, token, email, base_link, firstname, lastname)
             verify_url = f"{base_link}/verify/{token}"
+            notify_verification_email(firstname, lastname, verify_url, email)
             print(f"DEBUG: Verification Email simulated/sent. URL: {verify_url}")
         except Exception as mail_err:
             current_app.logger.warning("Could not send verification email: " + str(mail_err))
@@ -1328,4 +1313,72 @@ def registerSimple():
         import traceback
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)})
+
+
+@app.route('/submitOnboardingRequest', methods=['POST'])
+def submitOnboardingRequest():
+    """Submit mandatory onboarding info: organization and API key, and request admin approval."""
+    try:
+        dataInput = request.json or {}
+        user_raw = dataInput.get('user', '')
+        user_data = safe_json_loads(platform_decode(user_raw)) if isinstance(user_raw, str) and user_raw else (dataInput.get('user') if isinstance(dataInput.get('user'), dict) else {})
+        
+        user_id = dataInput.get('user_id') or user_data.get('user_id')
+        org_id = dataInput.get('org_id')
+        apikey = dataInput.get('apikey')
+        
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'User ID is required'}), 400
+        if not org_id:
+            return jsonify({'status': 'error', 'message': 'กรุณาเลือกองค์กรที่สังกัด'}), 400
+            
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        # Verify user exists
+        cursor.execute("SELECT username, email, apikey FROM user WHERE user_id = %s", (user_id,))
+        u_row = cursor.fetchone()
+        if not u_row:
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': 'ไม่พบข้อมูลผู้ใช้'}), 404
+            
+        username, email, existing_apikey = u_row
+        final_apikey = apikey or existing_apikey
+        if not final_apikey:
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': 'กรุณาสร้าง API Key ก่อนส่งคำขอ'}), 400
+            
+        # Update user with org_id, apikey, and set status_id = 8 (Pending Admin Approval)
+        sql_update = """
+            UPDATE user 
+            SET org_id = %s, apikey = %s, status_id = 8, status_account = 'active'
+            WHERE user_id = %s
+        """
+        cursor.execute(sql_update, (org_id, final_apikey, user_id))
+        conn.commit()
+        
+        # Notify admins
+        try:
+            from ServiceConfig.notification_util import notify_user
+            cursor.execute("SELECT user_id FROM user WHERE previlage_id = 4 AND status_account = 'active'")
+            for admin_row in cursor.fetchall():
+                notify_user(admin_row[0], 'account_pending', f'ผู้ใช้ {username} ({email}) ได้เลือกสังกัดและส่งคำขอเปิดใช้งานบัญชี (รอการอนุมัติสิทธิ์ R2)')
+        except Exception as notif_err:
+            current_app.logger.warning(f"Could not send onboarding notification: {notif_err}")
+            
+        cursor.close()
+        conn.close()
+        
+        logAction(user_id, '/submitOnboardingRequest', f'User {username} submitted onboarding profile with org_id {org_id}', 'info')
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'ส่งคำขอให้ผู้ดูแลระบบพิจารณาอนุมัติเรียบร้อยแล้ว'
+        })
+    except Exception as e:
+        current_app.logger.error("Error in submitOnboardingRequest:", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 

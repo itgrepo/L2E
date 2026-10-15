@@ -19,8 +19,78 @@ const user = ref({
   usage_objective: '',
   other_object: '',
   apikey: '',
-  role: 'User'
+  role: 'User',
+  org_id: '',
+  status_id: '',
+  previlage_id: '',
+  is_approved: true
 });
+
+const organizations = ref([]);
+const isSubmittingOnboarding = ref(false);
+const isOnboardingSubmitted = ref(false);
+
+const fetchOrganizations = async () => {
+  try {
+    const userData = localStorage.getItem('user');
+    const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
+    const res = await apiClient.post('/getOrganizations', { user: userParam });
+    if (res.data?.status === 'success' && Array.isArray(res.data.data)) {
+      organizations.value = res.data.data;
+    }
+  } catch (err) {
+    console.error('Error fetching organizations:', err);
+  }
+};
+
+const isPendingApproval = computed(() => {
+  const priv = String(user.value.previlage_id || '');
+  const status = String(user.value.status_id || '');
+  return priv === '1' || status === '8' || user.value.is_approved === false;
+});
+
+const hasApiKey = computed(() => Boolean(user.value.apikey));
+const hasSelectedOrg = computed(() => Boolean(user.value.org_id));
+
+const submitOnboarding = async () => {
+  if (!user.value.org_id) {
+    message.value = { text: 'กรุณาเลือกองค์กรที่สังกัดก่อนส่งคำขอ', type: 'error' };
+    return;
+  }
+  if (!user.value.apikey) {
+    message.value = { text: 'กรุณากดสร้าง API Key ก่อนส่งคำขอ', type: 'error' };
+    return;
+  }
+  isSubmittingOnboarding.value = true;
+  message.value = { text: '', type: '' };
+  try {
+    const userData = localStorage.getItem('user');
+    const res = await apiClient.post('/submitOnboardingRequest', {
+      user: userData ? encodeUserData(JSON.parse(userData)) : '',
+      user_id: user.value.user_id,
+      org_id: user.value.org_id,
+      apikey: user.value.apikey
+    });
+    if (res.data?.status === 'success') {
+      isOnboardingSubmitted.value = true;
+      user.value.status_id = 8;
+      const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+      savedUser.org_id = user.value.org_id;
+      savedUser.status_id = 8;
+      savedUser.apikey = user.value.apikey;
+      savedUser.is_approved = false;
+      localStorage.setItem('user', JSON.stringify(savedUser));
+      message.value = { text: 'ส่งคำขอให้ผู้ดูแลระบบพิจารณาอนุมัติเรียบร้อยแล้ว', type: 'success' };
+    } else {
+      message.value = { text: res.data?.message || 'ไม่สามารถส่งคำขอได้', type: 'error' };
+    }
+  } catch (err) {
+    console.error('Error submitting onboarding request:', err);
+    message.value = { text: 'เกิดข้อผิดพลาดในการส่งคำขอ กรุณาลองใหม่', type: 'error' };
+  } finally {
+    isSubmittingOnboarding.value = false;
+  }
+};
 
 // Password Change states & methods
 const showPasswordForm = ref(true);
@@ -222,22 +292,28 @@ const generateApiKey = async () => {
 };
 
 onMounted(async () => {
+  await fetchOrganizations();
   let savedUser = JSON.parse(localStorage.getItem('user') || '{}');
   if (savedUser.username) {
     try {
       const res = await postWithUser('/getMenuByPermission', savedUser);
-      if (res.data && res.data.current_role) {
-        savedUser.previlage_id = res.data.current_role;
-        if (String(res.data.current_role) === '4') {
+      if (res.data) {
+        if (res.data.current_role) savedUser.previlage_id = res.data.current_role;
+        if (res.data.current_status !== undefined && res.data.current_status !== null) savedUser.status_id = res.data.current_status;
+        if (res.data.current_org_id) savedUser.org_id = res.data.current_org_id;
+        if (res.data.is_approved !== undefined) savedUser.is_approved = res.data.is_approved;
+        
+        const cRole = String(res.data.current_role || savedUser.previlage_id || '');
+        if (cRole === '4') {
           savedUser.isAdmin = 'true';
           savedUser.role = 'System Administrator';
-        } else if (String(res.data.current_role) === '3') {
+        } else if (cRole === '3') {
           savedUser.isAdmin = 'false';
           savedUser.role = 'Department Admin';
-        } else if (String(res.data.current_role) === '5') {
+        } else if (cRole === '5') {
           savedUser.isAdmin = 'false';
           savedUser.role = 'ผู้ใช้งานภายใน (มีสิทธิ์ Dataset)';
-        } else if (String(res.data.current_role) === '2') {
+        } else if (cRole === '2') {
           savedUser.isAdmin = 'false';
           savedUser.role = 'General User';
         } else {
@@ -263,6 +339,10 @@ onMounted(async () => {
       ...savedUser,
       role: calculatedRole
     };
+
+    if (String(user.value.status_id) === '8' && user.value.org_id && user.value.apikey) {
+      isOnboardingSubmitted.value = true;
+    }
 
     // Fetch user notification settings
     try {
@@ -294,7 +374,8 @@ const saveChanges = async () => {
         lastname: user.value.lastname,
         email: user.value.email,
         usage_objective: user.value.usage_objective,
-        other_object: user.value.other_object
+        other_object: user.value.other_object,
+        org_id: user.value.org_id
       },
       link: window.location.origin
     };
@@ -343,6 +424,86 @@ const saveChanges = async () => {
       <div v-if="message.text" :class="['alert-message', message.type]">
         {{ message.text }}
       </div>
+
+      <!-- Onboarding Workflow Card for Pending Approval Users -->
+      <div v-if="isPendingApproval" class="onboarding-card">
+        <div class="onboarding-header">
+          <div class="onboarding-badge">🚀 ขั้นตอนเริ่มต้นก่อนเข้าใช้งานระบบ (Account Onboarding)</div>
+          <h3 style="margin: 8px 0 4px 0; color: #0f172a; font-size: 1.25rem; font-weight: 700;">ยินดีต้อนรับสู่ Data Portal</h3>
+          <p style="margin: 0; color: #475569; font-size: 0.9rem; line-height: 1.5;">
+            กรุณาดำเนินการตั้งค่าองค์กรและสร้าง API Key ด้านล่างนี้ จากนั้นส่งคำขอให้ผู้ดูแลระบบพิจารณาอนุมัติ เพื่อรับสิทธิ์เริ่มต้นเป็นระดับ <strong>R2 (ผู้ใช้งานทั่วไป)</strong> และปลดล็อกการเข้าใช้งานทุกเมนูในระบบ
+          </p>
+        </div>
+
+        <div class="onboarding-steps-indicator">
+          <div class="obs-step done">
+            <div class="obs-circle">✓</div>
+            <div class="obs-label">1. ยืนยันอีเมล</div>
+          </div>
+          <div class="obs-connector done"></div>
+          <div class="obs-step" :class="{ done: hasSelectedOrg && hasApiKey, active: !hasSelectedOrg || !hasApiKey }">
+            <div class="obs-circle">{{ (hasSelectedOrg && hasApiKey) ? '✓' : '2' }}</div>
+            <div class="obs-label">2. ระบุองค์กร & API Key</div>
+          </div>
+          <div class="obs-connector" :class="{ done: isOnboardingSubmitted }"></div>
+          <div class="obs-step" :class="{ active: hasSelectedOrg && hasApiKey && !isOnboardingSubmitted, waiting: isOnboardingSubmitted }">
+            <div class="obs-circle">{{ isOnboardingSubmitted ? '⏳' : '3' }}</div>
+            <div class="obs-label">3. รอผู้ดูแลระบบอนุมัติ (R2)</div>
+          </div>
+        </div>
+
+        <div v-if="isOnboardingSubmitted" class="onboarding-status-box waiting-box">
+          <div class="status-icon" style="font-size: 2rem;">⏳</div>
+          <div>
+            <h4 style="margin: 0 0 4px 0; color: #92400e; font-size: 1.05rem; font-weight: 700;">ส่งคำขอเรียบร้อยแล้ว อยู่ระหว่างรอผู้ดูแลระบบพิจารณาอนุมัติ</h4>
+            <p style="margin: 0; color: #b45309; font-size: 0.9rem; line-height: 1.5;">
+              ระบบได้ส่งคำขอเปิดใช้งานบัญชีของคุณไปยังผู้ดูแลระบบเรียบร้อยแล้ว เมื่อได้รับการอนุมัติ ท่านจะได้รับสิทธิ์ระดับ <strong>R2 (ผู้ใช้งานทั่วไป)</strong> และสามารถเข้าใช้งานเมนูต่างๆ ในระบบได้ทันที
+            </p>
+          </div>
+        </div>
+
+        <div v-else class="onboarding-action-box">
+          <div class="onboarding-form-row">
+            <div class="onboarding-field">
+              <label style="display: block; font-weight: 600; color: #1e293b; margin-bottom: 6px; font-size: 0.9rem;">
+                1. เลือกองค์กรที่สังกัด <span style="color: #ef4444;">*</span>
+              </label>
+              <select v-model="user.org_id" class="onboarding-select">
+                <option value="" disabled>-- กรุณาเลือกองค์กรที่ท่านสังกัด --</option>
+                <option v-for="org in organizations" :key="org.org_id" :value="org.org_id">
+                  {{ org.org_name }}
+                </option>
+              </select>
+            </div>
+            <div class="onboarding-field">
+              <label style="display: block; font-weight: 600; color: #1e293b; margin-bottom: 6px; font-size: 0.9rem;">
+                2. สร้าง API Key ประจำตัว <span style="color: #ef4444;">*</span>
+              </label>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="text" :value="user.apikey ? '?apikey=' + user.apikey : 'ยังไม่ได้สร้าง Key'" disabled class="onboarding-input-mono" />
+                <button type="button" @click="generateApiKey" :disabled="isGeneratingKey" class="btn-primary" style="white-space: nowrap; height: 42px;">
+                  {{ user.apikey ? 'สร้างใหม่' : 'สร้าง API Key' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="onboarding-submit-row">
+            <button 
+              type="button" 
+              @click="submitOnboarding" 
+              :disabled="!user.org_id || !user.apikey || isSubmittingOnboarding" 
+              class="btn-submit-onboarding"
+            >
+              <span v-if="isSubmittingOnboarding">กำลังส่งคำขอ...</span>
+              <span v-else>🚀 ส่งคำขอให้ผู้ดูแลระบบพิจารณาอนุมัติ</span>
+            </button>
+            <small v-if="!user.org_id || !user.apikey" style="color: #64748b; font-size: 0.8rem; margin-top: 6px; display: block;">
+              * ต้องเลือกองค์กรที่สังกัดและสร้าง API Key ก่อนจึงจะสามารถส่งคำขอได้
+            </small>
+          </div>
+        </div>
+      </div>
       
       <div class="settings-card">
         <nav class="settings-tabs">
@@ -373,6 +534,15 @@ const saveChanges = async () => {
             <div class="form-group">
               <label>Email Address</label>
               <input type="email" v-model="user.email" disabled>
+            </div>
+            <div class="form-group">
+              <label>องค์กร / หน่วยงานที่สังกัด (Organization)</label>
+              <select v-model="user.org_id" class="form-control" style="width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; background: #fff; font-size: 0.95rem;">
+                <option value="" disabled>-- เลือกองค์กรที่สังกัด --</option>
+                <option v-for="org in organizations" :key="org.org_id" :value="org.org_id">
+                  {{ org.org_name }}
+                </option>
+              </select>
             </div>
             <div class="form-group">
               <label>Usage Objective</label>
@@ -927,5 +1097,214 @@ input:disabled {
 .btn-primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Onboarding Section Styles */
+.onboarding-card {
+  background: linear-gradient(135deg, #f0fdf4 0%, #e0f2fe 100%);
+  border: 2px solid #38bdf8;
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 28px;
+  box-shadow: 0 10px 25px -5px rgba(56, 189, 248, 0.15);
+}
+
+.onboarding-badge {
+  display: inline-block;
+  background-color: #0284c7;
+  color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.onboarding-steps-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 20px 0;
+  padding: 16px 20px;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 12px;
+  backdrop-filter: blur(8px);
+}
+
+.obs-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  text-align: center;
+}
+
+.obs-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  color: #475569;
+  font-weight: 700;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.obs-label {
+  font-size: 0.82rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.obs-step.done .obs-circle {
+  background: #10b981;
+  color: #ffffff;
+}
+.obs-step.done .obs-label {
+  color: #047857;
+}
+
+.obs-step.active .obs-circle {
+  background: #0284c7;
+  color: #ffffff;
+  box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.2);
+}
+.obs-step.active .obs-label {
+  color: #0369a1;
+  font-weight: 700;
+}
+
+.obs-step.waiting .obs-circle {
+  background: #f59e0b;
+  color: #ffffff;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.2);
+}
+.obs-step.waiting .obs-label {
+  color: #b45309;
+  font-weight: 700;
+}
+
+.obs-connector {
+  flex: 0 0 40px;
+  height: 3px;
+  background: #e2e8f0;
+  margin: 0 8px;
+  margin-bottom: 22px;
+  transition: background 0.3s ease;
+}
+
+.obs-connector.done {
+  background: #10b981;
+}
+
+.onboarding-status-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  margin-top: 16px;
+}
+
+.waiting-box {
+  background-color: #fffbeb;
+  border: 1px solid #fde68a;
+}
+
+.onboarding-action-box {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 20px;
+  margin-top: 16px;
+  border: 1px solid #e2e8f0;
+}
+
+.onboarding-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 768px) {
+  .onboarding-form-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.onboarding-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.onboarding-select {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background-color: #f8fafc;
+  color: #0f172a;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.onboarding-select:focus {
+  border-color: #0284c7;
+  background-color: #ffffff;
+}
+
+.onboarding-input-mono {
+  flex: 1;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background-color: #f8fafc;
+  color: #334155;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.onboarding-submit-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 12px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.btn-submit-onboarding {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 1rem;
+  padding: 12px 24px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+  transition: all 0.2s ease;
+}
+
+.btn-submit-onboarding:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(2, 132, 199, 0.4);
+}
+
+.btn-submit-onboarding:disabled {
+  background: #cbd5e1;
+  color: #64748b;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 </style>

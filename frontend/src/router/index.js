@@ -171,6 +171,17 @@ router.beforeEach((to, from, next) => {
   
   if (to.meta.requiresAuth && !user) {
     next({ name: 'login' });
+  } else if (user) {
+    const isPending = (
+      String(user.previlage_id) === '1' ||
+      String(user.status_id) === '8' ||
+      user.is_approved === false
+    );
+    if (isPending && to.name !== 'profile' && to.name !== 'login') {
+      next({ name: 'profile' });
+    } else {
+      next();
+    }
   } else {
     // Dynamic permission checking is handled by AppSidebar visibility
     // and backend API enforcement (e.g. checkUserIsAdmin for mgmt endpoints).

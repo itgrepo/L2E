@@ -12,7 +12,7 @@ def addUser():
 
         conn = mysql.connect()
         cursor = conn.cursor()
-        sql = """SELECT user.status_id, user.user_id, user.national_id, user.national_id_book, user.email, cp.previlage_name, cp.previlage_id, user.username, user.create_at, user.org_id, org.org_name FROM `user`
+        sql = """SELECT user.status_id, user.user_id, user.national_id, user.national_id_book, user.email, cp.previlage_name, cp.previlage_id, user.username, user.create_at, user.org_id, org.org_name, (user.apikey IS NOT NULL AND user.apikey != '') AS has_api_key FROM `user`
                         LEFT JOIN codename_previlage as cp ON cp.previlage_id = user.previlage_id
                         LEFT JOIN organization org ON user.org_id = org.org_id
                             WHERE user.status_id != '7'"""
@@ -86,6 +86,7 @@ def updateUserById():
         dataInput = request.json
         previlage_id = dataInput.get('previlage_id')
         org_id = dataInput.get('org_id')
+        status_id = dataInput.get('status_id')
         target_user_id = dataInput.get('target_user_id') # New field for clarity
         
         user_data = safe_json_loads(platform_decode(dataInput.get('user', '')))
@@ -95,17 +96,27 @@ def updateUserById():
             cursor = conn.cursor()
             
             if target_user_id:
-                if previlage_id is not None and org_id is not None:
-                    sql = "UPDATE user SET previlage_id = %s, org_id = %s WHERE user_id = %s"
-                    cursor.execute(sql, (previlage_id, org_id, target_user_id))
-                elif previlage_id is not None:
-                    sql = "UPDATE user SET previlage_id = %s WHERE user_id = %s"
-                    cursor.execute(sql, (previlage_id, target_user_id))
-                elif org_id is not None:
-                    sql = "UPDATE user SET org_id = %s WHERE user_id = %s"
-                    cursor.execute(sql, (org_id, target_user_id))
+                updates = []
+                params = []
+                if previlage_id is not None:
+                    updates.append("previlage_id = %s")
+                    params.append(previlage_id)
+                if org_id is not None:
+                    updates.append("org_id = %s")
+                    params.append(org_id)
+                if status_id is not None:
+                    updates.append("status_id = %s")
+                    params.append(status_id)
+                    if str(status_id) == '1':
+                        updates.append("status_account = 'active'")
+                        cursor.execute("UPDATE user_activity SET status_account = '1' WHERE user_id = %s", (target_user_id,))
+                
+                if updates:
+                    sql = f"UPDATE user SET {', '.join(updates)} WHERE user_id = %s"
+                    params.append(target_user_id)
+                    cursor.execute(sql, tuple(params))
 
-                logAction( user_id =user_data.get('user_id') , path = "/mgmt/updateUserById" , log = f"Update user: {target_user_id} previlage_id: {previlage_id} org_id: {org_id} success" , type = "info" )
+                logAction( user_id =user_data.get('user_id') , path = "/mgmt/updateUserById" , log = f"Update user: {target_user_id} previlage_id: {previlage_id} org_id: {org_id} status_id: {status_id} success" , type = "info" )
 
             conn.commit()
             cursor.close()
@@ -116,6 +127,48 @@ def updateUserById():
             return jsonify({"status": "Permission Denied"})
     except Exception as e:
         print("Error in updateUserById: " + str(e))
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route('/mgmt/approveUserRegistration', methods=['POST'])
+def approveUserRegistration():
+    """Approve user onboarding request: grant R2 (previlage_id=2) and activate account (status_id=1)."""
+    try:
+        dataInput = request.json or {}
+        user_data = safe_json_loads(platform_decode(dataInput.get('user', '')))
+        
+        if not user_data or not checkUserIsAdmin(user_data):
+            return jsonify({"status": "Permission Denied"})
+            
+        target_user_id = dataInput.get('target_user_id')
+        if not target_user_id:
+            return jsonify({"status": "error", "message": "Target user ID is required"}), 400
+            
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        # Update user to R2 (General User) and Active (1)
+        sql = """UPDATE user 
+                 SET previlage_id = 2, status_id = 1, status_account = 'active'
+                 WHERE user_id = %s"""
+        cursor.execute(sql, (target_user_id,))
+        cursor.execute("UPDATE user_activity SET status_account = '1' WHERE user_id = %s", (target_user_id,))
+        
+        # Notify user
+        try:
+            from ServiceConfig.notification_util import notify_user
+            notify_user(target_user_id, 'account_approved', 'บัญชีของคุณได้รับการอนุมัติแล้ว คุณได้รับสิทธิ์ระดับ R2 (ผู้ใช้งานทั่วไป) และสามารถเข้าใช้งานระบบได้ทันที')
+        except Exception as notif_err:
+            print(f"Could not notify approved user: {notif_err}")
+            
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        logAction(user_data.get('user_id'), '/mgmt/approveUserRegistration', f'Approved user {target_user_id} as R2 Active', 'info')
+        return jsonify({"status": "success", "message": "อนุมัติผู้ใช้งานเป็นสิทธิ์ระดับ R2 สำเร็จ"})
+    except Exception as e:
+        print("Error in approveUserRegistration: " + str(e))
         return jsonify({"status": "error", "message": str(e)})
 
 

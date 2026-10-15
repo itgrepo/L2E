@@ -54,7 +54,18 @@ const menuMapping = {
     '/dataset-permission-monitor': 'dataset management'
 };
 
+const isUserPending = () => {
+  const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+  return (
+    String(userRoleId.value) === '1' ||
+    String(savedUser.status_id) === '8' ||
+    savedUser.is_approved === false
+  );
+};
+
 const hasMenuAccess = (path) => {
+  if (path === '/profile') return true;
+  if (isUserPending()) return false;
   const role = userRoleId.value;
   
   // Always allow Root Admin (Role 4) to access Permission Management so they cannot lock themselves out
@@ -76,7 +87,7 @@ const hasMenuAccess = (path) => {
   
   // Fallback while loading
   if (role === '4') return true;
-  if (role === '1') return ['/catalog'].includes(path);
+  if (role === '1') return false;
   if (role === '2') return ['/dashboard', '/catalog', '/favorites'].includes(path);
   if (role === '3') return ['/dashboard', '/catalog', '/favorites', '/api-management', '/api-monitor', '/dataset-approval', '/dataset-management', '/analytics', '/group-dataset-management'].includes(path);
   if (role === '5') return ['/dashboard', '/catalog', '/favorites', '/api-management'].includes(path);
@@ -102,6 +113,22 @@ const loadPermissions = async () => {
         isAdmin.value = currentRole === '4';
         
         savedUser.previlage_id = parseInt(currentRole);
+        if (res.data.current_status !== undefined && res.data.current_status !== null) {
+          savedUser.status_id = res.data.current_status;
+        }
+        if (res.data.current_org_id) {
+          savedUser.org_id = res.data.current_org_id;
+        }
+        if (res.data.is_approved !== undefined) {
+          savedUser.is_approved = res.data.is_approved;
+        }
+
+        const isPending = (
+          String(currentRole) === '1' ||
+          String(savedUser.status_id) === '8' ||
+          savedUser.is_approved === false
+        );
+
         if (currentRole === '4') {
           savedUser.isAdmin = 'true';
           savedUser.role = 'Administrator';
@@ -111,15 +138,22 @@ const loadPermissions = async () => {
         } else if (currentRole === '5') {
           savedUser.isAdmin = 'false';
           savedUser.role = 'ผู้ใช้งานภายใน (มีสิทธิ์ Dataset)';
-        } else {
+        } else if (currentRole === '2') {
           savedUser.isAdmin = 'false';
           savedUser.role = 'User';
+        } else {
+          savedUser.isAdmin = 'false';
+          savedUser.role = isPending ? 'รออนุมัติสิทธิ์ (R2)' : 'External User';
         }
         localStorage.setItem('user', JSON.stringify(savedUser));
         userRole.value = savedUser.role;
 
-        // Kick out if current route is no longer allowed
-        if (!hasMenuAccess(route.path)) {
+        // Kick out if current route is no longer allowed or pending approval
+        if (isPending) {
+          if (route.path !== '/profile') {
+            router.push('/profile');
+          }
+        } else if (!hasMenuAccess(route.path)) {
           router.push('/catalog');
         }
       }
@@ -256,7 +290,7 @@ const settingItems = [
         </div>
       </div>
 
-      <router-link to="/contact" class="nav-item" exact-active-class="active">
+      <router-link v-if="!isUserPending()" to="/contact" class="nav-item" exact-active-class="active">
         <svg xmlns="http://www.w3.org/2000/svg" class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
         </svg>

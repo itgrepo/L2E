@@ -258,6 +258,36 @@ const handleUnlockUser = async (user) => {
     }
 };
 
+const isApproving = ref(null);
+
+const isPendingUser = (user) => {
+    return String(user.status_id) === '8' || (String(user.previlage_id) === '1' && user.has_api_key);
+};
+
+const handleApproveUser = async (user) => {
+    if (!confirm(`ยืนยันการอนุมัติผู้ใช้ "${user.username}" ให้เป็น R2 (ผู้ใช้งานทั่วไป) หรือไม่?`)) {
+        return;
+    }
+    isApproving.value = user.user_id;
+    try {
+        const userStored = JSON.parse(localStorage.getItem('user') || '{}');
+        const response = await postWithUser('/mgmt/approveUserRegistration', userStored, {
+            target_user_id: user.user_id
+        });
+        if (response.data && response.data.status === 'success') {
+            showAlert(`อนุมัติผู้ใช้ ${user.username} เป็นระดับ R2 เรียบร้อยแล้ว`, 'success');
+            fetchUsers();
+        } else {
+            alert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status));
+        }
+    } catch (error) {
+        console.error('Error approving user:', error);
+        alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
+    } finally {
+        isApproving.value = null;
+    }
+};
+
 const handleDeleteUser = async (user) => {
     if (!confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบผู้ใช้ "${user.username}"? การกระทำนี้ไม่สามารถกู้คืนได้`)) {
         return;
@@ -355,11 +385,26 @@ onMounted(() => {
                 <div class="user-info">
                   <div class="user-avatar">{{ u.username.charAt(0).toUpperCase() }}</div>
                   <div>
-                      <div class="username-text">{{ u.username }}</div>
+                      <div class="username-text">
+                        {{ u.username }}
+                        <span v-if="isPendingUser(u)" style="margin-left: 6px; background-color: #fef3c7; color: #b45309; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #fde68a; font-weight: 600;">
+                          ⏳ รออนุมัติ R2
+                        </span>
+                      </div>
                       <div class="user-id-text">ID: #{{ u.user_id }}</div>
                   </div>
                 </div>
                 <div class="actions-group">
+                  <button 
+                    v-if="isPendingUser(u)" 
+                    class="approve-btn" 
+                    @click="handleApproveUser(u)" 
+                    :disabled="isApproving === u.user_id"
+                    title="อนุมัติเป็น R2"
+                    style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.75rem; font-weight: 600; margin-right: 8px;"
+                  >
+                    ✓ อนุมัติ R2
+                  </button>
                   <button v-if="u.status_id == 6" class="unlock-btn" @click="handleUnlockUser(u)" title="ปลดล็อคบัญชี" style="background-color: #f59e0b; color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.75rem; font-weight: 600; margin-right: 8px;">
                       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                       Unlock
@@ -436,8 +481,11 @@ onMounted(() => {
                     <div>
                         <div class="username-text">
                             {{ u.username }}
+                            <span v-if="isPendingUser(u)" style="margin-left: 6px; background-color: #fef3c7; color: #b45309; font-size: 0.7rem; padding: 2px 8px; border-radius: 9999px; border: 1px solid #fde68a; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                                ⏳ รออนุมัติ R2
+                            </span>
                             <span v-if="u.status_id == 6" style="margin-left: 6px; background-color: #fee2e2; color: #ef4444; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #fca5a5; display: inline-flex; align-items: center; gap: 2px;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0"></path></svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                                 Locked
                             </span>
                         </div>
@@ -448,7 +496,10 @@ onMounted(() => {
                 <td>{{ u.email || '-' }}</td>
                 <td>{{ formatDate(u.create_at) }}</td>
                 <td>
-                  <span class="role-badge" :class="'role-' + u.previlage_id">
+                  <span v-if="isPendingUser(u)" class="role-badge" style="background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a;">
+                    ⏳ รออนุมัติ R2
+                  </span>
+                  <span v-else class="role-badge" :class="'role-' + u.previlage_id">
                     {{ u.previlage_name || 'No Role' }}
                   </span>
                 </td>
@@ -471,6 +522,18 @@ onMounted(() => {
                 </td>
                 <td class="actions-cell">
                   <div class="actions-group">
+                    <button 
+                      v-if="isPendingUser(u)" 
+                      class="approve-btn" 
+                      @click="handleApproveUser(u)" 
+                      :disabled="isApproving === u.user_id"
+                      title="อนุมัติเป็น R2 (ผู้ใช้งานทั่วไป)" 
+                      style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; padding: 7px 12px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.85rem; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                      <span>{{ isApproving === u.user_id ? 'กำลังอนุมัติ...' : 'อนุมัติ R2' }}</span>
+                    </button>
+
                     <div class="role-selector-box">
                       <select 
                           :value="u.previlage_id" 

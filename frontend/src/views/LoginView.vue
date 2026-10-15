@@ -110,9 +110,18 @@ const handleLogin = async () => {
       // Dispatch auth-change event so Navbar updates
       window.dispatchEvent(new Event('auth-change'));
 
+      const isPending = (
+        String(result.data?.previlage_id) === '1' ||
+        String(result.data?.status_id) === '8' ||
+        result.data?.is_approved === false ||
+        result.data?.requires_onboarding === true
+      );
+
       if (result.status.includes('change password')) {
         alert('รหัสผ่านของคุณหมดอายุแล้ว กรุณาเปลี่ยนรหัสผ่านเพื่อความปลอดภัย');
         router.push('/profile'); // Redirect to profile to change password
+      } else if (isPending) {
+        router.push('/profile');
       } else {
         router.push('/catalog');
       }

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import { encodePassword } from '../utils/crypto';
 import apiClient from '../utils/api';
 import { themeConfig } from '../utils/theme';
 
@@ -8,6 +9,7 @@ const router = useRouter();
 const route = useRoute();
 const username = ref('');
 const password = ref('');
+const showPassword = ref(false);
 const rememberMe = ref(false);
 const isLoading = ref(false);
 const errorMessage = ref('');
@@ -72,6 +74,13 @@ onMounted(() => {
   if (route.query.verified === 'true') {
     successMessage.value = 'อีเมลได้รับการยืนยันแล้ว คุณสามารถเข้าสู่ระบบได้';
   }
+
+  // Load remembered username
+  const savedUsername = localStorage.getItem('remembered_username');
+  if (savedUsername) {
+    username.value = savedUsername;
+    rememberMe.value = true;
+  }
 });
 
 const handleLogin = async () => {
@@ -81,37 +90,54 @@ const handleLogin = async () => {
   try {
     const response = await apiClient.post('/login', {
       username: username.value,
-      password: password.value,
+      password: encodePassword(password.value),
       link: window.location.origin,
     });
 
     const result = response.data;
     
     if (result.status === 'success' || result.status === 'user is admin' || result.status === 'change password' || result.status === 'change password admin') {
+      // Handle Remember Me
+      if (rememberMe.value) {
+        localStorage.setItem('remembered_username', username.value);
+      } else {
+        localStorage.removeItem('remembered_username');
+      }
+
       // Store user data in localStorage for simplicity (replace with Pinia if needed)
       localStorage.setItem('user', JSON.stringify(result.data));
       
       // Dispatch auth-change event so Navbar updates
       window.dispatchEvent(new Event('auth-change'));
 
+      const isPending = (
+        String(result.data?.previlage_id) === '1' ||
+        String(result.data?.status_id) === '8' ||
+        result.data?.is_approved === false ||
+        result.data?.requires_onboarding === true
+      );
+
       if (result.status.includes('change password')) {
         alert('รหัสผ่านของคุณหมดอายุแล้ว กรุณาเปลี่ยนรหัสผ่านเพื่อความปลอดภัย');
         router.push('/profile'); // Redirect to profile to change password
+      } else if (isPending) {
+        router.push('/profile');
       } else {
         router.push('/catalog');
       }
     } else if (result.status === 'pending_approval') {
       errorMessage.value = 'บัญชีของคุณกำลังรอการอนุมัติจากผู้ดูแลระบบ กรุณารอการอนุมัติ';
-    } else if (result.status === 'Please check in your email confirmation') {
+    } else if (result.status === 'Your account is locked' || (result.status && result.status.includes('unlock account'))) {
+      errorMessage.value = '🚨 บัญชีของคุณถูกระงับการใช้งานชั่วคราวเนื่องจากกรอกรหัสผ่านผิดเกินจำนวนครั้งที่กำหนด กรุณาติดต่อผู้ดูแลระบบหรือทำการปลดล็อคผ่านอีเมล';
+    } else if (result.status && result.status.includes('Please check in your email confirmation')) {
       errorMessage.value = 'กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ ตรวจสอบกล่องจดหมายของคุณ';
     } else if (result.status === 'not found' || result.status === 'username is incorrect') {
       if (result.attempts !== undefined) {
-        errorMessage.value = `ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง (คุณสามารถลองใหม่ได้อีก ${5 - result.attempts} ครั้ง)`;
+        const remaining = 5 - result.attempts;
+        errorMessage.value = `ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง (คุณสามารถลองใหม่ได้อีก ${remaining} ครั้ง)`;
       } else {
-        errorMessage.value = 'ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง';
+        errorMessage.value = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
       }
-    } else if (result.status === 'Your account is locked' || result.status.includes('unlock account')) {
-      errorMessage.value = 'บัญชีของคุณถูกล็อกชั่วคราวเนื่องจากเข้าสู่ระบบผิดพลาดเกินกำหนด กรุณาตรวจสอบอีเมลหรือติดต่อผู้ดูแลระบบเพื่อปลดล็อก';
     } else if (result.status === 'Your account is suspended') {
       errorMessage.value = 'บัญชีของคุณถูกระงับการใช้งานชั่วคราว กรุณาติดต่อผู้ดูแลระบบ';
     } else {
@@ -145,17 +171,21 @@ const handleLogin = async () => {
         <h2>Welcome Back</h2>
         <p class="subtitle">Please enter your details to sign in</p>
         
-        <div class="test-credentials">
-          <p><strong>บัญชีทดสอบ:</strong></p>
-          <p>Username: <code>testadmin</code></p>
-          <p>Password: <code>password123</code></p>
-        </div>
+        
 
         <div v-if="successMessage" class="success-alert">
           {{ successMessage }}
         </div>
 
-        <div v-if="errorMessage" class="error-alert">
+        <div v-if="errorMessage && errorMessage.includes('ถูกระงับการใช้งานชั่วคราว')" class="locked-alert" style="background-color: #fef2f2; color: #991b1b; border: 2px solid #f87171; padding: 16px; border-radius: 8px; margin-bottom: 24px; font-weight: 600; text-align: center; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.1);">
+          {{ errorMessage }}
+          <div style="margin-top: 12px;">
+            <router-link to="/contact" style="display: inline-block; padding: 8px 16px; background-color: #ef4444; color: white; border-radius: 6px; text-decoration: none; font-size: 0.9rem;">
+              ติดต่อผู้ดูแลระบบ (Contact Admin)
+            </router-link>
+          </div>
+        </div>
+        <div v-else-if="errorMessage" class="error-alert">
           {{ errorMessage }}
         </div>
 
@@ -174,14 +204,25 @@ const handleLogin = async () => {
           
           <div class="form-group">
             <label for="password">Password</label>
-            <input 
-              id="password" 
-              v-model="password" 
-              type="password" 
-              placeholder="••••••••" 
-              required
-              :disabled="isLoading"
-            >
+            <div class="password-wrapper">
+              <input 
+                id="password" 
+                v-model="password" 
+                :type="showPassword ? 'text' : 'password'" 
+                placeholder="••••••••" 
+                required
+                :disabled="isLoading"
+              >
+              <button 
+                type="button" 
+                class="toggle-password" 
+                @click="showPassword = !showPassword"
+                title="Toggle password visibility"
+              >
+                <svg v-if="!showPassword" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+              </button>
+            </div>
           </div>
           
           <div class="form-options">
@@ -332,7 +373,29 @@ label {
   margin-bottom: 8px;
 }
 
+
+.password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.toggle-password {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.toggle-password:hover {
+  color: #334155;
+}
 input[type="text"],
+
 input[type="password"] {
   width: 100%;
   padding: 12px 16px;
@@ -423,26 +486,7 @@ input:focus {
   font-size: 0.875rem;
 }
 
-.test-credentials {
-  background-color: var(--mso-pink-dark);
-  border: 1px solid #f9a8d4;
-  color: #9d174d;
-  padding: 12px;
-  border-radius: 12px;
-  margin-bottom: 20px;
-  font-size: 0.875rem;
-}
 
-.test-credentials p {
-  margin: 0;
-}
-
-.test-credentials code {
-  background-color: var(--mso-pink-dark);
-  padding: 2px 4px;
-  border-radius: 4px;
-  font-family: monospace;
-}
 
 .loader {
   width: 20px;

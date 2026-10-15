@@ -1,15 +1,99 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { postWithUser, encodeUserData } from '../utils/api';
+import { encodePassword } from '../utils/crypto';
 
+const router = useRouter();
 const activeTab = ref('personal');
 const isLoading = ref(false);
 const isGeneratingKey = ref(false);
 const message = ref({ text: '', type: '' });
 
+const user = ref({
+  user_id: '',
+  firstname: '',
+  lastname: '',
+  email: '',
+  usage_objective: '',
+  other_object: '',
+  apikey: '',
+  role: 'User',
+  org_id: '',
+  status_id: '',
+  previlage_id: '',
+  is_approved: true
+});
+
+const organizations = ref([]);
+const isSubmittingOnboarding = ref(false);
+const isOnboardingSubmitted = ref(false);
+
+const fetchOrganizations = async () => {
+  try {
+    const userData = localStorage.getItem('user');
+    const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
+    const res = await apiClient.post('/getOrganizations', { user: userParam });
+    if (res.data?.status === 'success' && Array.isArray(res.data.data)) {
+      organizations.value = res.data.data;
+    }
+  } catch (err) {
+    console.error('Error fetching organizations:', err);
+  }
+};
+
+const isPendingApproval = computed(() => {
+  const priv = String(user.value.previlage_id || '');
+  const status = String(user.value.status_id || '');
+  return priv === '1' || status === '8' || user.value.is_approved === false;
+});
+
+const hasApiKey = computed(() => Boolean(user.value.apikey));
+const hasSelectedOrg = computed(() => Boolean(user.value.org_id));
+
+const submitOnboarding = async () => {
+  if (!user.value.org_id) {
+    message.value = { text: 'กรุณาเลือกองค์กรที่สังกัดก่อนส่งคำขอ', type: 'error' };
+    return;
+  }
+  if (!user.value.apikey) {
+    message.value = { text: 'กรุณากดสร้าง API Key ก่อนส่งคำขอ', type: 'error' };
+    return;
+  }
+  isSubmittingOnboarding.value = true;
+  message.value = { text: '', type: '' };
+  try {
+    const userData = localStorage.getItem('user');
+    const res = await apiClient.post('/submitOnboardingRequest', {
+      user: userData ? encodeUserData(JSON.parse(userData)) : '',
+      user_id: user.value.user_id,
+      org_id: user.value.org_id,
+      apikey: user.value.apikey
+    });
+    if (res.data?.status === 'success') {
+      isOnboardingSubmitted.value = true;
+      user.value.status_id = 8;
+      const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+      savedUser.org_id = user.value.org_id;
+      savedUser.status_id = 8;
+      savedUser.apikey = user.value.apikey;
+      savedUser.is_approved = false;
+      localStorage.setItem('user', JSON.stringify(savedUser));
+      message.value = { text: 'ส่งคำขอให้ผู้ดูแลระบบพิจารณาอนุมัติเรียบร้อยแล้ว', type: 'success' };
+    } else {
+      message.value = { text: res.data?.message || 'ไม่สามารถส่งคำขอได้', type: 'error' };
+    }
+  } catch (err) {
+    console.error('Error submitting onboarding request:', err);
+    message.value = { text: 'เกิดข้อผิดพลาดในการส่งคำขอ กรุณาลองใหม่', type: 'error' };
+  } finally {
+    isSubmittingOnboarding.value = false;
+  }
+};
+
 // Password Change states & methods
-const showPasswordForm = ref(false);
+const showPasswordForm = ref(true);
 const isSavingPassword = ref(false);
 const passwordForm = ref({
   currentPassword: '',
@@ -17,46 +101,114 @@ const passwordForm = ref({
   confirmPassword: ''
 });
 
-const handlePasswordChange = async () => {
-  if (!passwordForm.value.currentPassword || !passwordForm.value.newPassword || !passwordForm.value.confirmPassword) {
-    message.value = { text: 'กรุณากรอกข้อมูลให้ครบถ้วน', type: 'error' };
-    return;
-  }
-  if (passwordForm.value.newPassword !== passwordForm.value.confirmPassword) {
-    message.value = { text: 'รหัสผ่านใหม่ไม่ตรงกัน', type: 'error' };
-    return;
-  }
+const showCurrentPassword = ref(false);
+const showNewPassword = ref(false);
+const showConfirmPassword = ref(false);
+
+const passwordCriteria = computed(() => {
+  const p = passwordForm.value.newPassword || '';
+  return {
+    length: p.length >= 8,
+    uppercase: /[A-Z]/.test(p),
+    lowercase: /[a-z]/.test(p),
+    number: /[0-9]/.test(p),
+    special: /[^A-Za-z0-9]/.test(p),
+    match: Boolean(p && passwordForm.value.confirmPassword && p === passwordForm.value.confirmPassword)
+  };
+});
+
+const isPasswordFormValid = computed(() => {
+  const c = passwordCriteria.value;
+  return Boolean(
+    passwordForm.value.currentPassword.trim().length > 0 &&
+    c.length &&
+    c.uppercase &&
+    c.lowercase &&
+    c.number &&
+    c.special &&
+    c.match
+  );
+});
+
+const passwordStrength = computed(() => {
+  const p = passwordForm.value.newPassword;
+  if (!p) return { score: 0, label: '', color: '#e2e8f0' };
+  let score = 0;
+  if (p.length >= 8) score++;
+  if (/[A-Z]/.test(p)) score++;
+  if (/[a-z]/.test(p)) score++;
+  if (/[0-9]/.test(p)) score++;
+  if (/[^A-Za-z0-9]/.test(p)) score++;
   
+  const levels = [
+    { score: 0, label: '', color: '#e2e8f0' },
+    { score: 1, label: 'อ่อนมาก', color: '#ef4444' },
+    { score: 2, label: 'อ่อน', color: '#f97316' },
+    { score: 3, label: 'ปานกลาง', color: '#f59e0b' },
+    { score: 4, label: 'ดี', color: '#10b981' },
+    { score: 5, label: 'ดีมาก', color: '#059669' }
+  ];
+  return levels[score] || levels[0];
+});
+
+const handlePasswordChange = async () => {
+  if (!passwordForm.value.currentPassword) {
+    message.value = { text: 'กรุณากรอกรหัสผ่านปัจจุบัน', type: 'error' };
+    return;
+  }
+  if (!isPasswordFormValid.value) {
+    message.value = { text: 'รหัสผ่านใหม่ต้องตรงตามเงื่อนไขความปลอดภัยและยืนยันรหัสผ่านให้ตรงกัน', type: 'error' };
+    return;
+  }
+
   isSavingPassword.value = true;
   message.value = { text: '', type: '' };
   
   try {
+    const userData = localStorage.getItem('user');
+    const parsedUser = userData ? JSON.parse(userData) : {};
+    const userId = user.value.user_id || parsedUser.user_id;
+
     const response = await apiClient.post('/changePassword', {
-      currentPassword: passwordForm.value.currentPassword,
-      password: passwordForm.value.newPassword,
-      user_id: encodeUserData(user.value.user_id.toString())
+      user_id: userId,
+      user: userData ? encodeUserData(parsedUser) : null,
+      currentPassword: encodePassword(passwordForm.value.currentPassword),
+      password: encodePassword(passwordForm.value.newPassword)
     });
     
-    if (response.data.status === 'success') {
-      message.value = { text: 'เปลี่ยนรหัสผ่านเรียบร้อยแล้ว!', type: 'success' };
-      showPasswordForm.value = false;
+    const result = response.data;
+    
+    if (result.status === 'success') {
+      message.value = { text: 'เปลี่ยนรหัสผ่านสำเร็จ! กำลังนำท่านเข้าสู่ระบบใหม่...', type: 'success' };
       passwordForm.value = { currentPassword: '', newPassword: '', confirmPassword: '' };
-    } else if (response.data.status === 'same password') {
-      message.value = { text: 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่าน 3 ครั้งล่าสุด', type: 'error' };
-    } else {
+      setTimeout(() => {
+        // Cancel old session
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+        localStorage.removeItem('lastActivity');
+        localStorage.removeItem('user_favorites');
+        sessionStorage.clear();
+        window.dispatchEvent(new Event('auth-change'));
+        window.location.href = '/login';
+      }, 2000);
+    } else if (result.status === 'password incorrect') {
       message.value = { text: 'รหัสผ่านปัจจุบันไม่ถูกต้อง', type: 'error' };
+    } else if (result.status === 'same password') {
+      message.value = { text: 'ไม่สามารถใช้รหัสผ่านเดิมที่เคยใช้งานแล้วได้', type: 'error' };
+    } else {
+      message.value = { text: result.message || 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน', type: 'error' };
     }
   } catch (error) {
     console.error('Password change error:', error);
-    message.value = { text: 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน', type: 'error' };
+    message.value = { text: error.response?.data?.message || 'ไม่สามารถเปลี่ยนรหัสผ่านได้ กรุณาลองใหม่', type: 'error' };
   } finally {
     isSavingPassword.value = false;
   }
 };
 
 const cancelPasswordChange = () => {
-  showPasswordForm.value = false;
   passwordForm.value = { currentPassword: '', newPassword: '', confirmPassword: '' };
+  message.value = { text: '', type: '' };
 };
 
 // Notifications states & methods
@@ -65,14 +217,37 @@ const notificationSettings = ref({
   security: true,
   usage: false
 });
+const isSavingNotif = ref(false);
 
-const saveNotificationSettings = () => {
-  message.value = { text: 'บันทึกการตั้งค่าการแจ้งเตือนสำเร็จ!', type: 'success' };
-  setTimeout(() => {
-    if (message.value.text.includes('แจ้งเตือน')) {
-      message.value = { text: '', type: '' };
+const saveNotificationSettings = async () => {
+  isSavingNotif.value = true;
+  message.value = { text: '', type: '' };
+  try {
+    const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+    const uId = savedUser.user_id || user.value.user_id;
+    const res = await postWithUser('/updateNotificationSettings', savedUser, {
+      settings: notificationSettings.value
+    });
+    if (res.data?.status === 'success') {
+      message.value = { text: 'บันทึกการตั้งค่าการแจ้งเตือนสำเร็จ!', type: 'success' };
+      localStorage.setItem('user_notification_settings_' + uId, JSON.stringify(notificationSettings.value));
+    } else {
+      message.value = { text: res.data?.message || 'ไม่สามารถบันทึกการตั้งค่าได้', type: 'error' };
     }
-  }, 3000);
+  } catch (error) {
+    console.error('Save notification settings error:', error);
+    const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+    const uId = savedUser.user_id || user.value.user_id;
+    localStorage.setItem('user_notification_settings_' + uId, JSON.stringify(notificationSettings.value));
+    message.value = { text: 'บันทึกการตั้งค่าการแจ้งเตือนสำเร็จ!', type: 'success' };
+  } finally {
+    isSavingNotif.value = false;
+    setTimeout(() => {
+      if (message.value.text.includes('แจ้งเตือน')) {
+        message.value = { text: '', type: '' };
+      }
+    }, 4000);
+  }
 };
 
 const copyApiKey = () => {
@@ -116,24 +291,74 @@ const generateApiKey = async () => {
   }
 };
 
-const user = ref({
-  user_id: '',
-  firstname: '',
-  lastname: '',
-  email: '',
-  usage_objective: '',
-  other_object: '',
-  apikey: '',
-  role: 'User'
-});
+onMounted(async () => {
+  await fetchOrganizations();
+  let savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+  if (savedUser.username) {
+    try {
+      const res = await postWithUser('/getMenuByPermission', savedUser);
+      if (res.data) {
+        if (res.data.current_role) savedUser.previlage_id = res.data.current_role;
+        if (res.data.current_status !== undefined && res.data.current_status !== null) savedUser.status_id = res.data.current_status;
+        if (res.data.current_org_id) savedUser.org_id = res.data.current_org_id;
+        if (res.data.is_approved !== undefined) savedUser.is_approved = res.data.is_approved;
+        
+        const cRole = String(res.data.current_role || savedUser.previlage_id || '');
+        if (cRole === '4') {
+          savedUser.isAdmin = 'true';
+          savedUser.role = 'System Administrator';
+        } else if (cRole === '3') {
+          savedUser.isAdmin = 'false';
+          savedUser.role = 'Department Admin';
+        } else if (cRole === '5') {
+          savedUser.isAdmin = 'false';
+          savedUser.role = 'ผู้ใช้งานภายใน (มีสิทธิ์ Dataset)';
+        } else if (cRole === '2') {
+          savedUser.isAdmin = 'false';
+          savedUser.role = 'General User';
+        } else {
+          savedUser.isAdmin = 'false';
+          savedUser.role = 'External User';
+        }
+        localStorage.setItem('user', JSON.stringify(savedUser));
+      }
+    } catch (e) {
+      console.error('Failed to sync role in profile', e);
+    }
 
-onMounted(() => {
-  const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
-  if (savedUser) {
+    let calculatedRole = savedUser.role || 'User';
+    const privId = String(savedUser.previlage_id);
+    if (privId === '4') calculatedRole = 'System Administrator';
+    else if (privId === '3') calculatedRole = 'Department Admin';
+    else if (privId === '5') calculatedRole = 'ผู้ใช้งานภายใน (มีสิทธิ์ Dataset)';
+    else if (privId === '2') calculatedRole = 'General User';
+    else if (privId === '1') calculatedRole = 'External User';
+
     user.value = {
       ...user.value,
-      ...savedUser
+      ...savedUser,
+      role: calculatedRole
     };
+
+    if (String(user.value.status_id) === '8' && user.value.org_id && user.value.apikey) {
+      isOnboardingSubmitted.value = true;
+    }
+
+    // Fetch user notification settings
+    try {
+      const uId = savedUser.user_id;
+      const localNotif = localStorage.getItem('user_notification_settings_' + uId);
+      if (localNotif) {
+        notificationSettings.value = JSON.parse(localNotif);
+      }
+      const notifRes = await postWithUser('/getNotificationSettings', savedUser);
+      if (notifRes.data?.status === 'success' && notifRes.data.data) {
+        notificationSettings.value = notifRes.data.data;
+        localStorage.setItem('user_notification_settings_' + uId, JSON.stringify(notifRes.data.data));
+      }
+    } catch (e) {
+      console.error('Failed to load notification settings', e);
+    }
   }
 });
 
@@ -149,7 +374,8 @@ const saveChanges = async () => {
         lastname: user.value.lastname,
         email: user.value.email,
         usage_objective: user.value.usage_objective,
-        other_object: user.value.other_object
+        other_object: user.value.other_object,
+        org_id: user.value.org_id
       },
       link: window.location.origin
     };
@@ -181,7 +407,7 @@ const saveChanges = async () => {
     <main class="profile-content">
       <header class="profile-header">
         <div class="avatar-area">
-          <div class="avatar-circle">SJ</div>
+          <div class="avatar-circle">{{ (user.firstname ? user.firstname.charAt(0).toUpperCase() : '') + (user.lastname ? user.lastname.charAt(0).toUpperCase() : '') || 'U' }}</div>
           <button class="edit-avatar">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
               <path d="M10.5 8.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/>
@@ -197,6 +423,86 @@ const saveChanges = async () => {
       
       <div v-if="message.text" :class="['alert-message', message.type]">
         {{ message.text }}
+      </div>
+
+      <!-- Onboarding Workflow Card for Pending Approval Users -->
+      <div v-if="isPendingApproval" class="onboarding-card">
+        <div class="onboarding-header">
+          <div class="onboarding-badge">🚀 ขั้นตอนเริ่มต้นก่อนเข้าใช้งานระบบ (Account Onboarding)</div>
+          <h3 style="margin: 8px 0 4px 0; color: #0f172a; font-size: 1.25rem; font-weight: 700;">ยินดีต้อนรับสู่ Data Portal</h3>
+          <p style="margin: 0; color: #475569; font-size: 0.9rem; line-height: 1.5;">
+            กรุณาดำเนินการตั้งค่าองค์กรและสร้าง API Key ด้านล่างนี้ จากนั้นส่งคำขอให้ผู้ดูแลระบบพิจารณาอนุมัติ เพื่อรับสิทธิ์เริ่มต้นเป็นระดับ <strong>R2 (ผู้ใช้งานทั่วไป)</strong> และปลดล็อกการเข้าใช้งานทุกเมนูในระบบ
+          </p>
+        </div>
+
+        <div class="onboarding-steps-indicator">
+          <div class="obs-step done">
+            <div class="obs-circle">✓</div>
+            <div class="obs-label">1. ยืนยันอีเมล</div>
+          </div>
+          <div class="obs-connector done"></div>
+          <div class="obs-step" :class="{ done: hasSelectedOrg && hasApiKey, active: !hasSelectedOrg || !hasApiKey }">
+            <div class="obs-circle">{{ (hasSelectedOrg && hasApiKey) ? '✓' : '2' }}</div>
+            <div class="obs-label">2. ระบุองค์กร & API Key</div>
+          </div>
+          <div class="obs-connector" :class="{ done: isOnboardingSubmitted }"></div>
+          <div class="obs-step" :class="{ active: hasSelectedOrg && hasApiKey && !isOnboardingSubmitted, waiting: isOnboardingSubmitted }">
+            <div class="obs-circle">{{ isOnboardingSubmitted ? '⏳' : '3' }}</div>
+            <div class="obs-label">3. รอผู้ดูแลระบบอนุมัติ (R2)</div>
+          </div>
+        </div>
+
+        <div v-if="isOnboardingSubmitted" class="onboarding-status-box waiting-box">
+          <div class="status-icon" style="font-size: 2rem;">⏳</div>
+          <div>
+            <h4 style="margin: 0 0 4px 0; color: #92400e; font-size: 1.05rem; font-weight: 700;">ส่งคำขอเรียบร้อยแล้ว อยู่ระหว่างรอผู้ดูแลระบบพิจารณาอนุมัติ</h4>
+            <p style="margin: 0; color: #b45309; font-size: 0.9rem; line-height: 1.5;">
+              ระบบได้ส่งคำขอเปิดใช้งานบัญชีของคุณไปยังผู้ดูแลระบบเรียบร้อยแล้ว เมื่อได้รับการอนุมัติ ท่านจะได้รับสิทธิ์ระดับ <strong>R2 (ผู้ใช้งานทั่วไป)</strong> และสามารถเข้าใช้งานเมนูต่างๆ ในระบบได้ทันที
+            </p>
+          </div>
+        </div>
+
+        <div v-else class="onboarding-action-box">
+          <div class="onboarding-form-row">
+            <div class="onboarding-field">
+              <label style="display: block; font-weight: 600; color: #1e293b; margin-bottom: 6px; font-size: 0.9rem;">
+                1. เลือกองค์กรที่สังกัด <span style="color: #ef4444;">*</span>
+              </label>
+              <select v-model="user.org_id" class="onboarding-select">
+                <option value="" disabled>-- กรุณาเลือกองค์กรที่ท่านสังกัด --</option>
+                <option v-for="org in organizations" :key="org.org_id" :value="org.org_id">
+                  {{ org.org_name }}
+                </option>
+              </select>
+            </div>
+            <div class="onboarding-field">
+              <label style="display: block; font-weight: 600; color: #1e293b; margin-bottom: 6px; font-size: 0.9rem;">
+                2. สร้าง API Key ประจำตัว <span style="color: #ef4444;">*</span>
+              </label>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="text" :value="user.apikey ? '?apikey=' + user.apikey : 'ยังไม่ได้สร้าง Key'" disabled class="onboarding-input-mono" />
+                <button type="button" @click="generateApiKey" :disabled="isGeneratingKey" class="btn-primary" style="white-space: nowrap; height: 42px;">
+                  {{ user.apikey ? 'สร้างใหม่' : 'สร้าง API Key' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="onboarding-submit-row">
+            <button 
+              type="button" 
+              @click="submitOnboarding" 
+              :disabled="!user.org_id || !user.apikey || isSubmittingOnboarding" 
+              class="btn-submit-onboarding"
+            >
+              <span v-if="isSubmittingOnboarding">กำลังส่งคำขอ...</span>
+              <span v-else>🚀 ส่งคำขอให้ผู้ดูแลระบบพิจารณาอนุมัติ</span>
+            </button>
+            <small v-if="!user.org_id || !user.apikey" style="color: #64748b; font-size: 0.8rem; margin-top: 6px; display: block;">
+              * ต้องเลือกองค์กรที่สังกัดและสร้าง API Key ก่อนจึงจะสามารถส่งคำขอได้
+            </small>
+          </div>
+        </div>
       </div>
       
       <div class="settings-card">
@@ -228,6 +534,15 @@ const saveChanges = async () => {
             <div class="form-group">
               <label>Email Address</label>
               <input type="email" v-model="user.email" disabled>
+            </div>
+            <div class="form-group">
+              <label>องค์กร / หน่วยงานที่สังกัด (Organization)</label>
+              <select v-model="user.org_id" class="form-control" style="width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; background: #fff; font-size: 0.95rem;">
+                <option value="" disabled>-- เลือกองค์กรที่สังกัด --</option>
+                <option v-for="org in organizations" :key="org.org_id" :value="org.org_id">
+                  {{ org.org_name }}
+                </option>
+              </select>
             </div>
             <div class="form-group">
               <label>Usage Objective</label>
@@ -278,38 +593,112 @@ const saveChanges = async () => {
           </div>
           
           <div v-if="activeTab === 'security'" class="security-pane">
-            <div class="security-item" v-if="!showPasswordForm">
-              <div class="item-info">
-                <h4>Change Password</h4>
-                <p>Update your password to keep your account secure.</p>
+            <div class="password-form-card" style="background: #f8fafc; padding: 28px; border-radius: 16px; border: 1px solid #e2e8f0; text-align: left;">
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                <div style="width: 36px; height: 36px; border-radius: 10px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                  🔒
+                </div>
+                <h4 style="margin: 0; font-weight:700; color:#1e293b; font-size: 1.15rem;">เปลี่ยนรหัสผ่าน (Change Password)</h4>
               </div>
-              <button class="btn-outline" @click="showPasswordForm = true">Update</button>
-            </div>
-            
-            <div v-else class="password-form-card" style="background: #f8fafc; padding: 24px; border-radius: 16px; border: 1px solid #e2e8f0; text-align: left;">
-              <h4 style="margin: 0 0 8px 0; font-weight:700; color:#1e293b;">Change Password</h4>
-              <p style="font-size:0.875rem; color:#64748b; margin-bottom: 20px;">กรุณากรอกรหัสผ่านเดิมและกำหนดรหัสผ่านใหม่เพื่อความปลอดภัย</p>
+              <p style="font-size:0.875rem; color:#64748b; margin-bottom: 24px;">โปรดกรอกรหัสผ่านปัจจุบันและตั้งรหัสผ่านใหม่ตามเงื่อนไขความปลอดภัย</p>
               
-              <div class="form-group mb-4" style="margin-bottom: 16px;">
-                <label style="display:block; margin-bottom:6px; font-weight:600; font-size:0.875rem;">Current Password *</label>
-                <input type="password" v-model="passwordForm.currentPassword" placeholder="รหัสผ่านปัจจุบัน" required style="width:100%; box-sizing:border-box;">
+              <!-- Message Alert inside form -->
+              <div v-if="message.text" :class="['alert-box', message.type]" style="margin-bottom: 20px; padding: 12px 16px; border-radius: 10px; font-size: 0.9rem; font-weight: 500;" :style="message.type === 'success' ? 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;' : 'background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;'">
+                {{ message.text }}
+              </div>
+
+              <!-- Current Password -->
+              <div class="form-group" style="margin-bottom: 20px;">
+                <label style="display:block; font-size:0.875rem; font-weight:600; margin-bottom:8px; color:#334155;">
+                  รหัสผ่านปัจจุบัน <span style="color:#ef4444;">*</span>
+                </label>
+                <div class="password-input-wrapper">
+                  <input :type="showCurrentPassword ? 'text' : 'password'" v-model="passwordForm.currentPassword" class="form-control" placeholder="รหัสผ่านปัจจุบัน" />
+                  <button type="button" class="toggle-password" @click="showCurrentPassword = !showCurrentPassword" tabindex="-1" title="แสดง/ซ่อนรหัสผ่าน">
+                    <svg v-if="!showCurrentPassword" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                  </button>
+                </div>
+              </div>
+
+              <!-- New Password -->
+              <div class="form-group" style="margin-bottom: 20px;">
+                <label style="display:block; font-size:0.875rem; font-weight:600; margin-bottom:8px; color:#334155;">
+                  รหัสผ่านใหม่ <span style="color:#ef4444;">*</span>
+                </label>
+                <div class="password-input-wrapper">
+                  <input :type="showNewPassword ? 'text' : 'password'" v-model="passwordForm.newPassword" class="form-control" placeholder="ตั้งรหัสผ่าน 8 ตัวขึ้นไป" />
+                  <button type="button" class="toggle-password" @click="showNewPassword = !showNewPassword" tabindex="-1" title="แสดง/ซ่อนรหัสผ่าน">
+                    <svg v-if="!showNewPassword" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                  </button>
+                </div>
+                
+                <!-- Strength Meter -->
+                <div class="password-strength-meter" style="margin-top: 10px; display: flex; align-items: center; gap: 10px;">
+                  <div class="meter-bar" style="flex: 1; height: 6px; background: #e2e8f0; border-radius: 4px; overflow: hidden; display: flex;">
+                    <div :style="{ width: (passwordStrength.score * 20) + '%', backgroundColor: passwordStrength.color, transition: 'all 0.3s' }"></div>
+                  </div>
+                  <span v-if="passwordStrength.label" :style="{ color: passwordStrength.color, fontWeight: 'bold', fontSize: '0.8rem', minWidth: '60px' }">
+                    ความปลอดภัย: {{ passwordStrength.label }}
+                  </span>
+                </div>
+
+                <!-- Password Checklist (Always Visible) -->
+                <div class="password-checklist">
+                  <div class="checklist-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                    </svg>
+                    <span>เงื่อนไขความปลอดภัยของรหัสผ่าน:</span>
+                  </div>
+                  <ul class="checklist-items">
+                    <li :class="{ valid: passwordCriteria.length }">
+                      <span class="icon">{{ passwordCriteria.length ? '✔' : '✘' }}</span>
+                      <span>ความยาวอย่างน้อย 8 ตัวอักษร</span>
+                    </li>
+                    <li :class="{ valid: passwordCriteria.uppercase }">
+                      <span class="icon">{{ passwordCriteria.uppercase ? '✔' : '✘' }}</span>
+                      <span>มีตัวอักษรภาษาอังกฤษตัวพิมพ์ใหญ่ (A-Z) อย่างน้อย 1 ตัว</span>
+                    </li>
+                    <li :class="{ valid: passwordCriteria.lowercase }">
+                      <span class="icon">{{ passwordCriteria.lowercase ? '✔' : '✘' }}</span>
+                      <span>มีตัวอักษรภาษาอังกฤษตัวพิมพ์เล็ก (a-z) อย่างน้อย 1 ตัว</span>
+                    </li>
+                    <li :class="{ valid: passwordCriteria.number }">
+                      <span class="icon">{{ passwordCriteria.number ? '✔' : '✘' }}</span>
+                      <span>มีตัวเลขอารบิก (0-9) อย่างน้อย 1 ตัว</span>
+                    </li>
+                    <li :class="{ valid: passwordCriteria.special }">
+                      <span class="icon">{{ passwordCriteria.special ? '✔' : '✘' }}</span>
+                      <span>มีอักขระพิเศษอย่างน้อย 1 ตัว (เช่น @, #, $, %, !)</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              <!-- Confirm Password -->
+              <div class="form-group" style="margin-bottom: 24px;">
+                <label style="display:block; font-size:0.875rem; font-weight:600; margin-bottom:8px; color:#334155;">
+                  ยืนยันรหัสผ่านใหม่ <span style="color:#ef4444;">*</span>
+                </label>
+                <div class="password-input-wrapper">
+                  <input :type="showConfirmPassword ? 'text' : 'password'" v-model="passwordForm.confirmPassword" class="form-control" placeholder="พิมพ์รหัสผ่านใหม่อีกครั้ง" />
+                  <button type="button" class="toggle-password" @click="showConfirmPassword = !showConfirmPassword" tabindex="-1" title="แสดง/ซ่อนรหัสผ่าน">
+                    <svg v-if="!showConfirmPassword" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                  </button>
+                </div>
+                <small v-if="passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword" style="color: #ef4444; font-size: 0.8rem; margin-top: 6px; display: block; font-weight: 500;">✘ รหัสผ่านใหม่ไม่ตรงกัน</small>
+                <small v-if="passwordForm.confirmPassword && passwordForm.newPassword === passwordForm.confirmPassword" style="color: #10b981; font-size: 0.8rem; margin-top: 6px; display: block; font-weight: 500;">✔ รหัสผ่านตรงกันแล้ว</small>
               </div>
               
-              <div class="form-group mb-4" style="margin-bottom: 16px;">
-                <label style="display:block; margin-bottom:6px; font-weight:600; font-size:0.875rem;">New Password *</label>
-                <input type="password" v-model="passwordForm.newPassword" placeholder="รหัสผ่านใหม่" required style="width:100%; box-sizing:border-box;">
-              </div>
-              
-              <div class="form-group mb-4" style="margin-bottom: 20px;">
-                <label style="display:block; margin-bottom:6px; font-weight:600; font-size:0.875rem;">Confirm New Password *</label>
-                <input type="password" v-model="passwordForm.confirmPassword" placeholder="ยืนยันรหัสผ่านใหม่" required style="width:100%; box-sizing:border-box;">
-              </div>
-              
-              <div class="form-actions" style="display: flex; gap: 12px;">
-                <button class="btn-primary" :disabled="isSavingPassword" @click="handlePasswordChange">
-                  {{ isSavingPassword ? 'Saving...' : 'Save Password' }}
+              <div class="form-actions" style="display: flex; gap: 12px; margin-top: 10px;">
+                <button class="btn-primary" :disabled="isSavingPassword || !isPasswordFormValid" @click="handlePasswordChange" style="padding: 10px 24px;">
+                  <span v-if="isSavingPassword">กำลังบันทึก...</span>
+                  <span v-else>บันทึกรหัสผ่านใหม่</span>
                 </button>
-                <button class="btn-ghost" @click="cancelPasswordChange">Cancel</button>
+                <button class="btn-ghost" @click="cancelPasswordChange">ยกเลิก</button>
               </div>
             </div>
 
@@ -352,8 +741,19 @@ const saveChanges = async () => {
               </div>
             </div>
 
+            <!-- Message Alert inside notifications pane -->
+            <div v-if="message.text && message.text.includes('แจ้งเตือน')" 
+                 :class="['alert-box', message.type]" 
+                 style="padding: 12px 16px; border-radius: 10px; font-size: 0.9rem; font-weight: 500;" 
+                 :style="message.type === 'success' ? 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;' : 'background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;'">
+              {{ message.text }}
+            </div>
+
             <div class="form-actions" style="display:flex; gap:12px;">
-              <button class="btn-primary" @click="saveNotificationSettings">บันทึกการตั้งค่า</button>
+              <button class="btn-primary" :disabled="isSavingNotif" @click="saveNotificationSettings" style="min-width: 140px; cursor: pointer;">
+                <span v-if="isSavingNotif">กำลังบันทึก...</span>
+                <span v-else>บันทึกการตั้งค่า</span>
+              </button>
             </div>
           </div>
         </div>
@@ -383,7 +783,7 @@ const saveChanges = async () => {
 }
 
 .alert-message.success {
-  background-color: #fce7f3;
+  background-color: var(--mso-pink-dark);
   color: #166534;
   border: 1px solid #bbf7d0;
 }
@@ -397,8 +797,20 @@ const saveChanges = async () => {
 .profile-header {
   display: flex;
   align-items: center;
-  gap: 32px;
-  margin-bottom: 48px;
+  gap: 24px;
+  margin-bottom: 40px;
+}
+
+.header-info {
+  word-break: break-word;
+}
+
+.header-info h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 8px 0;
+  line-height: 1.2;
 }
 
 .avatar-area {
@@ -436,13 +848,6 @@ const saveChanges = async () => {
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
-.header-info h1 {
-  font-size: 2rem;
-  font-weight: 800;
-  color: #1e293b;
-  margin-bottom: 4px;
-}
-
 .header-info p {
   color: #64748b;
   font-weight: 500;
@@ -457,20 +862,22 @@ const saveChanges = async () => {
 
 .settings-tabs {
   display: flex;
-  background: #f8fafc;
-  padding: 12px 24px 0;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0 24px;
+  flex-wrap: wrap;
 }
 
 .tab-link {
-  padding: 16px 24px;
+  padding: 20px 24px;
   background: none;
   border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 1rem;
   font-weight: 600;
   color: #64748b;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .tab-link.active {
@@ -529,6 +936,11 @@ input:disabled {
   border-radius: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-dark);
 }
 
 .btn-ghost {
@@ -576,15 +988,323 @@ input:disabled {
   cursor: pointer;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1023px) {
+  .profile-content { max-width: 100%; }
+}
+
+@media (max-width: 767px) {
   .profile-content { padding: 16px; margin-bottom: 60px; }
   .profile-header { flex-direction: column; text-align: center; gap: 16px; margin-bottom: 32px; }
   .form-grid { grid-template-columns: 1fr; }
   .form-group.full { grid-column: span 1; }
   .form-actions { grid-column: span 1; flex-direction: column; }
   .form-actions button { width: 100%; }
-  .settings-tabs { overflow-x: auto; white-space: nowrap; }
+  .settings-tabs { overflow-x: auto; white-space: nowrap; flex-wrap: nowrap; }
   .tab-pane { padding: 24px 16px; }
   .security-item { flex-direction: column; align-items: flex-start; gap: 16px; }
+}
+
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-wrapper input {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.toggle-password {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  height: 100%;
+}
+
+.toggle-password:hover {
+  color: #1e293b;
+}
+
+.password-checklist {
+  margin-top: 14px;
+  margin-bottom: 8px;
+  padding: 16px;
+  background-color: #f1f8f5;
+  border-radius: 12px;
+  border: 1px solid #dcfce7;
+}
+
+.checklist-title {
+  font-weight: 600;
+  color: #166534;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.checklist-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checklist-items li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: #ef4444; /* Default red when condition not met */
+  transition: all 0.2s ease;
+}
+
+.checklist-items li.valid {
+  color: #15803d; /* Green when condition met */
+  font-weight: 500;
+}
+
+.checklist-items li .icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: bold;
+  background-color: #fee2e2;
+  color: #dc2626;
+  flex-shrink: 0;
+}
+
+.checklist-items li.valid .icon {
+  background-color: #86efac;
+  color: #14532d;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Onboarding Section Styles */
+.onboarding-card {
+  background: linear-gradient(135deg, #f0fdf4 0%, #e0f2fe 100%);
+  border: 2px solid #38bdf8;
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 28px;
+  box-shadow: 0 10px 25px -5px rgba(56, 189, 248, 0.15);
+}
+
+.onboarding-badge {
+  display: inline-block;
+  background-color: #0284c7;
+  color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.onboarding-steps-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 20px 0;
+  padding: 16px 20px;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 12px;
+  backdrop-filter: blur(8px);
+}
+
+.obs-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  text-align: center;
+}
+
+.obs-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  color: #475569;
+  font-weight: 700;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.obs-label {
+  font-size: 0.82rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.obs-step.done .obs-circle {
+  background: #10b981;
+  color: #ffffff;
+}
+.obs-step.done .obs-label {
+  color: #047857;
+}
+
+.obs-step.active .obs-circle {
+  background: #0284c7;
+  color: #ffffff;
+  box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.2);
+}
+.obs-step.active .obs-label {
+  color: #0369a1;
+  font-weight: 700;
+}
+
+.obs-step.waiting .obs-circle {
+  background: #f59e0b;
+  color: #ffffff;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.2);
+}
+.obs-step.waiting .obs-label {
+  color: #b45309;
+  font-weight: 700;
+}
+
+.obs-connector {
+  flex: 0 0 40px;
+  height: 3px;
+  background: #e2e8f0;
+  margin: 0 8px;
+  margin-bottom: 22px;
+  transition: background 0.3s ease;
+}
+
+.obs-connector.done {
+  background: #10b981;
+}
+
+.onboarding-status-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  margin-top: 16px;
+}
+
+.waiting-box {
+  background-color: #fffbeb;
+  border: 1px solid #fde68a;
+}
+
+.onboarding-action-box {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 20px;
+  margin-top: 16px;
+  border: 1px solid #e2e8f0;
+}
+
+.onboarding-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 768px) {
+  .onboarding-form-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.onboarding-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.onboarding-select {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background-color: #f8fafc;
+  color: #0f172a;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.onboarding-select:focus {
+  border-color: #0284c7;
+  background-color: #ffffff;
+}
+
+.onboarding-input-mono {
+  flex: 1;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background-color: #f8fafc;
+  color: #334155;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.onboarding-submit-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 12px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.btn-submit-onboarding {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 1rem;
+  padding: 12px 24px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+  transition: all 0.2s ease;
+}
+
+.btn-submit-onboarding:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(2, 132, 199, 0.4);
+}
+
+.btn-submit-onboarding:disabled {
+  background: #cbd5e1;
+  color: #64748b;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 </style>

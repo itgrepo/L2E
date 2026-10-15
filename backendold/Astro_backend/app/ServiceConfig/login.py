@@ -227,10 +227,6 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
                 # logAction(result[0]['user_id'], '/login','Please contack Tel: +66', 'info')
                 return jsonify({"status": 'Please contact Administrator  Tel: +66'})
 
-            elif str(result[0]['status_id']) == '8':
-                logAction(result[0]['user_id'], '/login', 'Account pending admin approval', 'info')
-                return jsonify({"status": 'pending_approval'})
-
             # /////////////////////////////////////////////////////////////////////////////////
 
             conn = mysql.connect()
@@ -295,9 +291,12 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
 
                 if str(result[0]['previlage_id']) not in ['3', '4']:  # Normal Users
                     result[0]['isAdmin'] = 'false'
+                    is_approved = False if str(result[0].get('status_id')) == '8' or str(result[0].get('previlage_id')) == '1' else True
+                    result[0]['is_approved'] = is_approved
+                    result[0]['requires_onboarding'] = not is_approved
                     conn = mysql.connect()
                     cursor = conn.cursor()
-                    sql = """UPDATE user SET status_id = 2, count_login = 0, create_at = CURRENT_TIMESTAMP WHERE username = %s AND status_id != '7' AND status_account='active'"""  # Update Status is Online
+                    sql = """UPDATE user SET status_id = CASE WHEN status_id = 8 THEN 8 ELSE 2 END, count_login = 0, create_at = CURRENT_TIMESTAMP WHERE username = %s AND status_id != '7' AND status_account='active'"""  # Update Status is Online
                     cursor.execute(sql, username)
                     conn.commit()
                     cursor.close()

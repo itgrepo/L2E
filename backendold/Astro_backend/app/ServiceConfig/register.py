@@ -580,8 +580,8 @@ def getEmailFromToken():
             conn.close()
             return jsonify({'status': 'link expire', 'message': 'ลิงก์ยืนยันตัวตนหมดอายุแล้ว ระบบได้ลบข้อมูลเดิมเพื่อให้คุณสามารถสมัครใหม่ได้'})
 
-        # 4. Success: Promote user to Pending Admin Approval (8) and activate account status
-        cursor.execute("UPDATE user SET status_id = 1 WHERE user_id = %s", (user_id,))
+        # 4. Success: Promote user to Pending Admin Approval / Onboarding (8) with External role (1)
+        cursor.execute("UPDATE user SET status_id = 8, previlage_id = 1 WHERE user_id = %s", (user_id,))
         cursor.execute("UPDATE user_activity SET status_account = '1' WHERE user_id = %s", (user_id,))
         cursor.execute("DELETE FROM token_register WHERE token = %s", (token,))
         
@@ -651,8 +651,13 @@ def editProfileUser():
                     # M&M ��� editProfileUser (1)
                     conn = mysql.connect()
                     cursor = conn.cursor()
-                    sql = "UPDATE user SET firstname = %s , lastname = %s ,usage_objective = %s , other_object = %s WHERE user_id = %s"
-                    cursor.execute(sql, (firstname, lastname, usage_objective, other_object, user_id))
+                    org_id = dataInput.get('org_id')
+                    if org_id is not None:
+                        sql = "UPDATE user SET firstname = %s, lastname = %s, usage_objective = %s, other_object = %s, org_id = %s WHERE user_id = %s"
+                        cursor.execute(sql, (firstname, lastname, usage_objective, other_object, org_id, user_id))
+                    else:
+                        sql = "UPDATE user SET firstname = %s, lastname = %s, usage_objective = %s, other_object = %s WHERE user_id = %s"
+                        cursor.execute(sql, (firstname, lastname, usage_objective, other_object, user_id))
                     conn.commit()
                     cursor.close()
                     conn.close()
@@ -1216,7 +1221,7 @@ def registerSimple():
         cursor.execute(sql_user, (
             username, password, email, firstname, lastname,
             username, '', 1,        # national_id=username, national_id_book='', mode=1
-            4, 'active', 2, '',     # status=4(pending), active, privilege=2(user), job_title=''
+            4, 'active', 1, '',     # status=4(pending), active, privilege=1(external/unapproved), job_title=''
             policy_id, organization  # policy_id, usage_objective=organization
         ))
         conn.commit()
@@ -1308,4 +1313,72 @@ def registerSimple():
         import traceback
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)})
+
+
+@app.route('/submitOnboardingRequest', methods=['POST'])
+def submitOnboardingRequest():
+    """Submit mandatory onboarding info: organization and API key, and request admin approval."""
+    try:
+        dataInput = request.json or {}
+        user_raw = dataInput.get('user', '')
+        user_data = safe_json_loads(platform_decode(user_raw)) if isinstance(user_raw, str) and user_raw else (dataInput.get('user') if isinstance(dataInput.get('user'), dict) else {})
+        
+        user_id = dataInput.get('user_id') or user_data.get('user_id')
+        org_id = dataInput.get('org_id')
+        apikey = dataInput.get('apikey')
+        
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'User ID is required'}), 400
+        if not org_id:
+            return jsonify({'status': 'error', 'message': 'กรุณาเลือกองค์กรที่สังกัด'}), 400
+            
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        # Verify user exists
+        cursor.execute("SELECT username, email, apikey FROM user WHERE user_id = %s", (user_id,))
+        u_row = cursor.fetchone()
+        if not u_row:
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': 'ไม่พบข้อมูลผู้ใช้'}), 404
+            
+        username, email, existing_apikey = u_row
+        final_apikey = apikey or existing_apikey
+        if not final_apikey:
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': 'กรุณาสร้าง API Key ก่อนส่งคำขอ'}), 400
+            
+        # Update user with org_id, apikey, and set status_id = 8 (Pending Admin Approval)
+        sql_update = """
+            UPDATE user 
+            SET org_id = %s, apikey = %s, status_id = 8, status_account = 'active'
+            WHERE user_id = %s
+        """
+        cursor.execute(sql_update, (org_id, final_apikey, user_id))
+        conn.commit()
+        
+        # Notify admins
+        try:
+            from ServiceConfig.notification_util import notify_user
+            cursor.execute("SELECT user_id FROM user WHERE previlage_id = 4 AND status_account = 'active'")
+            for admin_row in cursor.fetchall():
+                notify_user(admin_row[0], 'account_pending', f'ผู้ใช้ {username} ({email}) ได้เลือกสังกัดและส่งคำขอเปิดใช้งานบัญชี (รอการอนุมัติสิทธิ์ R2)')
+        except Exception as notif_err:
+            current_app.logger.warning(f"Could not send onboarding notification: {notif_err}")
+            
+        cursor.close()
+        conn.close()
+        
+        logAction(user_id, '/submitOnboardingRequest', f'User {username} submitted onboarding profile with org_id {org_id}', 'info')
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'ส่งคำขอให้ผู้ดูแลระบบพิจารณาอนุมัติเรียบร้อยแล้ว'
+        })
+    except Exception as e:
+        current_app.logger.error("Error in submitOnboardingRequest:", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 

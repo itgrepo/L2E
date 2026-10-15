@@ -276,18 +276,25 @@ def getMenuByPermission():
         current_role = None
         current_status = None
         
+        current_org_id = None
+        has_api_key = False
+        
         if username:
-            cursor.execute("SELECT previlage_id, status_id FROM user WHERE username = %s AND status_id != '7'", (username,))
+            cursor.execute("SELECT previlage_id, status_id, org_id, (apikey IS NOT NULL AND apikey != '') FROM user WHERE username = %s AND status_id != '7'", (username,))
             user_info = cursor.fetchone()
             if user_info:
                 current_role = user_info[0]
                 current_status = user_info[1]
+                current_org_id = user_info[2]
+                has_api_key = bool(user_info[3])
         elif user_id:
-            cursor.execute("SELECT previlage_id, status_id FROM user WHERE user_id = %s AND status_id != '7'", (user_id,))
+            cursor.execute("SELECT previlage_id, status_id, org_id, (apikey IS NOT NULL AND apikey != '') FROM user WHERE user_id = %s AND status_id != '7'", (user_id,))
             user_info = cursor.fetchone()
             if user_info:
                 current_role = user_info[0]
                 current_status = user_info[1]
+                current_org_id = user_info[2]
+                has_api_key = bool(user_info[3])
                 
         if not current_role and user_data.get('previlage_id'):
             current_role = user_data.get('previlage_id')
@@ -306,11 +313,18 @@ def getMenuByPermission():
         cursor.close()
         conn.close()
         
+        is_approved = False if str(current_status) == '8' or str(current_role) == '1' else True
+        if not is_approved:
+            result = []
+            
         return jsonify({
             "status": "Success",
             "data": result,
             "current_role": current_role,
-            "current_status": current_status
+            "current_status": current_status,
+            "current_org_id": current_org_id,
+            "has_api_key": has_api_key,
+            "is_approved": is_approved
         })
     except Exception as e:
         exception_type, exception_object, exception_traceback = sys.exc_info()
