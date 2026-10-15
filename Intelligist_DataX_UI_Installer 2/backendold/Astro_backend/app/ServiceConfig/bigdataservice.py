@@ -321,19 +321,18 @@ def addService():
                     new_service_id = cursor.lastrowid
                     conn.commit()
                     
-                    # Notify All Users about the new dataset
+                    # Notify users about the new dataset according to L2E notification rules
                     try:
-                        from .email_service import notify_dataset_created
-                        from ServiceConfig.notification_util import notify_all_users
-                        
-                        # In-app notification
-                        notify_all_users('dataset_created', f'มีชุดข้อมูลใหม่เข้าสู่ระบบ: {service_name}')
-                        
-                        # Email notification
-                        cursor.execute("SELECT email FROM user WHERE status_account = 'active' AND email IS NOT NULL")
-                        all_emails = [row[0] for row in cursor.fetchall() if row[0]]
-                        if all_emails:
-                            notify_dataset_created(service_name, description, all_emails)
+                        from ServiceConfig.notification_util import notify_dataset_lifecycle
+                        notify_dataset_lifecycle(new_service_id, 'created')
+
+                        # Email notification for public/restricted datasets
+                        if access_type in ['public', 'restricted']:
+                            from .email_service import notify_dataset_created
+                            cursor.execute("SELECT email FROM user WHERE status_account = 'active' AND email IS NOT NULL")
+                            all_emails = [row[0] for row in cursor.fetchall() if row[0]]
+                            if all_emails:
+                                notify_dataset_created(service_name, description, all_emails)
                     except Exception as e:
                         current_app.logger.error(f"Error sending dataset creation notification: {e}")
                         
@@ -726,15 +725,13 @@ def addService():
                     cursor.execute(sql_update, tuple(values))
                     conn.commit()
                     
-                    # Notify Admin and interested users about the dataset update
+                    # Notify Admin and eligible users about the dataset update according to L2E notification rules
                     try:
+                        from ServiceConfig.notification_util import notify_dataset_lifecycle
+                        notify_dataset_lifecycle(service_id, 'updated')
+
                         from .email_service import notify_dataset_updated
-                        from ServiceConfig.notification_util import notify_dataset_interest
-                        
-                        # 1. In-App Notification for users interested in this dataset
-                        notify_dataset_interest(service_id, 'dataset_updated', f'ชุดข้อมูล "{service_name or str(service_id)}" มีการอัปเดตข้อมูลใหม่')
-                        
-                        # 2. Fetch admins and current user for email
+                        # Fetch admins and current user for email
                         cursor.execute("SELECT email FROM user WHERE previlage_id IN (1, 3, 4) AND status_account = 'active' AND email IS NOT NULL")
                         admin_emails = [row[0] for row in cursor.fetchall() if row[0]]
                         current_user_email = user_data.get('email')
@@ -1864,6 +1861,13 @@ def get_dataset_api(dataset_id):
 
                 log_api_usage(user_id, 'API Invoked Successfully', 200)
 
+                # Notify Dataset Creator & Super Admin about API invocation
+                try:
+                    from ServiceConfig.notification_util import notify_dataset_access
+                    notify_dataset_access(real_service_id, 'api', actor_user_id=user_id)
+                except Exception as notif_ex:
+                    current_app.logger.error(f"Failed to notify API access: {notif_ex}")
+
                 cursor.close()
                 conn.close()
                 return jsonify({
@@ -2038,6 +2042,13 @@ def get_dataset_api(dataset_id):
                         row[k] = str(v)
 
         log_api_usage(user_id, 'API Invoked Successfully', 200)
+
+        # Notify Dataset Creator & Super Admin about API invocation
+        try:
+            from ServiceConfig.notification_util import notify_dataset_access
+            notify_dataset_access(real_service_id, 'api', actor_user_id=user_id)
+        except Exception as notif_ex:
+            current_app.logger.error(f"Failed to notify API access: {notif_ex}")
 
         cursor.close()
         conn.close()

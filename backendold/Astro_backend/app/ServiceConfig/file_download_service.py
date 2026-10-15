@@ -145,6 +145,13 @@ def downloadFile(service_id):
             except Exception as log_ex:
                 print("Failed to record download log in file_download_service:", log_ex)
 
+            # Notify Dataset Creator & Super Admin about file download
+            try:
+                from ServiceConfig.notification_util import notify_dataset_access
+                notify_dataset_access(service_id, 'download', actor_user_id=user_id, detail=file_type)
+            except Exception as notif_ex:
+                print("Failed to notify download access:", notif_ex)
+
             try:
                 resp = send_from_directory(UPLOAD_FOLDER, file_name, as_attachment=True, download_name=orig_name)
             except TypeError:
