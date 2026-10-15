@@ -139,7 +139,27 @@ const rejectRequest = async (req) => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
+  try {
+    const rawUser = localStorage.getItem('user');
+    if (rawUser) {
+      const parsedUser = JSON.parse(rawUser);
+      const res = await apiClient.post('/getMenuByPermission', {
+        user: encodeUserData(parsedUser)
+      });
+      if (res.data && (res.data.status === 'Success' || res.data.status === 'success')) {
+        if (res.data.current_org_id) {
+          parsedUser.org_id = res.data.current_org_id;
+        }
+        if (res.data.current_role) {
+          parsedUser.previlage_id = parseInt(res.data.current_role);
+        }
+        localStorage.setItem('user', JSON.stringify(parsedUser));
+      }
+    }
+  } catch (e) {
+    console.warn('Sync user permission error:', e);
+  }
   fetchPendingRequests();
 });
 </script>

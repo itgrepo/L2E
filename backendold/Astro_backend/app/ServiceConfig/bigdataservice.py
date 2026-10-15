@@ -55,9 +55,10 @@ def log_api_audit(action, target_user_id=None, service_id=None, credential_id=No
 
 def check_dataset_owner(cursor, service_id, user_data):
     """
-    Check if the caller is the dataset owner, Department Admin of the organization, or Super Admin (previlage_id == 4).
-    Dataset owner has supreme rights over the dataset.
-    Others who are not the owner, department steward, or Super Admin are denied permission.
+    Check if the caller is authorized to manage or approve/reject the dataset.
+    - Super Admin (4) can manage all datasets.
+    - Department Admin (3) can manage datasets of their own organization (TRIM(s.organization) == user_org_name).
+    - Creator/Contact Email can manage datasets if dataset has no organization specified.
     Returns: (is_allowed, error_tuple)
     """
     if not service_id:
@@ -69,38 +70,55 @@ def check_dataset_owner(cursor, service_id, user_data):
     access_type = svc_row[0]
     created_by = svc_row[1]
     contact_email = svc_row[2]
-    svc_org = svc_row[3] if len(svc_row) > 3 else None
-
-    caller_role = str(user_data.get('previlage_id', '')) if isinstance(user_data, dict) else ''
-    if caller_role == '4':
-        return True, None
+    svc_org = (svc_row[3] or '').strip()
 
     caller_id = user_data.get('user_id') if isinstance(user_data, dict) else None
-    caller_email = user_data.get('email') if isinstance(user_data, dict) else None
-    caller_org_id = user_data.get('org_id') if isinstance(user_data, dict) else None
+    caller_email = None
+    caller_org_id = None
+    caller_role = None
 
-    if caller_id and (not caller_email or not caller_org_id or not caller_role):
+    # Always fetch current role, email, and org_id directly from database
+    if caller_id:
         cursor.execute("SELECT email, org_id, previlage_id FROM user WHERE user_id = %s", (caller_id,))
         u_row = cursor.fetchone()
         if u_row:
-            if not caller_email: caller_email = u_row[0]
-            if not caller_org_id: caller_org_id = u_row[1]
-            if not caller_role: caller_role = str(u_row[2])
+            caller_email = u_row[0]
+            caller_org_id = u_row[1]
+            caller_role = str(u_row[2])
 
-    is_owner = False
-    if created_by is not None and caller_id is not None and str(created_by) == str(caller_id):
-        is_owner = True
-    elif contact_email and caller_email and contact_email.strip().lower() == caller_email.strip().lower():
-        is_owner = True
-    elif caller_role == '3' and caller_org_id and svc_org:
+    if not caller_role and isinstance(user_data, dict):
+        caller_role = str(user_data.get('previlage_id', ''))
+    if not caller_org_id and isinstance(user_data, dict):
+        caller_org_id = user_data.get('org_id')
+    if not caller_email and isinstance(user_data, dict):
+        caller_email = user_data.get('email')
+
+    # Super Admin (4) has all rights
+    if caller_role == '4':
+        return True, None
+
+    # Get caller's organization name
+    user_org_name = ''
+    if caller_org_id:
         cursor.execute("SELECT org_name FROM organization WHERE org_id = %s", (caller_org_id,))
         orow = cursor.fetchone()
-        if orow and orow[0] and orow[0].strip() == svc_org.strip():
-            if access_type != 'pii':
-                is_owner = True
+        if orow and orow[0]:
+            user_org_name = orow[0].strip()
+
+    is_owner = False
+    # 1. If dataset has an organization, caller MUST be Department Admin (3) of THAT organization
+    if svc_org:
+        if caller_role == '3' and user_org_name and user_org_name == svc_org:
+            is_owner = True
+    else:
+        # 2. If dataset has NO organization, check creator or contact email
+        if created_by is not None and caller_id is not None and str(created_by) == str(caller_id):
+            is_owner = True
+        elif contact_email and caller_email and contact_email.strip().lower() == caller_email.strip().lower():
+            is_owner = True
 
     if not is_owner:
-        err_msg = "คุณไม่มีสิทธิ์ดำเนินการกับชุดข้อมูลนี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลหรือผู้ดูแลระบบสูงสุดเท่านั้นที่สามารถดำเนินการได้"
+        err_msg = "คุณไม่มีสิทธิ์ดำเนินการกับชุดข้อมูลนี้ เนื่องจากสามารถดำเนินการได้เฉพาะผู้ดูแลข้อมูลของหน่วยงานนี้ หรือผู้ดูแลระบบสูงสุดเท่านั้น"
         return False, (jsonify({"status": "error", "message": err_msg}), 403)
     return True, None
 
@@ -831,14 +849,21 @@ def getService():
         conn = mysql.connect()
         cursor = conn.cursor()
 
-        # Fill in missing user fields if needed
-        if current_user_id and (not current_user_email or not current_user_org_id or not current_user_role):
+        # Always fetch current role, email, and org_id directly from database
+        if current_user_id:
             cursor.execute("SELECT email, org_id, previlage_id FROM user WHERE user_id = %s", (current_user_id,))
             u_row = cursor.fetchone()
             if u_row:
-                if not current_user_email: current_user_email = u_row[0]
-                if not current_user_org_id: current_user_org_id = u_row[1]
-                if not current_user_role: current_user_role = str(u_row[2])
+                current_user_email = u_row[0]
+                current_user_org_id = u_row[1]
+                current_user_role = str(u_row[2])
+
+        if not current_user_role:
+            current_user_role = str(user_data.get('previlage_id', ''))
+        if not current_user_org_id:
+            current_user_org_id = user_data.get('org_id')
+        if not current_user_email:
+            current_user_email = user_data.get('email')
 
         user_org_name = ''
         if current_user_org_id:
@@ -854,25 +879,28 @@ def getService():
                      ORDER BY service_id DESC"""
             cursor.execute(sql)
         elif current_user_role == '3':
-            # Role 3 / Department Admin: ONLY sees datasets that they have rights to:
-            # 1. Created by caller
-            # 2. Contact email matches caller
-            # 3. Belongs to caller's organization (for non-pii)
+            # Role 3 / Department Admin: ONLY sees datasets belonging to their organization
             if user_org_name:
                 sql = """SELECT * FROM service 
                          WHERE (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')
                            AND COALESCE(status, '') != 'Deleted'
                            AND (
-                               (%s IS NOT NULL AND created_by = %s)
-                               OR (%s IS NOT NULL AND LOWER(contact_email) = LOWER(%s))
-                               OR (organization = %s AND COALESCE(access_type, '') != 'pii')
+                               (TRIM(organization) = %s)
+                               OR (
+                                   (organization IS NULL OR TRIM(organization) = '')
+                                   AND (
+                                       (%s IS NOT NULL AND created_by = %s)
+                                       OR (%s IS NOT NULL AND LOWER(contact_email) = LOWER(%s))
+                                   )
+                               )
                            )
                          ORDER BY service_id DESC"""
-                cursor.execute(sql, (current_user_id, current_user_id, current_user_email, current_user_email, user_org_name))
+                cursor.execute(sql, (user_org_name, current_user_id, current_user_id, current_user_email, current_user_email))
             else:
                 sql = """SELECT * FROM service 
                          WHERE (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')
                            AND COALESCE(status, '') != 'Deleted'
+                           AND (organization IS NULL OR TRIM(organization) = '')
                            AND (
                                (%s IS NOT NULL AND created_by = %s)
                                OR (%s IS NOT NULL AND LOWER(contact_email) = LOWER(%s))
@@ -3287,24 +3315,24 @@ def request_dataset_permission():
             steward_user_ids = {row[0] for row in stewards}
             steward_emails = {row[1] for row in stewards if row[1]}
             
-            # 2. Dataset creator
-            if svc_created_by:
-                steward_user_ids.add(svc_created_by)
-            if svc_contact_email:
-                steward_emails.add(svc_contact_email)
-                
-            # 3. Department Admins of this dataset's organization (if not pii)
-            if svc_org and svc_access_type != 'pii':
+            # 2. If dataset has an organization, notify Department Admins of that organization
+            if svc_org and svc_org.strip():
                 cursor.execute("""
                     SELECT u.user_id, u.email 
                     FROM user u
                     JOIN organization o ON u.org_id = o.org_id
-                    WHERE u.previlage_id = 3 AND u.status_account = 'active' AND o.org_name = %s
-                """, (svc_org,))
+                    WHERE u.previlage_id = 3 AND u.status_account = 'active' AND TRIM(o.org_name) = TRIM(%s)
+                """, (svc_org.strip(),))
                 for row in cursor.fetchall():
                     steward_user_ids.add(row[0])
                     if row[1]:
                         steward_emails.add(row[1])
+            else:
+                # 3. If dataset has NO organization, notify creator and contact email
+                if svc_created_by:
+                    steward_user_ids.add(svc_created_by)
+                if svc_contact_email:
+                    steward_emails.add(svc_contact_email)
 
             # Send In-App Notifications
             for s_uid in steward_user_ids:
@@ -3340,21 +3368,28 @@ def get_pending_dataset_requests():
             
         filter_status = dataInput.get('status', 'Pending')
         caller_id = user_data.get('user_id')
-        caller_email = user_data.get('email')
-        caller_role = str(user_data.get('previlage_id', ''))
-        caller_org_id = user_data.get('org_id')
+        caller_email = None
+        caller_org_id = None
+        caller_role = None
         
         conn = mysql.connect()
         cursor = conn.cursor()
 
-        # Fill in missing user fields if needed
-        if caller_id and (not caller_email or not caller_org_id or not caller_role):
+        # Always fetch current role, email, and org_id directly from database
+        if caller_id:
             cursor.execute("SELECT email, org_id, previlage_id FROM user WHERE user_id = %s", (caller_id,))
             u_row = cursor.fetchone()
             if u_row:
-                if not caller_email: caller_email = u_row[0]
-                if not caller_org_id: caller_org_id = u_row[1]
-                if not caller_role: caller_role = str(u_row[2])
+                caller_email = u_row[0]
+                caller_org_id = u_row[1]
+                caller_role = str(u_row[2])
+
+        if not caller_role:
+            caller_role = str(user_data.get('previlage_id', ''))
+        if not caller_org_id:
+            caller_org_id = user_data.get('org_id')
+        if not caller_email:
+            caller_email = user_data.get('email')
 
         user_org_name = ''
         if caller_org_id:
@@ -3364,25 +3399,28 @@ def get_pending_dataset_requests():
                 user_org_name = orow[0].strip()
 
         if caller_role == '4':
-            # Super Admin sees all requests
+            # Super Admin sees all requests across all organizations
             owner_filter_sql = ""
             owner_params = ()
         else:
-            # Role 3 / Data stewards see ONLY requests for datasets they have rights to:
-            # 1. Created by caller
-            # 2. Contact email matches caller
-            # 3. Belongs to caller's organization (for non-pii)
+            # Role 3 / Department Admin: ONLY sees requests for datasets belonging to their organization
             if user_org_name:
                 owner_filter_sql = """
                     AND (
-                        (%s IS NOT NULL AND s.created_by = %s) 
-                        OR (%s IS NOT NULL AND LOWER(s.contact_email) = LOWER(%s))
-                        OR (s.organization = %s AND COALESCE(s.access_type, '') != 'pii')
+                        (TRIM(s.organization) = %s)
+                        OR (
+                            (s.organization IS NULL OR TRIM(s.organization) = '')
+                            AND (
+                                (%s IS NOT NULL AND s.created_by = %s)
+                                OR (%s IS NOT NULL AND LOWER(s.contact_email) = LOWER(%s))
+                            )
+                        )
                     )
                 """
-                owner_params = (caller_id, caller_id, caller_email, caller_email, user_org_name)
+                owner_params = (user_org_name, caller_id, caller_id, caller_email, caller_email)
             else:
                 owner_filter_sql = """
+                    AND (s.organization IS NULL OR TRIM(s.organization) = '')
                     AND (
                         (%s IS NOT NULL AND s.created_by = %s) 
                         OR (%s IS NOT NULL AND LOWER(s.contact_email) = LOWER(%s))
