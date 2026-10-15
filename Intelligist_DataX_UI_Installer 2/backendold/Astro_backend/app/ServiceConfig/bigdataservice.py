@@ -55,18 +55,21 @@ def log_api_audit(action, target_user_id=None, service_id=None, credential_id=No
 
 def check_dataset_owner(cursor, service_id, user_data):
     """
-    Check if the caller is the dataset owner or Super Admin (previlage_id == 4).
+    Check if the caller is the dataset owner, Department Admin of the organization, or Super Admin (previlage_id == 4).
     Dataset owner has supreme rights over the dataset.
-    Others who are not the owner or Super Admin are denied permission.
+    Others who are not the owner, department steward, or Super Admin are denied permission.
     Returns: (is_allowed, error_tuple)
     """
     if not service_id:
         return True, None
-    cursor.execute("SELECT access_type, created_by, contact_email FROM service WHERE service_id = %s", (service_id,))
+    cursor.execute("SELECT access_type, created_by, contact_email, organization FROM service WHERE service_id = %s", (service_id,))
     svc_row = cursor.fetchone()
     if not svc_row:
         return True, None
-    access_type, created_by, contact_email = svc_row
+    access_type = svc_row[0]
+    created_by = svc_row[1]
+    contact_email = svc_row[2]
+    svc_org = svc_row[3] if len(svc_row) > 3 else None
 
     caller_role = str(user_data.get('previlage_id', '')) if isinstance(user_data, dict) else ''
     if caller_role == '4':
@@ -74,12 +77,27 @@ def check_dataset_owner(cursor, service_id, user_data):
 
     caller_id = user_data.get('user_id') if isinstance(user_data, dict) else None
     caller_email = user_data.get('email') if isinstance(user_data, dict) else None
+    caller_org_id = user_data.get('org_id') if isinstance(user_data, dict) else None
+
+    if caller_id and (not caller_email or not caller_org_id or not caller_role):
+        cursor.execute("SELECT email, org_id, previlage_id FROM user WHERE user_id = %s", (caller_id,))
+        u_row = cursor.fetchone()
+        if u_row:
+            if not caller_email: caller_email = u_row[0]
+            if not caller_org_id: caller_org_id = u_row[1]
+            if not caller_role: caller_role = str(u_row[2])
 
     is_owner = False
     if created_by is not None and caller_id is not None and str(created_by) == str(caller_id):
         is_owner = True
-    elif not created_by and contact_email and caller_email and contact_email.strip().lower() == caller_email.strip().lower():
+    elif contact_email and caller_email and contact_email.strip().lower() == caller_email.strip().lower():
         is_owner = True
+    elif caller_role == '3' and caller_org_id and svc_org:
+        cursor.execute("SELECT org_name FROM organization WHERE org_id = %s", (caller_org_id,))
+        orow = cursor.fetchone()
+        if orow and orow[0] and orow[0].strip() == svc_org.strip():
+            if access_type != 'pii':
+                is_owner = True
 
     if not is_owner:
         err_msg = "คุณไม่มีสิทธิ์ดำเนินการกับชุดข้อมูลนี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลหรือผู้ดูแลระบบสูงสุดเท่านั้นที่สามารถดำเนินการได้"
@@ -3185,29 +3203,56 @@ def request_dataset_permission():
         # Log the action
         logAction(user_id, '/requestDatasetPermission', f'Request dataset permission ({request_type}) for service_id {service_id}', 'info')
         
-        # Notify Admins
+        # Notify Admins / Stewards who have rights to this dataset
         try:
             from .email_service import notify_access_request
             from ServiceConfig.notification_util import notify_user
             
-            cursor.execute("SELECT service_name FROM service WHERE service_id = %s", (service_id,))
+            cursor.execute("SELECT service_name, organization, created_by, contact_email, access_type FROM service WHERE service_id = %s", (service_id,))
             svc = cursor.fetchone()
             svc_name = svc[0] if svc else str(service_id)
+            svc_org = svc[1] if svc and svc[1] else None
+            svc_created_by = svc[2] if svc and svc[2] else None
+            svc_contact_email = svc[3] if svc and svc[3] else None
+            svc_access_type = svc[4] if svc and svc[4] else None
             
             cursor.execute("SELECT username FROM user WHERE user_id = %s", (user_id,))
             usr = cursor.fetchone()
             usr_name = usr[0] if usr else str(user_id)
             
-            # 1. In-App Notification to Admins
-            cursor.execute("SELECT user_id FROM user WHERE previlage_id IN (3, 4) AND status_account = 'active'")
-            for a_row in cursor.fetchall():
-                notify_user(a_row[0], 'access_request', f'ผู้ใช้ {usr_name} ส่งคำขอเข้าถึงชุดข้อมูล "{svc_name}"')
+            # Find eligible steward user_ids and emails
+            # 1. Super Admins (previlage_id = 4)
+            cursor.execute("SELECT user_id, email FROM user WHERE previlage_id = 4 AND status_account = 'active'")
+            stewards = cursor.fetchall()
+            steward_user_ids = {row[0] for row in stewards}
+            steward_emails = {row[1] for row in stewards if row[1]}
+            
+            # 2. Dataset creator
+            if svc_created_by:
+                steward_user_ids.add(svc_created_by)
+            if svc_contact_email:
+                steward_emails.add(svc_contact_email)
                 
-            # 2. Email Notification to Admins
-            cursor.execute("SELECT email FROM user WHERE previlage_id IN (1, 3, 4) AND status_account = 'active' AND email IS NOT NULL")
-            admin_emails = [row[0] for row in cursor.fetchall() if row[0]]
-            if admin_emails:
-                notify_access_request(svc_name, usr_name, admin_emails)
+            # 3. Department Admins of this dataset's organization (if not pii)
+            if svc_org and svc_access_type != 'pii':
+                cursor.execute("""
+                    SELECT u.user_id, u.email 
+                    FROM user u
+                    JOIN organization o ON u.org_id = o.org_id
+                    WHERE u.previlage_id = 3 AND u.status_account = 'active' AND o.org_name = %s
+                """, (svc_org,))
+                for row in cursor.fetchall():
+                    steward_user_ids.add(row[0])
+                    if row[1]:
+                        steward_emails.add(row[1])
+
+            # Send In-App Notifications
+            for s_uid in steward_user_ids:
+                notify_user(s_uid, 'access_request', f'ผู้ใช้ {usr_name} ส่งคำขอเข้าถึงชุดข้อมูล "{svc_name}"')
+                
+            # Send Email Notifications
+            if steward_emails:
+                notify_access_request(svc_name, usr_name, list(steward_emails))
         except Exception as e:
             current_app.logger.error(f"Error sending access request notification: {e}")
             
@@ -3221,7 +3266,7 @@ def request_dataset_permission():
 @app.route('/getPendingDatasetRequests', methods=['POST'])
 def get_pending_dataset_requests():
     try:
-        dataInput = request.json
+        dataInput = request.json or {}
         user_data = getattr(request, 'current_user', {})
         
         user_str = dataInput.get('user')
@@ -3236,18 +3281,55 @@ def get_pending_dataset_requests():
         filter_status = dataInput.get('status', 'Pending')
         caller_id = user_data.get('user_id')
         caller_email = user_data.get('email')
-        
-        owner_filter_sql = """
-            AND (
-                COALESCE(s.access_type, '') != 'pii' 
-                OR (%s IS NOT NULL AND s.created_by = %s) 
-                OR (%s IS NOT NULL AND s.created_by IS NULL AND LOWER(s.contact_email) = LOWER(%s))
-            )
-        """
-        owner_params = (caller_id, caller_id, caller_email, caller_email)
+        caller_role = str(user_data.get('previlage_id', ''))
+        caller_org_id = user_data.get('org_id')
         
         conn = mysql.connect()
         cursor = conn.cursor()
+
+        # Fill in missing user fields if needed
+        if caller_id and (not caller_email or not caller_org_id or not caller_role):
+            cursor.execute("SELECT email, org_id, previlage_id FROM user WHERE user_id = %s", (caller_id,))
+            u_row = cursor.fetchone()
+            if u_row:
+                if not caller_email: caller_email = u_row[0]
+                if not caller_org_id: caller_org_id = u_row[1]
+                if not caller_role: caller_role = str(u_row[2])
+
+        user_org_name = ''
+        if caller_org_id:
+            cursor.execute("SELECT org_name FROM organization WHERE org_id = %s", (caller_org_id,))
+            orow = cursor.fetchone()
+            if orow and orow[0]:
+                user_org_name = orow[0].strip()
+
+        if caller_role == '4':
+            # Super Admin sees all requests
+            owner_filter_sql = ""
+            owner_params = ()
+        else:
+            # Role 3 / Data stewards see ONLY requests for datasets they have rights to:
+            # 1. Created by caller
+            # 2. Contact email matches caller
+            # 3. Belongs to caller's organization (for non-pii)
+            if user_org_name:
+                owner_filter_sql = """
+                    AND (
+                        (%s IS NOT NULL AND s.created_by = %s) 
+                        OR (%s IS NOT NULL AND LOWER(s.contact_email) = LOWER(%s))
+                        OR (s.organization = %s AND COALESCE(s.access_type, '') != 'pii')
+                    )
+                """
+                owner_params = (caller_id, caller_id, caller_email, caller_email, user_org_name)
+            else:
+                owner_filter_sql = """
+                    AND (
+                        (%s IS NOT NULL AND s.created_by = %s) 
+                        OR (%s IS NOT NULL AND LOWER(s.contact_email) = LOWER(%s))
+                    )
+                """
+                owner_params = (caller_id, caller_id, caller_email, caller_email)
+
         if filter_status == 'All':
             sql = f"""SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
                             r.mou_file_path, r.mou_filename, r.request_type,
