@@ -821,41 +821,90 @@ def getApiServices():
 @require_admin
 def getService():
     try:
-        dataInput = request.json
+        dataInput = request.json or {}
         user_data = getattr(request, 'current_user', {})
         current_user_id = user_data.get('user_id')
         current_user_email = user_data.get('email')
+        current_user_role = str(user_data.get('previlage_id', ''))
+        current_user_org_id = user_data.get('org_id')
 
-        # Loosen check for presentation: any valid user payload passes
-        if True: # Admin check handled by decorator
-            conn = mysql.connect()
-            cursor = conn.cursor()
+        conn = mysql.connect()
+        cursor = conn.cursor()
+
+        # Fill in missing user fields if needed
+        if current_user_id and (not current_user_email or not current_user_org_id or not current_user_role):
+            cursor.execute("SELECT email, org_id, previlage_id FROM user WHERE user_id = %s", (current_user_id,))
+            u_row = cursor.fetchone()
+            if u_row:
+                if not current_user_email: current_user_email = u_row[0]
+                if not current_user_org_id: current_user_org_id = u_row[1]
+                if not current_user_role: current_user_role = str(u_row[2])
+
+        user_org_name = ''
+        if current_user_org_id:
+            cursor.execute("SELECT org_name FROM organization WHERE org_id = %s", (current_user_org_id,))
+            orow = cursor.fetchone()
+            if orow and orow[0]:
+                user_org_name = orow[0].strip()
+
+        if current_user_role == '4':
+            sql = """SELECT * FROM service 
+                     WHERE (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')
+                       AND COALESCE(status, '') != 'Deleted'
+                     ORDER BY service_id DESC"""
+            cursor.execute(sql)
+        elif current_user_role == '3':
+            # Role 3 / Department Admin: ONLY sees datasets that they have rights to:
+            # 1. Created by caller
+            # 2. Contact email matches caller
+            # 3. Belongs to caller's organization (for non-pii)
+            if user_org_name:
+                sql = """SELECT * FROM service 
+                         WHERE (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')
+                           AND COALESCE(status, '') != 'Deleted'
+                           AND (
+                               (%s IS NOT NULL AND created_by = %s)
+                               OR (%s IS NOT NULL AND LOWER(contact_email) = LOWER(%s))
+                               OR (organization = %s AND COALESCE(access_type, '') != 'pii')
+                           )
+                         ORDER BY service_id DESC"""
+                cursor.execute(sql, (current_user_id, current_user_id, current_user_email, current_user_email, user_org_name))
+            else:
+                sql = """SELECT * FROM service 
+                         WHERE (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')
+                           AND COALESCE(status, '') != 'Deleted'
+                           AND (
+                               (%s IS NOT NULL AND created_by = %s)
+                               OR (%s IS NOT NULL AND LOWER(contact_email) = LOWER(%s))
+                           )
+                         ORDER BY service_id DESC"""
+                cursor.execute(sql, (current_user_id, current_user_id, current_user_email, current_user_email))
+        else:
             sql = """SELECT * FROM service 
                      WHERE (dataset_id IS NULL OR dataset_id NOT LIKE 'API\_CLONE\_%%')
                        AND COALESCE(status, '') != 'Deleted'
                        AND (
-                           COALESCE(access_type, '') != 'pii' 
-                           OR (%s IS NOT NULL AND created_by = %s)
-                           OR (%s IS NOT NULL AND created_by IS NULL AND LOWER(contact_email) = LOWER(%s))
-                       )"""
+                           (%s IS NOT NULL AND created_by = %s)
+                           OR (%s IS NOT NULL AND LOWER(contact_email) = LOWER(%s))
+                       )
+                     ORDER BY service_id DESC"""
             cursor.execute(sql, (current_user_id, current_user_id, current_user_email, current_user_email))
-            data = cursor.fetchall()
-            columns = [column[0] for column in cursor.description]
-            service_result = toJson(data, columns)
-            conn.commit()
-            cursor.close()
-            conn.close()
-            result = []
-            for i in range(len(service_result)):
-                if service_result[i]['service_image'] not in [None,""]:
-                    service_result[i]['service_image'] = base64.b64encode(service_result[i]['service_image'])
-                    service_result[i]['service_image'] = service_result[i]['service_image'].decode('utf-8')
-                    result.append(service_result[i])
-                else:
-                    result.append(service_result[i])
-            return jsonify({'data':result,'status': 'success'})
-        else:
-            return jsonify({"status":"Permission Denied"})
+
+        data = cursor.fetchall()
+        columns = [column[0] for column in cursor.description]
+        service_result = toJson(data, columns)
+        conn.commit()
+        cursor.close()
+        conn.close()
+        result = []
+        for i in range(len(service_result)):
+            if service_result[i]['service_image'] not in [None,""]:
+                service_result[i]['service_image'] = base64.b64encode(service_result[i]['service_image'])
+                service_result[i]['service_image'] = service_result[i]['service_image'].decode('utf-8')
+                result.append(service_result[i])
+            else:
+                result.append(service_result[i])
+        return jsonify({'data':result,'status': 'success'})
     except Exception as e:
         exception_type, exception_object, exception_traceback = sys.exc_info()
         line_number = exception_traceback.tb_lineno

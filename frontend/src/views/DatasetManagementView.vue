@@ -29,6 +29,8 @@ const isSuperAdmin = computed(() => {
   return role === '4';
 });
 
+const userOrgName = ref('');
+
 const canManage = (dataset) => {
   if (isSuperAdmin.value) return true;
   if (!dataset) return false;
@@ -37,7 +39,15 @@ const canManage = (dataset) => {
     return true;
   }
   if (!dataset.created_by && dataset.contact_email && currentUser.value.email) {
-    return dataset.contact_email.trim().toLowerCase() === currentUser.value.email.trim().toLowerCase();
+    if (dataset.contact_email.trim().toLowerCase() === currentUser.value.email.trim().toLowerCase()) {
+      return true;
+    }
+  }
+  const role = String(currentUser.value.previlage_id || currentUser.value.role_id || '');
+  if (role === '3' && userOrgName.value && dataset.organization) {
+    if (dataset.organization.trim() === userOrgName.value.trim() && dataset.access_type !== 'pii') {
+      return true;
+    }
   }
   return false;
 };
@@ -63,9 +73,10 @@ const fetchMasters = async () => {
         const userData = localStorage.getItem('user');
         const userParam = userData ? encodeUserData(JSON.parse(userData)) : '';
         
-        const [groupRes, subRes] = await Promise.allSettled([
+        const [groupRes, subRes, orgRes] = await Promise.allSettled([
             apiClient.post('/getGroups', { user: userParam, group_type: 'dataset_group' }),
-            apiClient.post('/getDatasetGroups', { user: userParam })
+            apiClient.post('/getDatasetGroups', { user: userParam }),
+            apiClient.post('/getOrganizations', { user: userParam })
         ]);
         
         if (groupRes.status === 'fulfilled' && groupRes.value.data?.status === 'success' && Array.isArray(groupRes.value.data.data)) {
@@ -79,6 +90,15 @@ const fetchMasters = async () => {
                 subgroupsList.value = data;
             } else if (data?.data && Array.isArray(data.data)) {
                 subgroupsList.value = data.data;
+            }
+        }
+        if (orgRes.status === 'fulfilled' && orgRes.value.data?.status === 'success' && Array.isArray(orgRes.value.data.data)) {
+            const orgs = orgRes.value.data.data;
+            if (currentUser.value.org_id) {
+                const matched = orgs.find(o => String(o.org_id) === String(currentUser.value.org_id));
+                if (matched && matched.org_name) {
+                    userOrgName.value = matched.org_name.trim();
+                }
             }
         }
     } catch (e) {
@@ -143,7 +163,12 @@ const fetchDatasets = async () => {
         });
         
         if (response.data.status === 'success') {
-            datasets.value = (response.data.data || []).filter(d => d.status !== 'Deleted');
+            const rawList = response.data.data || [];
+            if (!isSuperAdmin.value) {
+                datasets.value = rawList.filter(d => d.status !== 'Deleted' && canManage(d));
+            } else {
+                datasets.value = rawList.filter(d => d.status !== 'Deleted');
+            }
             updateStats();
         }
     } catch (error) {
@@ -391,7 +416,7 @@ const filteredAvailable = computed(() => {
 
 onMounted(async () => {
     await fetchMasters();
-    fetchDatasets();
+    await fetchDatasets();
 });
 </script>
 
