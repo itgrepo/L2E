@@ -106,15 +106,14 @@ def check_dataset_owner(cursor, service_id, user_data):
             user_org_name = orow[0].strip()
 
     is_owner = False
-    # 1. If dataset has an organization, caller MUST be Department Admin (3) of THAT organization
-    if svc_org:
-        if caller_role == '3' and user_org_name and user_org_name == svc_org:
-            is_owner = True
-    else:
-        # 2. If dataset has NO organization, check creator or contact email
-        if created_by is not None and caller_id is not None and str(created_by) == str(caller_id):
-            is_owner = True
-        elif contact_email and caller_email and contact_email.strip().lower() == caller_email.strip().lower():
+    # 1. Direct creator or contact email is owner
+    if created_by is not None and caller_id is not None and str(created_by) == str(caller_id):
+        is_owner = True
+    elif contact_email and caller_email and contact_email.strip().lower() == caller_email.strip().lower():
+        is_owner = True
+    elif svc_org:
+        # 2. Department Admin (3 or 5) of THAT organization
+        if caller_role in ['3', '5'] and ((user_org_name and user_org_name.lower() == svc_org.lower()) or (caller_org_id and str(caller_org_id) == svc_org)):
             is_owner = True
 
     if not is_owner:
@@ -467,17 +466,11 @@ def addService():
                     existing_created_by = svc_row_info[10] if len(svc_row_info) > 10 else None
                     existing_contact_email = svc_row_info[11] if len(svc_row_info) > 11 else None
 
-                    is_super_admin = str(user_data.get('previlage_id')) == '4'
-                    is_owner = False
-                    if existing_created_by is not None and current_user_id is not None and str(existing_created_by) == str(current_user_id):
-                        is_owner = True
-                    elif not existing_created_by and existing_contact_email and current_user_email and existing_contact_email.strip().lower() == current_user_email.strip().lower():
-                        is_owner = True
-
-                    if not is_owner and not is_super_admin:
+                    is_allowed, err_owner = check_dataset_owner(cursor, service_id, user_data)
+                    if not is_allowed:
                         cursor.close()
                         conn.close()
-                        return jsonify({"status": "คุณไม่มีสิทธิ์แก้ไขหรือลบชุดข้อมูลนี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลหรือผู้ดูแลระบบสูงสุดเท่านั้นที่สามารถดำเนินการได้"}), 403
+                        return err_owner
 
                     # Construct update query dynamically for provided fields
                     fields = []
@@ -3300,23 +3293,42 @@ def request_dataset_permission():
             steward_emails = {row[1] for row in stewards if row[1]}
             
             # 2. If dataset has an organization, notify Department Admins of that organization
-            if svc_org and svc_org.strip():
+            if svc_org and str(svc_org).strip():
+                clean_org = str(svc_org).strip()
                 cursor.execute("""
                     SELECT u.user_id, u.email 
                     FROM user u
-                    JOIN organization o ON u.org_id = o.org_id
-                    WHERE u.previlage_id = 3 AND u.status_account = 'active' AND TRIM(o.org_name) = TRIM(%s)
-                """, (svc_org.strip(),))
+                    LEFT JOIN organization o ON u.org_id = o.org_id
+                    WHERE u.previlage_id = 3 AND u.status_account = 'active' 
+                      AND (TRIM(o.org_name) = TRIM(%s) OR CAST(u.org_id AS CHAR) = TRIM(%s))
+                """, (clean_org, clean_org))
                 for row in cursor.fetchall():
                     steward_user_ids.add(row[0])
                     if row[1]:
                         steward_emails.add(row[1])
-            else:
-                # 3. If dataset has NO organization, notify creator and contact email
-                if svc_created_by:
-                    steward_user_ids.add(svc_created_by)
-                if svc_contact_email:
-                    steward_emails.add(svc_contact_email)
+
+            # 3. Always include creator if specified
+            if svc_created_by:
+                cursor.execute("SELECT user_id, email FROM user WHERE user_id = %s AND status_account = 'active'", (svc_created_by,))
+                c_row = cursor.fetchone()
+                if c_row:
+                    steward_user_ids.add(c_row[0])
+                    if c_row[1]:
+                        steward_emails.add(c_row[1])
+            if svc_contact_email:
+                cursor.execute("SELECT user_id, email FROM user WHERE LOWER(email) = LOWER(%s) AND status_account = 'active'", (svc_contact_email.strip(),))
+                c_row = cursor.fetchone()
+                if c_row:
+                    steward_user_ids.add(c_row[0])
+                    if c_row[1]:
+                        steward_emails.add(c_row[1])
+
+            # Never notify the requesting user themselves about their own request
+            if user_id:
+                try:
+                    steward_user_ids.discard(int(user_id))
+                except (ValueError, TypeError):
+                    steward_user_ids.discard(user_id)
 
             # Send In-App Notifications
             for s_uid in steward_user_ids:

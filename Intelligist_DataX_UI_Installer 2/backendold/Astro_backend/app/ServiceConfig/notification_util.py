@@ -62,34 +62,41 @@ def notify_dataset_lifecycle(service_id, event_type='updated', custom_message=No
             return set()
 
         service_name, access_type, org_name, l2e_group_id, created_by, contact_email, svc_desc = svc
-        access_type_lower = (access_type or 'public').lower().strip()
+        access_type_lower = str(access_type or 'public').lower().strip()
         svc_title = service_name or f"ID {service_id}"
 
         recipients = set()
 
+        is_restricted = ('restricted' in access_type_lower) or ('จำกัดสิทธิ์' in access_type_lower)
+        is_internal = ('internal' in access_type_lower) or ('ภายในหน่วยงาน' in access_type_lower)
+        is_public = ('public' in access_type_lower) or ('สาธารณะ' in access_type_lower)
+        is_private = ('private' in access_type_lower) or ('pii' in access_type_lower) or ('เฉพาะเจ้าของ' in access_type_lower)
+
         # 1. จำกัดสิทธิ์ (Restricted)
-        if access_type_lower == 'restricted':
+        if is_restricted:
             if event_type == 'created':
                 cursor.execute("SELECT user_id FROM user WHERE status_account = 'active'")
                 recipients = {row[0] for row in cursor.fetchall() if row[0]}
             else:
-                # อัปเดต Restricted: ไม่ควรมีการแจ้งเตือน
+                # อัปเดต Restricted: ไม่ควรมีการแจ้งเตือน (ไม่มีใครได้รับแจ้งเตือน)
                 recipients = set()
 
         # 2. ภายในหน่วยงาน (Internal)
-        elif access_type_lower == 'internal':
-            if org_name and org_name.strip():
+        elif is_internal:
+            if org_name and str(org_name).strip():
+                clean_org = str(org_name).strip()
                 cursor.execute("""
                     SELECT u.user_id FROM user u 
-                    JOIN organization o ON u.org_id = o.org_id 
-                    WHERE TRIM(o.org_name) = TRIM(%s) AND u.status_account = 'active'
-                """, (org_name.strip(),))
+                    LEFT JOIN organization o ON u.org_id = o.org_id 
+                    WHERE (TRIM(o.org_name) = TRIM(%s) OR CAST(u.org_id AS CHAR) = TRIM(%s)) 
+                      AND u.status_account = 'active'
+                """, (clean_org, clean_org))
                 recipients = {row[0] for row in cursor.fetchall() if row[0]}
             else:
                 recipients = set()
 
         # 3. สาธารณะ (Public)
-        elif access_type_lower == 'public':
+        elif is_public:
             if event_type == 'created':
                 cursor.execute("SELECT user_id FROM user WHERE status_account = 'active'")
                 recipients = {row[0] for row in cursor.fetchall() if row[0]}
@@ -104,7 +111,7 @@ def notify_dataset_lifecycle(service_id, event_type='updated', custom_message=No
                 recipients = {row[0] for row in cursor.fetchall() if row[0]}
 
         # 4. เฉพาะเจ้าของ (Private / PII)
-        elif access_type_lower in ['private', 'pii']:
+        elif is_private:
             if created_by:
                 cursor.execute("SELECT user_id FROM user WHERE user_id = %s AND status_account = 'active'", (created_by,))
                 c_row = cursor.fetchone()

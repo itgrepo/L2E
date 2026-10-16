@@ -177,7 +177,13 @@ const canEditItem = (item) => {
     const uid = user.user_id || user.id;
     if (item.created_by && uid && String(item.created_by) === String(uid)) return true;
     if (!item.created_by && item.contact_email && user.email) {
-      return item.contact_email.trim().toLowerCase() === user.email.trim().toLowerCase();
+      if (item.contact_email.trim().toLowerCase() === user.email.trim().toLowerCase()) return true;
+    }
+    const userOrg = (user.org_name || user.organization || '').trim();
+    if (role === '3' && userOrg && item.organization) {
+      if (item.organization.trim() === userOrg && item.access_type !== 'pii') {
+        return true;
+      }
     }
     return false;
   } catch (e) {
