@@ -42,10 +42,10 @@ def _send_email_task(to_emails, subject, body_html):
 
     try:
         if MAIL_USE_SSL:
-            server = smtplib.SMTP_SSL(MAIL_SERVER, MAIL_PORT)
+            server = smtplib.SMTP_SSL(MAIL_SERVER, MAIL_PORT, timeout=10)
             if MAIL_USERNAME: server.login(MAIL_USERNAME, MAIL_PASSWORD)
         else:
-            server = smtplib.SMTP(MAIL_SERVER, MAIL_PORT)
+            server = smtplib.SMTP(MAIL_SERVER, MAIL_PORT, timeout=10)
             if MAIL_USERNAME: 
                 server.starttls()
                 server.login(MAIL_USERNAME, MAIL_PASSWORD)

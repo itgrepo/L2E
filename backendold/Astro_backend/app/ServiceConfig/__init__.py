@@ -77,6 +77,7 @@ def logAction(user_id, path, log, type):
     finally:
         conn.commit()
         cursor.close()
+        conn.close()
     return 'success'
 
 def toJson(data,columns):

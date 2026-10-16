@@ -3,6 +3,7 @@ import axios from 'axios';
 // Base API Configuration
 const apiClient = axios.create({
   baseURL: '/api',
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -15,13 +16,17 @@ const apiClient = axios.create({
  * but based on typical patterns in this codebase, Base64 is the primary candidate.
  */
 export const encodeUserData = (userData) => {
+  // Return JWT/itsdangerous token if present (for modern endpoints)
+  if (userData && userData.token) {
+    return userData.token;
+  }
+  
+  // Legacy base64 encoding for manually constructed payloads (like editProfileUser, generateApiKey)
   try {
     const jsonStr = JSON.stringify(userData);
     const b64 = btoa(unescape(encodeURIComponent(jsonStr)));
-    // Python expects: base64.b64decode(data[:-5][::-1])
-    // So we must: 1) get base64 2) reverse it 3) append 5 random chars
     const reversed = b64.split('').reverse().join('');
-    const randomChars = Math.random().toString(36).substring(2, 7).padEnd(5, 'x'); // Ensure exactly 5
+    const randomChars = Math.random().toString(36).substring(2, 7).padEnd(5, 'x');
     return reversed + randomChars;
   } catch (e) {
     console.error('Encoding error:', e);

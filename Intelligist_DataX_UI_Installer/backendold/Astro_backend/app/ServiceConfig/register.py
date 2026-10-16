@@ -1180,128 +1180,96 @@ def registerSimple():
         is_valid, err_msg = validate_password_rules(raw_pwd)
         if not is_valid:
             return jsonify({"status": "error", "message": err_msg})
-        # Check for duplicate username or email
+        # Check for duplicate username or email and insert user in a single connection
         conn = mysql.connect()
         cursor = conn.cursor()
-        sql = """SELECT user_id, username, email FROM user
-                 WHERE (username = %s OR email = %s) AND status_id != 7 AND status_account = 'active'"""
-        cursor.execute(sql, (username, email))
-        data = cursor.fetchall()
-        columns = [column[0] for column in cursor.description]
-        existing = toJson(data, columns)
-        cursor.close()
-        conn.close()
-
-        if existing:
-            if existing[0]['username'] == username:
-                return jsonify({'status': 'error', 'message': 'ชื่อผู้ใช้นี้ถูกใช้แล้ว'})
-            if existing[0]['email'] == email:
-                return jsonify({'status': 'error', 'message': 'อีเมลนี้ถูกใช้แล้ว'})
-
-        # Generate verification token
-        token = (str(uuid.uuid4()) + str(uuid.uuid1())).replace('-', '')
-
-        conn = mysql.connect()
-        cursor = conn.cursor()
-        sql = "INSERT INTO token_register VALUES (NULL, %s, %s, %s, %s, CURRENT_TIMESTAMP)"
-        cursor.execute(sql, (token, username, email, 'active'))
-        conn.commit()
-        cursor.close()
-        conn.close()
-
-        # Get current policy
-        conn = mysql.connect()
-        cursor = conn.cursor()
-        sql = "SELECT MAX(policy_id) as max_policy FROM codename_policy"
-        cursor.execute(sql)
-        data = cursor.fetchall()
-        columns = [column[0] for column in cursor.description]
-        policy_result = toJson(data, columns)
-        policy_id = policy_result[0]['max_policy'] if policy_result and policy_result[0]['max_policy'] else 1
-        cursor.close()
-        conn.close()
-
-        # Insert user with status_id=4 (Pending Email Verification)
-        # Using the EXACT same named-column pattern as seed.py which works every deployment
-        conn = mysql.connect()
-        cursor = conn.cursor()
-        sql_user = """
-            INSERT INTO user (username, password, email, firstname, lastname,
-                              national_id, national_id_book, national_id_mode,
-                              status_id, status_account, previlage_id, job_title,
-                              policy_id, usage_objective)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        cursor.execute(sql_user, (
-            username, password, email, firstname, lastname,
-            username, '', 1,        # national_id=username, national_id_book='', mode=1
-            4, 'active', 1, '',     # status=4(pending), active, privilege=1(external/unapproved), job_title=''
-            policy_id, organization  # policy_id, usage_objective=organization
-        ))
-        conn.commit()
-        user_id = cursor.lastrowid
-        cursor.close()
-        conn.close()
-
-        # Insert user_activity with password (same pattern as seed.py)
-        conn = mysql.connect()
-        cursor = conn.cursor()
-        sql_activity = """
-            INSERT INTO user_activity (user_id, login_status, login_respond, create_date,
-                                       status_account, password, emailnews)
-            VALUES (%s, %s, %s, UNIX_TIMESTAMP(), %s, %s, %s)
-        """
-        cursor.execute(sql_activity, (user_id, 0, 0, '0', password, '-'))
-        conn.commit()
-        cursor.close()
-        conn.close()
-
-        # Insert password history
-        conn = mysql.connect()
-        cursor = conn.cursor()
-        sql = "INSERT INTO user_password_history VALUES(NULL, %s, '1', %s, UNIX_TIMESTAMP())"
-        cursor.execute(sql, (user_id, password))
-        conn.commit()
-        cursor.close()
-        conn.close()
-
-        # Insert DataField placeholder (same pattern as seed.py)
-        conn = mysql.connect()
-        cursor = conn.cursor()
-        sql_datafield = """
-            INSERT INTO DataField (national_id, national_id_book, sublevel_id, expiration)
-            VALUES (%s, %s, %s, '9999-01-01')
-        """
-        cursor.execute(sql_datafield, (username, '', 1.1))
-        cursor.execute(sql_datafield, (username, '', 1.2))
-        conn.commit()
-        cursor.close()
-        conn.close()
-
-        # Insert user_agreement (optional, silently skip if consent table doesn't exist)
         try:
-            conn = mysql.connect()
-            cursor = conn.cursor()
-            sql_max = "SELECT MAX(version) as v FROM consent_agreement WHERE status = 'active'"
-            cursor.execute(sql_max)
-            vdata = cursor.fetchall()
+            sql = """SELECT user_id, username, email FROM user
+                     WHERE (username = %s OR email = %s) AND status_id != 7 AND status_account = 'active'"""
+            cursor.execute(sql, (username, email))
+            data = cursor.fetchall()
             columns = [column[0] for column in cursor.description]
-            vresult = toJson(vdata, columns)
-            if vresult and vresult[0]['v']:
-                sql_id = "SELECT consent_agreement_id FROM consent_agreement WHERE status = 'active' AND version = %s LIMIT 1"
-                cursor.execute(sql_id, (vresult[0]['v'],))
-                cdata = cursor.fetchall()
+            existing = toJson(data, columns)
+
+            if existing:
+                if existing[0]['username'] == username:
+                    return jsonify({'status': 'error', 'message': 'ชื่อผู้ใช้นี้ถูกใช้แล้ว'})
+                if existing[0]['email'] == email:
+                    return jsonify({'status': 'error', 'message': 'อีเมลนี้ถูกใช้แล้ว'})
+
+            # Generate verification token
+            token = (str(uuid.uuid4()) + str(uuid.uuid1())).replace('-', '')
+            sql = "INSERT INTO token_register VALUES (NULL, %s, %s, %s, %s, CURRENT_TIMESTAMP)"
+            cursor.execute(sql, (token, username, email, 'active'))
+
+            # Get current policy
+            sql = "SELECT MAX(policy_id) as max_policy FROM codename_policy"
+            cursor.execute(sql)
+            data = cursor.fetchall()
+            columns = [column[0] for column in cursor.description]
+            policy_result = toJson(data, columns)
+            policy_id = policy_result[0]['max_policy'] if policy_result and policy_result[0]['max_policy'] else 1
+
+            # Insert user with status_id=4 (Pending Email Verification)
+            sql_user = """
+                INSERT INTO user (username, password, email, firstname, lastname,
+                                  national_id, national_id_book, national_id_mode,
+                                  status_id, status_account, previlage_id, job_title,
+                                  policy_id, usage_objective)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            cursor.execute(sql_user, (
+                username, password, email, firstname, lastname,
+                username, '', 1,        # national_id=username, national_id_book='', mode=1
+                4, 'active', 1, '',     # status=4(pending), active, privilege=1(external/unapproved), job_title=''
+                policy_id, organization  # policy_id, usage_objective=organization
+            ))
+            user_id = cursor.lastrowid
+
+            # Insert user_activity with password (same pattern as seed.py)
+            sql_activity = """
+                INSERT INTO user_activity (user_id, login_status, login_respond, create_date,
+                                           status_account, password, emailnews)
+                VALUES (%s, %s, %s, UNIX_TIMESTAMP(), %s, %s, %s)
+            """
+            cursor.execute(sql_activity, (user_id, 0, 0, '0', password, '-'))
+
+            # Insert password history
+            sql = "INSERT INTO user_password_history VALUES(NULL, %s, '1', %s, UNIX_TIMESTAMP())"
+            cursor.execute(sql, (user_id, password))
+
+            # Insert DataField placeholder (same pattern as seed.py)
+            sql_datafield = """
+                INSERT INTO DataField (national_id, national_id_book, sublevel_id, expiration)
+                VALUES (%s, %s, %s, '9999-01-01')
+            """
+            cursor.execute(sql_datafield, (username, '', 1.1))
+            cursor.execute(sql_datafield, (username, '', 1.2))
+
+            # Insert user_agreement (optional, silently skip if consent table doesn't exist)
+            try:
+                sql_max = "SELECT MAX(version) as v FROM consent_agreement WHERE status = 'active'"
+                cursor.execute(sql_max)
+                vdata = cursor.fetchall()
                 columns = [column[0] for column in cursor.description]
-                cresult = toJson(cdata, columns)
-                if cresult:
-                    ip = request.headers.get('X-FORWARDED-FOR', '127.0.0.1')
-                    sql_agree = "INSERT INTO user_agreement (ip, user_id, consent_agreement_id, date_time) VALUES (%s, %s, %s, UNIX_TIMESTAMP())"
-                    cursor.execute(sql_agree, (ip, user_id, cresult[0]['consent_agreement_id']))
+                vresult = toJson(vdata, columns)
+                if vresult and vresult[0]['v']:
+                    sql_id = "SELECT consent_agreement_id FROM consent_agreement WHERE status = 'active' AND version = %s LIMIT 1"
+                    cursor.execute(sql_id, (vresult[0]['v'],))
+                    cdata = cursor.fetchall()
+                    columns = [column[0] for column in cursor.description]
+                    cresult = toJson(cdata, columns)
+                    if cresult:
+                        ip = request.headers.get('X-FORWARDED-FOR', '127.0.0.1')
+                        sql_agree = "INSERT INTO user_agreement (ip, user_id, consent_agreement_id, date_time) VALUES (%s, %s, %s, UNIX_TIMESTAMP())"
+                        cursor.execute(sql_agree, (ip, user_id, cresult[0]['consent_agreement_id']))
+            except Exception as agree_err:
+                current_app.logger.warning("Could not insert user_agreement: " + str(agree_err))
+
             conn.commit()
+        finally:
             cursor.close()
             conn.close()
-        except Exception as agree_err:
-            current_app.logger.warning("Could not insert user_agreement: " + str(agree_err))
 
         # Try to send verification email (silently fail if SMTP not available)
         try:

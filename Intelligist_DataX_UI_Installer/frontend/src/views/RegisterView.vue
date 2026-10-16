@@ -1,7 +1,8 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import apiClient from '../utils/api';
+import { encodePassword } from '../utils/crypto';
 
 const router = useRouter();
 
@@ -13,7 +14,6 @@ const confirmPassword = ref('');
 const firstname = ref('');
 const lastname = ref('');
 const organization = ref('');
-const agreeTerms = ref(false);
 
 // UI state
 const isLoading = ref(false);
@@ -21,6 +21,58 @@ const errorMessage = ref('');
 const successData = ref(null);
 const currentStep = ref(1);
 const showPassword = ref(false);
+const showConfirmPassword = ref(false);
+const isScrolledToBottom = ref(false);
+const showTermsModal = ref(false);
+const termsType = ref('terms'); // 'terms' or 'privacy'
+
+const handleScroll = (e) => {
+  const { scrollTop, scrollHeight, clientHeight } = e.target;
+  // If user scrolls near the bottom (within 20px)
+  if (scrollTop + clientHeight >= scrollHeight - 20) {
+    isScrolledToBottom.value = true;
+  }
+};
+
+const modalBodyRef = ref(null);
+
+// Reset scroll state when modal opens
+watch(showTermsModal, (newVal) => {
+  if (newVal) {
+    isScrolledToBottom.value = false;
+    // ensure scroll is at top next tick
+    setTimeout(() => {
+      if (modalBodyRef.value) modalBodyRef.value.scrollTop = 0;
+    }, 50);
+  }
+});
+
+const hasAcceptedTerms = ref(false);
+const hasAcceptedPrivacy = ref(false);
+
+const acceptTerms = () => {
+  if (!isScrolledToBottom.value) return;
+  
+  if (termsType.value === 'terms') {
+    hasAcceptedTerms.value = true;
+    if (!hasAcceptedPrivacy.value) {
+      termsType.value = 'privacy';
+      isScrolledToBottom.value = false;
+      if (modalBodyRef.value) modalBodyRef.value.scrollTop = 0;
+      return;
+    }
+  } else {
+    hasAcceptedPrivacy.value = true;
+    if (!hasAcceptedTerms.value) {
+      termsType.value = 'terms';
+      isScrolledToBottom.value = false;
+      if (modalBodyRef.value) modalBodyRef.value.scrollTop = 0;
+      return;
+    }
+  }
+  
+  showTermsModal.value = false;
+};
 
 // Password encryption (matching backend)
 const encryptPassword = (pwd) => {
@@ -55,13 +107,24 @@ const passwordStrength = computed(() => {
 
 const isStep1Valid = computed(() => {
   return username.value.length >= 3 && 
-         email.value.includes('@') && 
          password.value.length >= 8 &&
+         /[A-Z]/.test(password.value) &&
+         /[a-z]/.test(password.value) &&
+         /[0-9]/.test(password.value) &&
+         /[^A-Za-z0-9]/.test(password.value) &&
          password.value === confirmPassword.value;
 });
 
-const isStep2Valid = computed(() => {
-  return firstname.value.trim() && lastname.value.trim() && agreeTerms.value;
+const isFormValid = computed(() => {
+  return username.value.trim().length >= 3 &&
+         email.value.includes('@') &&
+         password.value.length >= 8 &&
+         password.value === confirmPassword.value &&
+         firstname.value.trim() && 
+         lastname.value.trim() && 
+         organization.value.trim() &&
+         hasAcceptedTerms.value &&
+         hasAcceptedPrivacy.value;
 });
 
 const nextStep = () => {
@@ -79,21 +142,28 @@ const prevStep = () => {
 };
 
 const handleRegister = async () => {
-  if (!isStep2Valid.value) return;
+  if (!isFormValid.value) {
+    if (!hasAcceptedTerms.value || !hasAcceptedPrivacy.value) {
+      errorMessage.value = 'กรุณากดอ่านและยอมรับข้อตกลงการใช้งานและนโยบายความเป็นส่วนตัวก่อนสมัคร';
+    } else {
+      errorMessage.value = 'กรุณากรอกข้อมูลให้ครบถ้วนและถูกต้องตามเงื่อนไข';
+    }
+    return;
+  }
   
   isLoading.value = true;
   errorMessage.value = '';
 
   try {
     const response = await apiClient.post('/registerSimple', {
-      username: username.value,
-      password: password.value,
-      email: email.value,
-      firstname: firstname.value,
-      lastname: lastname.value,
-      organization: organization.value,
+      username: username.value.trim(),
+      password: encodePassword(password.value),
+      email: email.value.trim(),
+      firstname: firstname.value.trim(),
+      lastname: lastname.value.trim(),
+      organization: organization.value.trim(),
       link: window.location.origin
-    });
+    }, { timeout: 15000 });
 
     const result = response.data;
     if (result.status === 'success') {
@@ -104,7 +174,11 @@ const handleRegister = async () => {
     }
   } catch (error) {
     console.error('Registration error:', error);
-    errorMessage.value = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่';
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      errorMessage.value = 'การเชื่อมต่อไปยังเซิร์ฟเวอร์หมดเวลา (Timeout) กรุณาลองใหม่อีกครั้ง';
+    } else {
+      errorMessage.value = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่';
+    }
   } finally {
     isLoading.value = false;
   }
@@ -121,7 +195,7 @@ const goToVerify = () => {
   <div class="register-container">
     <div class="register-branding">
       <div class="branding-content">
-        <h1>Intelligist DataX Portal</h1>
+        <h1>Data Portal</h1>
         <p class="tagline">ระบบแลกเปลี่ยนข้อมูลอัจฉริยะ</p>
         <div class="feature-list">
           <div class="feature-item">
@@ -153,34 +227,19 @@ const goToVerify = () => {
     <div class="register-form-side">
       <div class="form-card">
         <!-- Progress Steps -->
-        <div class="steps-indicator" v-if="currentStep < 3">
-          <div class="step" :class="{ active: currentStep >= 1, done: currentStep > 1 }">
-            <div class="step-circle">{{ currentStep > 1 ? '✓' : '1' }}</div>
-            <span>บัญชีผู้ใช้</span>
-          </div>
-          <div class="step-line" :class="{ active: currentStep >= 2 }"></div>
-          <div class="step" :class="{ active: currentStep >= 2, done: currentStep > 2 }">
-            <div class="step-circle">{{ currentStep > 2 ? '✓' : '2' }}</div>
-            <span>ข้อมูลส่วนตัว</span>
-          </div>
-          <div class="step-line" :class="{ active: currentStep >= 3 }"></div>
-          <div class="step" :class="{ active: currentStep >= 3 }">
-            <div class="step-circle">3</div>
-            <span>ยืนยัน</span>
-          </div>
-        </div>
+
 
         <!-- Step 1: Account Info -->
         <div v-if="currentStep === 1" class="step-content">
           <h2>สร้างบัญชีผู้ใช้</h2>
-          <p class="subtitle">กรอกข้อมูลเพื่อเริ่มต้นใช้งาน Intelligist DataX Portal</p>
+          <p class="subtitle">กรอกข้อมูลเพื่อเริ่มต้นใช้งาน Data Portal</p>
           
           <div v-if="errorMessage" class="error-alert">{{ errorMessage }}</div>
 
-          <form @submit.prevent="nextStep">
+          <form @submit.prevent="handleRegister">
             <div class="form-group">
               <label for="reg-username">ชื่อผู้ใช้ (Username)</label>
-              <input id="reg-username" v-model="username" type="text" placeholder="ตัวอย่าง: somchai_intelligist-datax" required minlength="3" :disabled="isLoading">
+              <input id="reg-username" v-model="username" type="text" placeholder="ตัวอย่าง: somchai_dataportal" required minlength="3" :disabled="isLoading">
               <small v-if="username && username.length < 3" class="field-hint error">ต้องมีอย่างน้อย 3 ตัวอักษร</small>
             </div>
 
@@ -194,38 +253,53 @@ const goToVerify = () => {
               <div class="password-input-wrapper">
                 <input id="reg-password" v-model="password" :type="showPassword ? 'text' : 'password'" placeholder="อย่างน้อย 8 ตัวอักษร" required minlength="8" :disabled="isLoading">
                 <button type="button" class="toggle-password" @click="showPassword = !showPassword">
-                  {{ showPassword ? '🙈' : '👁️' }}
+                  <svg v-if="!showPassword" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #64748b;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #64748b;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
                 </button>
               </div>
-              <div class="password-strength" v-if="password">
-                <div class="strength-bar">
-                  <div class="strength-fill" :style="{ width: (passwordStrength.score * 25) + '%', backgroundColor: passwordStrength.color }"></div>
-                </div>
-                <small :style="{ color: passwordStrength.color }">{{ passwordStrength.label }}</small>
+              
+              <div class="password-checklist" v-if="password">
+                <div class="checklist-title">เงื่อนไขตั้งรหัสผ่านใหม่</div>
+                <ul class="checklist-items">
+                  <li :class="{ valid: password.length >= 8 }">
+                    <span class="icon">{{ password.length >= 8 ? '✔' : '✘' }}</span>
+                    ความยาวอย่างน้อย 8 ตัวอักษร
+                  </li>
+                  <li :class="{ valid: /[A-Z]/.test(password) }">
+                    <span class="icon">{{ /[A-Z]/.test(password) ? '✔' : '✘' }}</span>
+                    ตัวอักษรพิมพ์ใหญ่ (A-Z) อย่างน้อย 1 ตัว
+                  </li>
+                  <li :class="{ valid: /[a-z]/.test(password) }">
+                    <span class="icon">{{ /[a-z]/.test(password) ? '✔' : '✘' }}</span>
+                    ตัวอักษรพิมพ์เล็ก (a-z) อย่างน้อย 1 ตัว
+                  </li>
+                  <li :class="{ valid: /[0-9]/.test(password) }">
+                    <span class="icon">{{ /[0-9]/.test(password) ? '✔' : '✘' }}</span>
+                    ตัวเลข (0-9) อย่างน้อย 1 ตัว
+                  </li>
+                  <li :class="{ valid: /[^A-Za-z0-9]/.test(password) }">
+                    <span class="icon">{{ /[^A-Za-z0-9]/.test(password) ? '✔' : '✘' }}</span>
+                    อักขระพิเศษ อย่างน้อย 1 ตัว (เช่น !@#$%^&_.)
+                  </li>
+                </ul>
               </div>
+
             </div>
 
             <div class="form-group">
               <label for="reg-confirm">ยืนยันรหัสผ่าน</label>
-              <input id="reg-confirm" v-model="confirmPassword" type="password" placeholder="กรอกรหัสผ่านอีกครั้ง" required :disabled="isLoading">
+              <div class="password-input-wrapper">
+                <input id="reg-confirm" v-model="confirmPassword" :type="showConfirmPassword ? 'text' : 'password'" placeholder="กรอกรหัสผ่านอีกครั้ง" required :disabled="isLoading">
+                <button type="button" class="toggle-password" @click="showConfirmPassword = !showConfirmPassword" tabindex="-1">
+                  <svg v-if="!showConfirmPassword" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #64748b;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #64748b;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                </button>
+              </div>
               <small v-if="confirmPassword && password !== confirmPassword" class="field-hint error">รหัสผ่านไม่ตรงกัน</small>
             </div>
 
-            <button type="submit" class="btn-primary" :disabled="!isStep1Valid || isLoading">
-              ถัดไป →
-            </button>
-          </form>
-        </div>
-
-        <!-- Step 2: Personal Info -->
-        <div v-if="currentStep === 2" class="step-content">
-          <h2>ข้อมูลส่วนตัว</h2>
-          <p class="subtitle">กรุณากรอกข้อมูลเพิ่มเติม</p>
-
-          <div v-if="errorMessage" class="error-alert">{{ errorMessage }}</div>
-
-          <form @submit.prevent="handleRegister">
-            <div class="form-row">
+            
+            <div class="form-row" style="margin-top: 1rem;">
               <div class="form-group">
                 <label for="reg-firstname">ชื่อ</label>
                 <input id="reg-firstname" v-model="firstname" type="text" placeholder="ชื่อจริง" required :disabled="isLoading">
@@ -238,28 +312,34 @@ const goToVerify = () => {
 
             <div class="form-group">
               <label for="reg-org">หน่วยงาน / องค์กร</label>
-              <input id="reg-org" v-model="organization" type="text" placeholder="ชื่อหน่วยงาน (ไม่บังคับ)" :disabled="isLoading">
+              <input id="reg-org" v-model="organization" type="text" placeholder="ชื่อหน่วยงาน / สังกัด *" required :disabled="isLoading">
             </div>
 
-            <div class="terms-group">
-              <label class="checkbox-container">
-                <input type="checkbox" v-model="agreeTerms" :disabled="isLoading">
-                <span class="checkmark"></span>
-                ฉันยอมรับ <a href="#" @click.prevent>ข้อตกลงการใช้งาน</a> และ <a href="#" @click.prevent>นโยบายความเป็นส่วนตัว</a>
-              </label>
+            <div class="terms-group" style="padding: 16px; background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; margin-top: 8px;">
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <span style="font-weight: 600; color: #334155; margin-bottom: 4px;">กรุณาอ่านข้อตกลงและนโยบายต่อไปนี้ก่อนสมัครสมาชิก</span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span v-if="hasAcceptedTerms" style="color: #10b981; font-weight: bold;">✓</span>
+                  <span v-else style="color: #ef4444; font-weight: bold; font-size: 14px;">*</span>
+                  <a href="#" @click.prevent="termsType = 'terms'; showTermsModal = true" :style="hasAcceptedTerms ? 'color: #10b981;' : 'color: var(--primary); text-decoration: underline;'">ข้อตกลงการใช้งาน</a>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span v-if="hasAcceptedPrivacy" style="color: #10b981; font-weight: bold;">✓</span>
+                  <span v-else style="color: #ef4444; font-weight: bold; font-size: 14px;">*</span>
+                  <a href="#" @click.prevent="termsType = 'privacy'; showTermsModal = true" :style="hasAcceptedPrivacy ? 'color: #10b981;' : 'color: var(--primary); text-decoration: underline;'">นโยบายความเป็นส่วนตัว</a>
+                </div>
+              </div>
             </div>
 
-            <div class="btn-row">
-              <button type="button" class="btn-secondary" @click="prevStep" :disabled="isLoading">
-                ← ย้อนกลับ
-              </button>
-              <button type="submit" class="btn-primary" :disabled="!isStep2Valid || isLoading">
-                <span v-if="isLoading" class="loader"></span>
-                <span v-else>สมัครสมาชิก</span>
-              </button>
-            </div>
+            <button type="submit" class="btn-primary" :disabled="!isFormValid || isLoading" style="width: 100%; margin-top: 1rem;">
+              <span v-if="isLoading" class="loader"></span>
+              <span v-else>สมัครสมาชิก</span>
+            </button>
+
           </form>
         </div>
+
+        
 
         <!-- Step 3: Success -->
         <div v-if="currentStep === 3" class="step-content success-content">
@@ -295,13 +375,20 @@ const goToVerify = () => {
             <div class="flow-arrow">→</div>
             <div class="flow-step">
               <div class="flow-number">3</div>
-              <span>รออนุมัติ</span>
-            </div>
-            <div class="flow-arrow">→</div>
-            <div class="flow-step">
-              <div class="flow-number">4</div>
               <span>ใช้งานได้</span>
             </div>
+          </div>
+          
+          <div v-if="successData && successData.email_sent === false" style="margin: 20px 0; padding: 16px; background: #fff3cd; border-radius: 8px; border: 1px solid #ffeeba;">
+            <p style="color: #856404; font-size: 0.9rem; margin-bottom: 12px; font-weight: bold;">
+              ⚠️ ระบบไม่สามารถส่งอีเมลยืนยันได้ (เซิร์ฟเวอร์อีเมลไม่ตอบสนอง)
+            </p>
+            <p style="color: #856404; font-size: 0.85rem; margin-bottom: 16px;">
+              คุณสามารถกดปุ่มด้านล่างเพื่อทำการยืนยันอีเมลด้วยตนเอง (Bypass) สำหรับการทดสอบระบบ:
+            </p>
+            <router-link :to="`/verify/${successData.token}`" style="display: inline-block; padding: 8px 16px; background: #28a745; color: white; border-radius: 4px; text-decoration: none; font-weight: bold;">
+              👉 คลิกเพื่อยืนยันอีเมล (จำลอง)
+            </router-link>
           </div>
 
           <router-link to="/login" class="back-to-login">← กลับไปหน้าเข้าสู่ระบบ</router-link>
@@ -311,6 +398,33 @@ const goToVerify = () => {
         <p v-if="currentStep < 3" class="login-text">
           มีบัญชีอยู่แล้ว? <router-link to="/login">เข้าสู่ระบบ</router-link>
         </p>
+      </div>
+    </div>
+
+    <!-- Terms and Privacy Modal -->
+    <div v-if="showTermsModal" class="modal-overlay" @click.self="showTermsModal = false">
+      <div class="modal-content" style="max-width: 800px; width: 90%;">
+        <div class="modal-header">
+          <h3 v-if="termsType === 'terms'">ข้อตกลงการใช้งาน (Terms of Use)</h3>
+          <h3 v-else>นโยบายความเป็นส่วนตัว (Privacy Policy)</h3>
+          <button @click="showTermsModal = false" class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body" ref="modalBodyRef" @scroll="handleScroll" style="height: 60vh; overflow-y: auto; padding: 0; background: #f1f5f9; text-align: center;">
+          <template v-if="termsType === 'terms'">
+            <img v-for="n in 5" :key="'terms-'+n" :src="`/terms_page_${n}.png`" style="max-width: 100%; display: block; margin: 0 auto 10px auto; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);" alt="Terms Page" />
+          </template>
+          <template v-else>
+            <img v-for="n in 5" :key="'privacy-'+n" :src="`/privacy_page_${n}.png`" style="max-width: 100%; display: block; margin: 0 auto 10px auto; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);" alt="Privacy Page" />
+          </template>
+        </div>
+        <div class="modal-footer" style="padding: 16px 20px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: white;">
+          <span style="font-size: 0.85rem; color: #ef4444;" v-if="!isScrolledToBottom">* กรุณาเลื่อนอ่านจนจบเอกสารเพื่อกดยอมรับ</span>
+          <span v-else></span>
+          <div style="display: flex; gap: 12px;">
+            <button @click="showTermsModal = false" class="btn-primary-outline" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #cbd5e1; background: white; color: #475569; font-weight: 600; cursor: pointer;">ปิดหน้าต่าง</button>
+            <button @click="acceptTerms" class="btn-primary" :disabled="!isScrolledToBottom" :class="{ 'disabled': !isScrolledToBottom }" style="padding: 8px 24px; border-radius: 6px; font-weight: 600;">ฉันได้อ่านและยอมรับ</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -881,5 +995,131 @@ input:focus {
   .register-container { flex-direction: column; }
   .register-branding { padding: 40px 20px; }
   .form-row { flex-direction: column; gap: 0; }
+}
+
+.password-checklist {
+  margin-top: 12px;
+  margin-bottom: 16px;
+  padding: 16px;
+  background-color: #f1f8f5;
+  border-radius: 12px;
+  border: 1px solid #dcfce7;
+}
+
+.checklist-title {
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 10px;
+  font-size: 0.95rem;
+}
+
+.checklist-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checklist-items li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  color: #ef4444; /* Default red */
+  transition: all 0.2s ease;
+}
+
+.checklist-items li.valid {
+  color: var(--primary); /* Green when valid */
+}
+
+.checklist-items li .icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: bold;
+}
+
+.checklist-items li .icon {
+  /* X mark styling */
+  background-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.checklist-items li.valid .icon {
+  /* Check mark styling */
+  background-color: #86efac;
+  color: #14532d;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 600px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  animation: modal-fade-in 0.3s ease-out forwards;
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #1e293b;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: #64748b;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.modal-close:hover {
+  color: #0f172a;
+}
+
+@keyframes modal-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 </style>

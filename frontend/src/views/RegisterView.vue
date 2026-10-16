@@ -142,7 +142,14 @@ const prevStep = () => {
 };
 
 const handleRegister = async () => {
-  if (!isFormValid.value) return;
+  if (!isFormValid.value) {
+    if (!hasAcceptedTerms.value || !hasAcceptedPrivacy.value) {
+      errorMessage.value = 'กรุณากดอ่านและยอมรับข้อตกลงการใช้งานและนโยบายความเป็นส่วนตัวก่อนสมัคร';
+    } else {
+      errorMessage.value = 'กรุณากรอกข้อมูลให้ครบถ้วนและถูกต้องตามเงื่อนไข';
+    }
+    return;
+  }
   
   isLoading.value = true;
   errorMessage.value = '';
@@ -151,12 +158,12 @@ const handleRegister = async () => {
     const response = await apiClient.post('/registerSimple', {
       username: username.value.trim(),
       password: encodePassword(password.value),
-      email: email.value,
-      firstname: firstname.value,
-      lastname: lastname.value,
-      organization: organization.value,
+      email: email.value.trim(),
+      firstname: firstname.value.trim(),
+      lastname: lastname.value.trim(),
+      organization: organization.value.trim(),
       link: window.location.origin
-    });
+    }, { timeout: 15000 });
 
     const result = response.data;
     if (result.status === 'success') {
@@ -167,7 +174,11 @@ const handleRegister = async () => {
     }
   } catch (error) {
     console.error('Registration error:', error);
-    errorMessage.value = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่';
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      errorMessage.value = 'การเชื่อมต่อไปยังเซิร์ฟเวอร์หมดเวลา (Timeout) กรุณาลองใหม่อีกครั้ง';
+    } else {
+      errorMessage.value = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่';
+    }
   } finally {
     isLoading.value = false;
   }

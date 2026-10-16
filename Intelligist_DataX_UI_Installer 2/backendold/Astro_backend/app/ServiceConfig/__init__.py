@@ -62,38 +62,23 @@ def logAction(user_id, path, log, type):
         ip_address = ip.split(',')
     else:
         ip_address = [request.remote_addr or '127.0.0.1']
-    ip_check = ip_address[0].split('.')
-    if ip_check[0] != "192":
-        conn = mysql.connect()
-        cursor = conn.cursor()
-        #reader = geoip2.database.Reader('/app/resources/GeoLite2-City_20190903/GeoLite2-City.mmdb')
-        #--------------------------------------------------#
-        try :
-            #response = reader.city(str(ip_address[0]))
-        # sql = "INSERT INTO log VALUES (NULL, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)"
-            sql = "INSERT INTO log VALUES (NULL, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s)"
-            cursor.execute(sql, (user_id, ip_address[0], path, log, type, "None"))
-        # cursor.execute(sql, (user_id, ip_address[0], path, log, type))
-        # cursor.execute(sql, (user_id, '203.xxx', path, log, type))
-        except :
-            # ! ถ้าไม่สามารถตรวจหาประเทศจาก IP ได้ จะให้ประเทศเป็น None
-            sql = "INSERT INTO log VALUES (NULL, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s)"
-            cursor.execute(sql, (user_id, ip_address[0], path, log, type, "None"))
-        #--------------------------------------------------#
+    
+    device_info = request.headers.get('User-Agent', 'Unknown')
+    if len(device_info) > 250:
+        device_info = device_info[:250] + "..."
+        
+    conn = mysql.connect()
+    cursor = conn.cursor()
+    try:
+        sql = "INSERT INTO log (user_id, ip, path, log_detail, type, create_at, country, device) VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s, %s)"
+        cursor.execute(sql, (user_id, ip_address[0], path, log, type, "None", device_info))
+    except Exception as e:
+        current_app.logger.error(f"Error in logAction: {str(e)}")
+    finally:
         conn.commit()
         cursor.close()
-        return 'success'
-
-    else:
-        conn = mysql.connect()
-        cursor = conn.cursor()
-        sql = "INSERT INTO log VALUES (NULL, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s)"
-        cursor.execute(sql, (user_id, ip_address[0], path, log, type, "None"))
-        # cursor.execute(sql, (user_id, ip_address[0], path, log, type))
-        # cursor.execute(sql, (user_id, '203.xxx', path, log, type))
-        conn.commit()
-        cursor.close()
-        return 'success'
+        conn.close()
+    return 'success'
 
 def toJson(data,columns):
     results = []
@@ -101,47 +86,130 @@ def toJson(data,columns):
         results.append(dict(zip(columns, row)))
     return results
 
+from itsdangerous import URLSafeTimedSerializer
+import json
+
+SECRET_KEY = "intelligist-datax-secure-secret-key-2026"
+auth_serializer = URLSafeTimedSerializer(SECRET_KEY)
+
 def decode(data):
-    return base64.b64decode(data[:-5][::-1])
+    if data is None or data == '':
+        return ''
+    if isinstance(data, int):
+        return str(data)
+    if isinstance(data, str) and (data.isdigit() or (data.startswith('-') and data[1:].isdigit())):
+        return data
+    # 1. Try URLSafeTimedSerializer
+    try:
+        user_dict = auth_serializer.loads(data, max_age=86400)
+        return json.dumps(user_dict).encode('utf-8')
+    except Exception:
+        pass
+    # 2. Try legacy reversed base64 with 5 trailing salt characters (only if len > 5)
+    try:
+        if isinstance(data, str) and len(data) > 5:
+            dec = base64.b64decode(data[:-5][::-1])
+            if dec:
+                return dec
+    except Exception:
+        pass
+    # 3. Try standard base64
+    try:
+        if isinstance(data, str):
+            padded = data + '=' * ((4 - len(data) % 4) % 4)
+            dec = base64.b64decode(padded)
+            if dec:
+                return dec
+    except Exception:
+        pass
+    if isinstance(data, str):
+        return data.encode('utf-8')
+    return data
 
 def platform_decode(data):
     if not data:
-        return ""
+        return ''
+    if isinstance(data, dict):
+        return json.dumps(data)
+    if isinstance(data, str) and data.strip().startswith('{'):
+        return data
+    # 1. Try URLSafeTimedSerializer
     try:
-        # Standard decode pattern used in this project
-        decoded = base64.b64decode(data[:-5][::-1]).decode('utf-8')
-        return decoded
-    except Exception as e:
-        print(f"Decode error: {e}")
-        return ""
+        user_dict = auth_serializer.loads(data, max_age=86400)
+        return json.dumps(user_dict)
+    except Exception:
+        pass
+    # 2. Try legacy reversed base64
+    try:
+        dec = base64.b64decode(data[:-5][::-1])
+        return dec.decode('utf-8')
+    except Exception:
+        pass
+    # 3. Try standard base64
+    try:
+        padded = data + '=' * ((4 - len(data) % 4) % 4)
+        return base64.b64decode(padded).decode('utf-8')
+    except Exception:
+        pass
+    return data
 
 def safe_json_loads(data):
     if not data:
         return {}
+    if isinstance(data, dict):
+        return data
     try:
         return json.loads(data)
     except:
         return {}
 
 def checkUserIsAdmin(user_data):
-    conn = mysql.connect()
-    cursor = conn.cursor()
-    # sql_check_Permission = "SELECT previlage_id FROM user WHERE user_id = %s AND username = %s AND email = %s AND status_id != 7"
-    # cursor.execute(sql_check_Permission, (user_data['user_id'],user_data['username'],user_data['email']))
-    sql_check_Permission = "SELECT previlage_id FROM user WHERE user_id = %s AND username = %s AND status_id != 7"
-    cursor.execute(sql_check_Permission, (user_data['user_id'],user_data['username']))
-    data_check_Permission = cursor.fetchall()
-    columns = [column[0] for column in cursor.description]
-    result_check_Permission = toJson(data_check_Permission, columns)
-    conn.commit()
-    cursor.close()
-    if len(result_check_Permission) != 0 :
-        if str(result_check_Permission[0]['previlage_id']) not in ['3']: # previlage_id = 1 is Admin
-            return True #user is admin
-        else :
-            return False #user not admin
-    else : #not found user
+    if not isinstance(user_data, dict) or not user_data.get('user_id'):
         return False
+    try:
+        if str(user_data.get('previlage_id')) in ['3', '4', '5']:
+            return True
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        sql_check_Permission = "SELECT previlage_id FROM user WHERE user_id = %s AND status_id != 7"
+        cursor.execute(sql_check_Permission, (user_data.get('user_id'),))
+        data_check_Permission = cursor.fetchall()
+        columns = [column[0] for column in cursor.description]
+        result_check_Permission = toJson(data_check_Permission, columns)
+        cursor.close()
+        conn.close()
+        if len(result_check_Permission) != 0:
+            if str(result_check_Permission[0]['previlage_id']) in ['3', '4', '5']:
+                return True
+        return False
+    except Exception:
+        return False
+
+from functools import wraps
+def require_admin(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        try:
+            dataInput = request.json if request.is_json else request.form
+            if not dataInput:
+                return jsonify({"status": "error", "message": "Authentication required"}), 401
+            
+            user_str = dataInput.get('user')
+            if not user_str:
+                return jsonify({"status": "error", "message": "Authentication required"}), 401
+            
+            user_data = safe_json_loads(platform_decode(user_str))
+            if not user_data or not user_data.get('user_id'):
+                return jsonify({"status": "error", "message": "Invalid user payload"}), 401
+                
+            if not checkUserIsAdmin(user_data):
+                return jsonify({"status": "error", "message": "Admin access required"}), 403
+                
+            request.current_user = user_data
+            return f(*args, **kwargs)
+        except Exception as e:
+            return jsonify({"status": "error", "message": "Authentication error"}), 401
+    return decorated
     
     #--------------------------------------------------------------#
 def createSecretKeyTwoFactor(username,option):
@@ -160,7 +228,7 @@ def createSecretKeyTwoFactor(username,option):
         # print("this is key : ",secret_key)
     #         print(secret_key)
         sql1 = """SELECT secret_key from user_secret_key where secret_key = %s"""
-        cursor.execute(sql1,(secret_key))
+        cursor.execute(sql1,(secret_key,))
         secret_key_result = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         secret_key_data = toJson(secret_key_result, columns)
@@ -174,14 +242,14 @@ def createSecretKeyTwoFactor(username,option):
                             LEFT JOIN user
                                 ON user_secret_key.user_id = user.user_id
                             WHERE username = %s"""
-                cursor.execute(sql1,(username))
+                cursor.execute(sql1,(username,))
                 user_secret_key_result = cursor.fetchall()
                 columns = [column[0] for column in cursor.description]
                 user_secret_key_data = toJson(user_secret_key_result, columns)
                 # print(user_secret_key_data)
                 if len(user_secret_key_data) == 0:
                     sql1 = """SELECT user_id from user where username = %s AND status_id != 7"""
-                    cursor.execute(sql1,(username))
+                    cursor.execute(sql1,(username,))
                     user_id_secret_key_result = cursor.fetchall()
                     columns = [column[0] for column in cursor.description]
                     user_id_secret_key = toJson(user_id_secret_key_result, columns)
@@ -212,7 +280,7 @@ def createSecretKeyTwoFactor(username,option):
         elif(option == 2):
             if len(secret_key_data) == 0:
                 sql1 = """SELECT user_id from user where username = %s AND status_id != 7"""
-                cursor.execute(sql1,(username))
+                cursor.execute(sql1,(username,))
                 user_id_secret_key_result = cursor.fetchall()
                 columns = [column[0] for column in cursor.description]
                 user_id_secret_key = toJson(user_id_secret_key_result, columns)
@@ -231,7 +299,7 @@ def createSecretKeyTwoFactor(username,option):
         line_number = exception_traceback.tb_lineno
         print("Line number: ", line_number)
         print("Error: " + str(e))
-        return ("Error: " + str(e)+"Line number "+line_number)
+        return ("Error: " + str(e)+"Line number "+str(line_number))
         # return("Error")
 #------------#
 def check_email_format(email):
