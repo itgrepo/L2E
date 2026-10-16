@@ -269,7 +269,7 @@ const fetchDatasetDetail = async () => {
           data_dictionary_path: found.data_dictionary_path,
           data_sampling_path: found.data_sampling_path,
           updated: 'ปรับปรุงเมื่อ 2 วันที่แล้ว',
-          dataset_type: found.dataset_type || 'general',
+          dataset_type: found.dataset_type || 'record',
           stat_year_start: found.stat_year_start,
           stat_year_latest: found.stat_year_latest,
           stat_classification: found.stat_classification,

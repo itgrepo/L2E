@@ -48,7 +48,29 @@ const formData = ref({
   languages: [],
   objective_type: '',
   external_dashboard_url: '',
-  external_api_url: ''
+  external_api_url: '',
+  date_start: '',
+  date_updated: new Date().toISOString().split('T')[0],
+  is_high_value: 'ไม่ใช่',
+  is_reference: 'ไม่ใช่',
+  dataset_type: 'record',
+  stat_year_start: '',
+  stat_year_latest: '',
+  stat_classification: '',
+  stat_unit: '',
+  stat_multiplier: '',
+  stat_calculation_method: '',
+  stat_standard: '',
+  stat_official: 'ไม่ใช่',
+  geo_dataset_name: '',
+  geo_scale: '',
+  geo_west_bound: '',
+  geo_east_bound: '',
+  geo_north_bound: '',
+  geo_south_bound: '',
+  geo_position_accuracy: '',
+  geo_reference_time: '',
+  geo_published_date: ''
 });
 
 const govConflictMessage = computed(() => {
@@ -80,6 +102,15 @@ const isSubmitting = ref(false);
 const successMessage = ref('');
 const errorMessage = ref('');
 const editingId = ref(null);
+
+const switchTab = (tabId) => {
+  activeTab.value = tabId;
+  if (tabId === 'create' && !editingId.value) {
+    if (!formData.value.dataset_type) {
+      formData.value.dataset_type = 'record';
+    }
+  }
+};
 const datasets = ref([]);
 const groupsList = ref([]);
 const subgroupsList = ref([]);
@@ -289,6 +320,7 @@ const resetForm = () => {
     date_start: '',
     date_updated: new Date().toISOString().split('T')[0], // Default to today on create
     is_high_value: 'ไม่ใช่',
+    is_reference: 'ไม่ใช่',
     dataset_type: 'record',
     stat_year_start: '',
     stat_year_latest: '',
@@ -555,6 +587,9 @@ const handleSubmit = async () => {
   errorMessage.value = '';
   
   try {
+    if (!formData.value.dataset_type) {
+      formData.value.dataset_type = 'record';
+    }
     const userData = localStorage.getItem('user');
     const fd = new FormData();
     fd.append('user', encodeUserData(JSON.parse(userData))); 
@@ -896,7 +931,7 @@ const updateDatasetPrefix = onSubgroupChange;
             :key="tab.id"
             class="tab-btn"
             :class="{ active: activeTab === tab.id }"
-            @click="activeTab = tab.id"
+            @click="switchTab(tab.id)"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="tab.icon" />

@@ -180,7 +180,9 @@ def addService():
                 date_updated = request.form.get('date_updated')
                 is_high_value = request.form.get('is_high_value', 'ไม่ใช่')
                 is_reference = request.form.get('is_reference', 'ไม่ใช่')
-                dataset_type = request.form.get('dataset_type', 'record')
+                dataset_type = request.form.get('dataset_type')
+                if not dataset_type or dataset_type == 'undefined':
+                    dataset_type = 'record'
                 stat_year_start = request.form.get('stat_year_start')
                 stat_year_latest = request.form.get('stat_year_latest')
                 stat_classification = request.form.get('stat_classification')
@@ -411,6 +413,8 @@ def addService():
                 is_high_value = request.form.get('is_high_value')
                 is_reference = request.form.get('is_reference')
                 dataset_type = request.form.get('dataset_type')
+                if dataset_type == 'undefined' or dataset_type == '':
+                    dataset_type = None
                 stat_year_start = request.form.get('stat_year_start')
                 stat_year_latest = request.form.get('stat_year_latest')
                 stat_classification = request.form.get('stat_classification')
