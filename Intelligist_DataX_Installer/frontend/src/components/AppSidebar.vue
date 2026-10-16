@@ -1,14 +1,68 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, watch, nextTick } from 'vue';
+import { postWithUser } from '../utils/api';
 import { useRoute, useRouter } from 'vue-router';
 import intelligistDataxLogo from '../assets/intelligist-datax-logo.png';
 import { themeConfig } from '../utils/theme';
 
 const isSettingsExpanded = ref(false);
 const isMobileMenuOpen = ref(false);
+const sidebarNavRef = ref(null);
+let isRestoringScroll = false;
+
+const handleNavScroll = (e) => {
+  if (isRestoringScroll) return;
+  if (e?.target) {
+    sessionStorage.setItem('sidebar_scroll_top', String(e.target.scrollTop));
+  }
+};
+
+const saveNavScroll = () => {
+  if (sidebarNavRef.value) {
+    sessionStorage.setItem('sidebar_scroll_top', String(sidebarNavRef.value.scrollTop));
+  }
+};
+
+const restoreNavScroll = () => {
+  const saved = sessionStorage.getItem('sidebar_scroll_top');
+  if (saved !== null && sidebarNavRef.value) {
+    const targetScroll = parseInt(saved, 10);
+    if (!isNaN(targetScroll)) {
+      isRestoringScroll = true;
+      sidebarNavRef.value.scrollTop = targetScroll;
+      requestAnimationFrame(() => {
+        if (sidebarNavRef.value) {
+          sidebarNavRef.value.scrollTop = targetScroll;
+        }
+        setTimeout(() => {
+          if (sidebarNavRef.value) {
+            sidebarNavRef.value.scrollTop = targetScroll;
+          }
+          isRestoringScroll = false;
+        }, 80);
+      });
+      return;
+    }
+  }
+
+  // Fallback: ensure active item is visible in navigation
+  if (sidebarNavRef.value) {
+    const activeEl = sidebarNavRef.value.querySelector('.nav-item.active');
+    if (activeEl) {
+      activeEl.scrollIntoView({ block: 'nearest' });
+    }
+  }
+};
+
+onMounted(() => {
+  window.addEventListener('toggle-sidebar', () => {
+    isMobileMenuOpen.value = !isMobileMenuOpen.value;
+  });
+});
 const userName = ref('User');
 const userRole = ref('Guest');
 const isAdmin = ref(false);
+const userRoleId = ref('');
 const route = useRoute();
 const router = useRouter();
 
@@ -19,34 +73,174 @@ const checkSettingsExpanded = (currentPath) => {
   }
 };
 
-// Close mobile sidebar on route change & auto-expand settings
-watch(route, (newRoute) => {
+watch(route, async (newRoute) => {
   isMobileMenuOpen.value = false;
   checkSettingsExpanded(newRoute.path);
+  await nextTick();
+  restoreNavScroll();
 });
 
-onMounted(() => {
-  const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
-  if (savedUser.firstname) {
-    userName.value = `${savedUser.firstname} ${savedUser.lastname || ''}`;
-    userRole.value = savedUser.role || (savedUser.isAdmin === 'true' || savedUser.isAdmin === true ? 'Administrator' : 'User');
-    isAdmin.value = savedUser.isAdmin === 'true' || savedUser.isAdmin === true || String(savedUser.previlage_id) !== '3';
-  }
-  checkSettingsExpanded(route.path);
+watch(isSettingsExpanded, async () => {
+  await nextTick();
+  restoreNavScroll();
 });
+
+
+const userPermissions = ref(null);
+
+const menuMapping = {
+    '/dashboard': 'dashboard',
+    '/catalog': 'data catalog',
+    '/favorites': 'data catalog',
+    '/api-management': 'api management',
+    '/api-monitor': 'api monitor',
+    '/dataset-approval': 'dataset approval',
+    '/analytics': 'analytics',
+    '/group-user-management': 'group user management',
+    '/dataset-management': 'dataset management',
+    '/group-dataset-management': 'group dataset management',
+    '/permission-management': 'permission management',
+    '/user-management': 'user management',
+    '/organization-management': 'settings',
+    '/category-management': 'settings',
+    '/monitor': 'api monitor',
+    '/dataset-permission-monitor': 'dataset management'
+};
+
+const isUserPending = () => {
+  const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+  return (
+    String(userRoleId.value) === '1' ||
+    String(savedUser.status_id) === '8' ||
+    savedUser.is_approved === false
+  );
+};
+
+const hasMenuAccess = (path) => {
+  if (path === '/profile') return true;
+  if (isUserPending()) return false;
+  const role = userRoleId.value;
+  
+  // Always allow Root Admin (Role 4) to access Permission Management so they cannot lock themselves out
+  if (path === '/permission-management' && role === '4') {
+    return true;
+  }
+
+  // If dynamic permissions loaded from DB
+  if (userPermissions.value && Array.isArray(userPermissions.value)) {
+    const mappedName = menuMapping[path];
+    if (mappedName) {
+      if (mappedName === 'data catalog' || mappedName === 'catalog') {
+        return userPermissions.value.includes('data catalog') || userPermissions.value.includes('catalog');
+      }
+      return userPermissions.value.includes(mappedName);
+    }
+    return true;
+  }
+  
+  // Fallback while loading
+  if (role === '4') return true;
+  if (role === '1') return false;
+  if (role === '2') return ['/dashboard', '/catalog', '/favorites'].includes(path);
+  if (role === '3') return ['/dashboard', '/catalog', '/favorites', '/api-management', '/api-monitor', '/dataset-approval', '/dataset-management', '/analytics', '/group-dataset-management'].includes(path);
+  if (role === '5') return ['/dashboard', '/catalog', '/favorites', '/api-management'].includes(path);
+  return false;
+};
+
+const loadPermissions = async () => {
+  const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+  if (savedUser.username) {
+    userName.value = `${savedUser.firstname || savedUser.username} ${savedUser.lastname || ''}`;
+    userRoleId.value = String(savedUser.previlage_id || '2');
+    isAdmin.value = userRoleId.value === '4';
+    userRole.value = savedUser.role || (isAdmin.value ? 'Administrator' : (userRoleId.value === '3' ? 'Department Admin' : 'User'));
+
+    try {
+      const res = await postWithUser('/getMenuByPermission', savedUser);
+      if (res.data && (res.data.status === 'Success' || res.data.status === 'success')) {
+        userPermissions.value = res.data.data.map(m => m.menu_name.toLowerCase().trim());
+        await nextTick();
+        restoreNavScroll();
+        
+        // Update session if backend role has changed or sync latest role from DB
+        const currentRole = res.data.current_role ? String(res.data.current_role) : userRoleId.value;
+        userRoleId.value = currentRole;
+        isAdmin.value = currentRole === '4';
+        
+        savedUser.previlage_id = parseInt(currentRole);
+        if (res.data.current_status !== undefined && res.data.current_status !== null) {
+          savedUser.status_id = res.data.current_status;
+        }
+        if (res.data.current_org_id) {
+          savedUser.org_id = res.data.current_org_id;
+        }
+        if (res.data.is_approved !== undefined) {
+          savedUser.is_approved = res.data.is_approved;
+        }
+
+        const isPending = (
+          String(currentRole) === '1' ||
+          String(savedUser.status_id) === '8' ||
+          savedUser.is_approved === false
+        );
+
+        if (currentRole === '4') {
+          savedUser.isAdmin = 'true';
+          savedUser.role = 'Administrator';
+        } else if (currentRole === '3') {
+          savedUser.isAdmin = 'false';
+          savedUser.role = 'Department Admin';
+        } else if (currentRole === '5') {
+          savedUser.isAdmin = 'false';
+          savedUser.role = 'ผู้ใช้งานภายใน (มีสิทธิ์ Dataset)';
+        } else if (currentRole === '2') {
+          savedUser.isAdmin = 'false';
+          savedUser.role = 'User';
+        } else {
+          savedUser.isAdmin = 'false';
+          savedUser.role = isPending ? 'รออนุมัติสิทธิ์ (R2)' : 'External User';
+        }
+        localStorage.setItem('user', JSON.stringify(savedUser));
+        userRole.value = savedUser.role;
+
+        // Kick out if current route is no longer allowed or pending approval
+        if (isPending) {
+          if (route.path !== '/profile') {
+            router.push('/profile');
+          }
+        } else if (!hasMenuAccess(route.path)) {
+          router.push('/catalog');
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load dynamic permissions', e);
+    }
+  }
+};
+
+onMounted(async () => {
+  window.addEventListener('permissions-updated', loadPermissions);
+  checkSettingsExpanded(route.path);
+  await nextTick();
+  restoreNavScroll();
+  await loadPermissions();
+  await nextTick();
+  restoreNavScroll();
+});
+
 
 const toggleSettings = () => {
   isSettingsExpanded.value = !isSettingsExpanded.value;
-  if (isSettingsExpanded.value) {
-    router.push('/permission-management');
-  }
 };
 
 const handleLogout = () => {
   localStorage.removeItem('user');
   localStorage.removeItem('token');
+  localStorage.removeItem('lastActivity');
+  localStorage.removeItem('user_favorites');
+  sessionStorage.clear();
   window.dispatchEvent(new Event('auth-change'));
-  window.location.href = '/';
+  window.location.href = '/login';
 };
 
 const menuItems = [
@@ -57,9 +251,9 @@ const menuItems = [
 
 const toolItems = [
   { name: 'API Management', icon: 'M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z', path: '/api-management' },
-  { name: 'API Monitor', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10', path: '/api-monitor' },
+  { name: 'User Management', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z', path: '/user-management' },
   { name: 'ติดตามสิทธิ์ข้อมูล', icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1', path: '/dataset-permission-monitor' },
-  { name: 'อนุมัติสมาชิก', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', path: '/user-approval' },
+  { name: 'คำขอเข้าถึงข้อมูล', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', path: '/dataset-approval' },
   { name: 'Analytics', icon: 'M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z', path: '/analytics' },
   { name: 'Monitor & Logs', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10', path: '/monitor' },
 ];
@@ -71,14 +265,15 @@ const settingItems = [
   { name: 'Organization Management', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4', path: '/organization-management' },
   { name: 'Category Management', icon: 'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z', path: '/category-management' },
   { name: 'Group Dataset Management', icon: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z', path: '/group-dataset-management' },
-  { name: 'User Management', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z', path: '/user-management' },
 ];
 </script>
 
 <template>
   <div class="sidebar-container">
     <!-- Floating Action Button for Mobile -->
-    <button class="mobile-sidebar-toggle" @click="isMobileMenuOpen = !isMobileMenuOpen"></button>
+    <button class="mobile-sidebar-toggle" @click="isMobileMenuOpen = !isMobileMenuOpen">
+      <span></span>
+    </button>
 
     <!-- Overlay Backdrop -->
     <div v-if="isMobileMenuOpen" class="sidebar-overlay" @click="isMobileMenuOpen = false"></div>
@@ -97,10 +292,10 @@ const settingItems = [
         </button>
       </div>
     
-    <nav class="sidebar-nav">
+    <nav class="sidebar-nav" ref="sidebarNavRef" @scroll="handleNavScroll" @click="saveNavScroll">
       <div class="nav-section">หลัก</div>
       <router-link 
-        v-for="item in menuItems" 
+        v-for="item in menuItems.filter(i => hasMenuAccess(i.path))" 
         :key="item.name"
         :to="item.path"
         class="nav-item"
@@ -112,9 +307,9 @@ const settingItems = [
         <span>{{ item.name }}</span>
       </router-link>
 
-      <div v-if="toolItems.filter(item => isAdmin || ['/api-management'].includes(item.path)).length > 0" class="nav-section">เครื่องมือ</div>
+      <div v-if="toolItems.filter(i => hasMenuAccess(i.path)).length > 0" class="nav-section">เครื่องมือ</div>
       <router-link 
-        v-for="item in toolItems.filter(item => isAdmin || ['/api-management'].includes(item.path))" 
+        v-for="item in toolItems.filter(i => hasMenuAccess(i.path))" 
         :key="item.name"
         :to="item.path"
         class="nav-item"
@@ -126,8 +321,8 @@ const settingItems = [
         <span>{{ item.name }}</span>
       </router-link>
 
-      <div v-if="isAdmin" class="nav-section">การตั้งค่า</div>
-      <div v-if="isAdmin" class="nav-group" :class="{ 'expanded': isSettingsExpanded }">
+      <div v-if="settingItems.filter(i => hasMenuAccess(i.path)).length > 0" class="nav-section">การตั้งค่า</div>
+      <div v-if="settingItems.filter(i => hasMenuAccess(i.path)).length > 0" class="nav-group" :class="{ 'expanded': isSettingsExpanded }">
         <button class="nav-item group-toggle" @click="toggleSettings">
           <svg xmlns="http://www.w3.org/2000/svg" class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -140,7 +335,7 @@ const settingItems = [
         
         <div class="sub-menu">
           <router-link 
-            v-for="item in settingItems" 
+            v-for="item in settingItems.filter(i => hasMenuAccess(i.path))" 
             :key="item.name"
             :to="item.path"
             class="nav-item sub-item"
@@ -154,7 +349,7 @@ const settingItems = [
         </div>
       </div>
 
-      <router-link to="/contact" class="nav-item" exact-active-class="active">
+      <router-link v-if="!isUserPending()" to="/contact" class="nav-item" exact-active-class="active">
         <svg xmlns="http://www.w3.org/2000/svg" class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
         </svg>
@@ -177,21 +372,40 @@ const settingItems = [
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
         </svg>
       </button>
+      
+      <!-- Global Links for Mobile Drawer -->
+      <div class="global-mobile-links">
+        <div class="divider"></div>
+        <router-link to="/" class="global-link">หน้าแรก</router-link>
+        <router-link to="/catalog" class="global-link">บัญชีข้อมูล</router-link>
+        <router-link to="/analytics" class="global-link">วิเคราะห์</router-link>
+        <router-link to="/about" class="global-link">เกี่ยวกับเรา</router-link>
+      </div>
     </div>
   </aside>
 </div>
 </template>
 
 <style scoped>
+.sidebar-container {
+  width: 260px;
+  min-width: 260px;
+  flex-shrink: 0;
+  background-color: var(--sidebar-bg, var(--primary-hover));
+}
+
 .app-sidebar {
   width: 260px;
+  min-width: 260px;
   background-color: var(--sidebar-bg, var(--primary-hover));
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: calc(100vh - 100px);
+  max-height: calc(100vh - 100px);
   position: sticky;
-  top: 0;
+  top: 100px;
   color: #e2e8f0;
+  z-index: 40;
 }
 
 .sidebar-logo {
@@ -311,7 +525,7 @@ const settingItems = [
 }
 
 .expanded .sub-menu {
-  max-height: 300px;
+  max-height: 500px;
   margin-top: 4px;
   margin-bottom: 8px;
 }
@@ -355,7 +569,7 @@ const settingItems = [
 .user-badge {
   width: 40px;
   height: 40px;
-  background-color: #fce7f3;
+  background-color: var(--mso-pink-dark);
   border-radius: 12px;
   display: flex;
   align-items: center;
@@ -410,38 +624,42 @@ const settingItems = [
   height: 20px;
 }
 
-/* Modern Sticky Side Tab for Mobile */
+/* Hamburger Menu for Mobile */
 .mobile-sidebar-toggle {
   display: none;
   position: fixed;
-  top: 50%;
-  left: 0;
-  transform: translateY(-50%);
-  width: 24px; /* Wider for easier touch */
-  height: 80px;
+  top: 16px;
+  left: 16px;
+  width: 44px;
+  height: 44px;
   background-color: var(--primary);
-  border-radius: 0 12px 12px 0;
+  border-radius: 8px;
   border: none;
-  box-shadow: 4px 0 15px rgba(0, 0, 0, 0.4);
-  z-index: 2500; /* Extremely high to stay on top */
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+  z-index: 1500;
   cursor: pointer;
   padding: 0;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   align-items: center;
   justify-content: center;
+  flex-direction: column;
+  gap: 5px;
 }
 
-/* Vertical indicator line */
-.mobile-sidebar-toggle::before {
+/* Hamburger lines */
+.mobile-sidebar-toggle::before,
+.mobile-sidebar-toggle::after,
+.mobile-sidebar-toggle span {
   content: '';
-  width: 3px;
-  height: 30px;
-  background-color: rgba(255, 255, 255, 0.6);
+  width: 20px;
+  height: 2px;
+  background-color: white;
   border-radius: 2px;
+  display: block;
 }
 
 .mobile-sidebar-toggle:active {
-  width: 32px;
+  transform: scale(0.95);
 }
 
 .sidebar-overlay {
@@ -470,28 +688,51 @@ const settingItems = [
   padding: 4px;
 }
 
-@media (max-width: 1024px) {
+.global-mobile-links {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .global-mobile-links {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .global-link {
+    color: #e2e8f0;
+    text-decoration: none;
+    font-size: 0.95rem;
+    padding: 8px 12px;
+    border-radius: 8px;
+  }
+  .divider {
+    height: 1px;
+    background: rgba(255,255,255,0.1);
+    margin: 8px 0;
+  }
+
   .sidebar-container {
     width: 0;
     position: absolute;
   }
 
   .app-sidebar {
-    position: fixed;
+    position: fixed !important;
     top: 0;
-    left: -100%;
-    width: 280px;
-    z-index: 2000;
-    transition: left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.2);
+    left: 0 !important;
+    transform: translateX(-100%);
+    width: 280px !important;
+    max-width: 85vw !important;
+    height: 100vh !important;
+    z-index: 2000 !important;
+    transition: transform 0.3s ease !important;
+    box-shadow: none !important;
   }
 
   .app-sidebar.is-open {
-    left: 0;
-  }
-
-  .mobile-sidebar-toggle {
-    display: flex; /* Enforce visibility on mobile */
+    transform: translateX(0);
+    box-shadow: 5px 0 25px rgba(0,0,0,0.5) !important;
   }
 
   .mobile-close-sidebar {
@@ -506,13 +747,16 @@ const settingItems = [
   }
 }
 
-@media (min-width: 1025px) {
+@media (min-width: 768px) {
   .mobile-sidebar-toggle, .sidebar-overlay, .mobile-close-sidebar {
     display: none !important;
   }
   .app-sidebar {
     left: 0 !important;
     position: sticky !important;
+    top: 100px !important;
+    height: calc(100vh - 100px) !important;
+    max-height: calc(100vh - 100px) !important;
   }
 }
 

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, watch, nextTick } from 'vue';
 import { postWithUser } from '../utils/api';
 import { useRoute, useRouter } from 'vue-router';
 import intelligistDataxLogo from '../assets/intelligist-datax-logo.png';
@@ -7,6 +7,52 @@ import { themeConfig } from '../utils/theme';
 
 const isSettingsExpanded = ref(false);
 const isMobileMenuOpen = ref(false);
+const sidebarNavRef = ref(null);
+let isRestoringScroll = false;
+
+const handleNavScroll = (e) => {
+  if (isRestoringScroll) return;
+  if (e?.target) {
+    sessionStorage.setItem('sidebar_scroll_top', String(e.target.scrollTop));
+  }
+};
+
+const saveNavScroll = () => {
+  if (sidebarNavRef.value) {
+    sessionStorage.setItem('sidebar_scroll_top', String(sidebarNavRef.value.scrollTop));
+  }
+};
+
+const restoreNavScroll = () => {
+  const saved = sessionStorage.getItem('sidebar_scroll_top');
+  if (saved !== null && sidebarNavRef.value) {
+    const targetScroll = parseInt(saved, 10);
+    if (!isNaN(targetScroll)) {
+      isRestoringScroll = true;
+      sidebarNavRef.value.scrollTop = targetScroll;
+      requestAnimationFrame(() => {
+        if (sidebarNavRef.value) {
+          sidebarNavRef.value.scrollTop = targetScroll;
+        }
+        setTimeout(() => {
+          if (sidebarNavRef.value) {
+            sidebarNavRef.value.scrollTop = targetScroll;
+          }
+          isRestoringScroll = false;
+        }, 80);
+      });
+      return;
+    }
+  }
+
+  // Fallback: ensure active item is visible in navigation
+  if (sidebarNavRef.value) {
+    const activeEl = sidebarNavRef.value.querySelector('.nav-item.active');
+    if (activeEl) {
+      activeEl.scrollIntoView({ block: 'nearest' });
+    }
+  }
+};
 
 onMounted(() => {
   window.addEventListener('toggle-sidebar', () => {
@@ -27,9 +73,16 @@ const checkSettingsExpanded = (currentPath) => {
   }
 };
 
-watch(route, (newRoute) => {
+watch(route, async (newRoute) => {
   isMobileMenuOpen.value = false;
   checkSettingsExpanded(newRoute.path);
+  await nextTick();
+  restoreNavScroll();
+});
+
+watch(isSettingsExpanded, async () => {
+  await nextTick();
+  restoreNavScroll();
 });
 
 
@@ -106,6 +159,8 @@ const loadPermissions = async () => {
       const res = await postWithUser('/getMenuByPermission', savedUser);
       if (res.data && (res.data.status === 'Success' || res.data.status === 'success')) {
         userPermissions.value = res.data.data.map(m => m.menu_name.toLowerCase().trim());
+        await nextTick();
+        restoreNavScroll();
         
         // Update session if backend role has changed or sync latest role from DB
         const currentRole = res.data.current_role ? String(res.data.current_role) : userRoleId.value;
@@ -165,8 +220,12 @@ const loadPermissions = async () => {
 
 onMounted(async () => {
   window.addEventListener('permissions-updated', loadPermissions);
-  await loadPermissions();
   checkSettingsExpanded(route.path);
+  await nextTick();
+  restoreNavScroll();
+  await loadPermissions();
+  await nextTick();
+  restoreNavScroll();
 });
 
 
@@ -233,7 +292,7 @@ const settingItems = [
         </button>
       </div>
     
-    <nav class="sidebar-nav">
+    <nav class="sidebar-nav" ref="sidebarNavRef" @scroll="handleNavScroll" @click="saveNavScroll">
       <div class="nav-section">หลัก</div>
       <router-link 
         v-for="item in menuItems.filter(i => hasMenuAccess(i.path))" 
