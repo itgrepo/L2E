@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { encodeUserData } from '../utils/api';
@@ -11,42 +11,189 @@ const activeTab = ref('info');
 const isLoading = ref(true);
 const errorMessage = ref('');
 
+const user = ref(JSON.parse(localStorage.getItem('user') || '{}'));
 const selectedDataset = ref(null);
-const requestForm = ref({ fields: [], reason: '' });
-const reqError = ref('');
-const reqSuccess = ref('');
-const isSubmittingReq = ref(false);
+const apiBaseUrl = computed(() => `${window.location.origin}/dataapi/api/v1/`);
+const userApiKey = computed(() => user.value.apikey || '[YOUR_API_KEY]');
+const dashboardRequestForm = ref({
+  reason: '',
+  mouFile: null,
+  mouFileName: '',
+  isSubmitting: false,
+  error: '',
+  success: ''
+});
+
+const apiRequestForm = ref({
+  fields: [],
+  reason: '',
+  mouFile: null,
+  mouFileName: '',
+  isSubmitting: false,
+  error: '',
+  success: ''
+});
+
+const customApiEndpoints = ref([]);
+const apiClones = ref([]);
+
+const combinedApis = computed(() => {
+  let apis = [];
+  if (selectedDataset.value && 
+      (selectedDataset.value.api_enabled === 1 || selectedDataset.value.api_enabled === true || selectedDataset.value.api_enabled === '1') &&
+      selectedDataset.value.api_endpoint && String(selectedDataset.value.api_endpoint).trim() !== ''
+  ) {
+    apis.push({
+      api_type: selectedDataset.value.api_type || 'general',
+      api_endpoint: selectedDataset.value.api_endpoint,
+      service_name: selectedDataset.value.title,
+      api_response_fields: selectedDataset.value.api_response_fields || []
+    });
+  }
+  if (apiClones.value && apiClones.value.length > 0) {
+    apiClones.value.forEach(clone => {
+      if (clone.api_enabled === 1 || clone.api_enabled === true || clone.api_enabled === '1' || clone.api_enabled === undefined || clone.status === 'Active') {
+        let respFields = [];
+        if (clone.api_response_fields) {
+          try {
+            respFields = typeof clone.api_response_fields === 'string' ? JSON.parse(clone.api_response_fields) : clone.api_response_fields;
+          } catch(e) { respFields = []; }
+        }
+        apis.push({
+          api_type: clone.api_type || 'general',
+          api_endpoint: clone.api_endpoint || (selectedDataset.value ? (selectedDataset.value.api_endpoint || selectedDataset.value.dataset_id) : ''),
+          service_name: clone.service_name || clone.description,
+          api_response_fields: respFields
+        });
+      }
+    });
+  }
+  return apis;
+});
+
 
 const favorites = ref(JSON.parse(localStorage.getItem('user_favorites') || '[]'));
-const user = ref(JSON.parse(localStorage.getItem('user') || '{}'));
 
 const isFavorite = (ds) => {
-  return favorites.value.some(fav => fav.id === ds.id);
+  if (!ds) return false;
+  return favorites.value.some(fav => Number(fav.id) === Number(ds.id));
 };
 
-const toggleFavorite = (ds) => {
-  const index = favorites.value.findIndex(fav => fav.id === ds.id);
+const copyToClipboard = async (text) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    alert('คัดลอกสำเร็จ');
+  } catch (err) {
+    console.error('Failed to copy', err);
+  }
+};
+
+const toggleFavorite = async (ds) => {
+  if (!ds) return;
+  const index = favorites.value.findIndex(fav => Number(fav.id) === Number(ds.id));
   if (index >= 0) {
     favorites.value.splice(index, 1);
   } else {
     favorites.value.push({
       id: ds.id,
+      dataset_id: ds.dataset_id,
+      title: ds.title,
       name: ds.title,
+      description: ds.description,
+      accessibility: ds.accessibility,
+      accessClass: ds.accessClass,
       agency: ds.agency,
-      formats: ds.formats
+      api_enabled: ds.api_enabled,
+      api_type: ds.api_type,
+      formats: ds.formats || ['CSV', 'API']
     });
   }
   localStorage.setItem('user_favorites', JSON.stringify(favorites.value));
+
+  try {
+    const userDataStr = localStorage.getItem('user');
+    if (userDataStr) {
+      const userPayload = encodeUserData(JSON.parse(userDataStr));
+      await apiClient.post('/toggleFavorite', {
+        user: userPayload,
+        service_id: ds.id
+      });
+    }
+  } catch (err) {
+    console.error('Failed to toggle favorite on server:', err);
+  }
+};
+
+const syncServerFavorites = async () => {
+  try {
+    const userDataStr = localStorage.getItem('user');
+    if (userDataStr) {
+      const userPayload = encodeUserData(JSON.parse(userDataStr));
+      const res = await apiClient.post('/getUserFavorites', { user: userPayload });
+      if (res.data?.status === 'success' && Array.isArray(res.data.data)) {
+        const favIds = res.data.data.map(Number);
+        favorites.value = favorites.value.filter(f => favIds.includes(Number(f.id)));
+        favIds.forEach(id => {
+          if (!favorites.value.some(f => Number(f.id) === id)) {
+            favorites.value.push({ id });
+          }
+        });
+        localStorage.setItem('user_favorites', JSON.stringify(favorites.value));
+      }
+    }
+  } catch (err) {
+    console.error('Failed to sync favorites with server:', err);
+  }
+};
+
+const getAccessInfo = (item) => {
+  const raw = String((item && (item.access_type || item.accessibility)) || 'public').trim().toLowerCase();
+  if (raw === 'internal' || raw === 'ภายในหน่วยงาน') {
+    return {
+      key: 'internal',
+      label: 'ภายในหน่วยงาน (Internal)',
+      shortLabel: 'Internal',
+      cssClass: 'access-internal'
+    };
+  }
+  if (raw === 'restricted' || raw === 'จำกัดสิทธิ์' || raw === 'confidential') {
+    return {
+      key: 'restricted',
+      label: 'จำกัดสิทธิ์ (Restricted)',
+      shortLabel: 'Restricted',
+      cssClass: 'access-restricted'
+    };
+  }
+  if (raw === 'pii' || raw === 'ข้อมูลส่วนบุคคล' || raw === 'private' || raw === 'เฉพาะเจ้าของ') {
+    return {
+      key: 'pii',
+      label: 'เฉพาะเจ้าของ (Private)',
+      shortLabel: 'Private',
+      cssClass: 'access-pii'
+    };
+  }
+  return {
+    key: 'public',
+    label: 'สาธารณะ (Public)',
+    shortLabel: 'Public',
+    cssClass: 'access-public'
+  };
 };
 
 const fetchDatasetDetail = async () => {
   isLoading.value = true;
   errorMessage.value = '';
   try {
-    const response = await apiClient.get('/retrieveService');
+    const userStr = localStorage.getItem('user');
+    let payload = {};
+    if (userStr) {
+      payload.user = encodeUserData(JSON.parse(userStr));
+    }
+    const response = await apiClient.post('/retrieveService', payload);
     if (response.data.status === 'success') {
       const found = response.data.data.find(item => item.service_id.toString() === route.params.id.toString());
       if (found) {
+        const accessInfo = getAccessInfo(found);
         selectedDataset.value = {
           id: found.service_id,
           dataset_id: found.dataset_id,
@@ -59,8 +206,11 @@ const fetchDatasetDetail = async () => {
           contact_email: found.contact_email || '-',
           tags: found.tags || '',
           purpose: found.purpose || '-',
-          accessibility: found.accessibility || 'Open Data',
-          access_type: found.access_type || '-',
+          accessibility: accessInfo.shortLabel,
+          access_type_raw: accessInfo.key,
+          access_type_label: accessInfo.label,
+          accessClass: accessInfo.cssClass,
+          access_type: accessInfo.label,
           dept_contact: found.dept_contact || '-',
           update_freq: (found.update_freq_value || '-') + ' ' + (found.update_freq_unit || ''),
           geo_scope: found.geo_scope || '-',
@@ -74,13 +224,50 @@ const fetchDatasetDetail = async () => {
           objective_type: found.objective_type || '-',
           external_dashboard_url: found.external_dashboard_url,
           external_api_url: found.external_api_url,
+          api_endpoint: found.api_endpoint,
+          api_type: found.api_type,
           has_access: found.has_access === 1 || found.has_access === '1' || found.has_access === true,
+          has_dashboard_access: found.has_dashboard_access === 1 || found.has_dashboard_access === '1' || found.has_dashboard_access === true,
+          has_api_access: found.has_api_access === 1 || found.has_api_access === '1' || found.has_api_access === true,
           permission_status: found.permission_status,
-          api_response_fields: found.api_response_fields ? (typeof found.api_response_fields === 'string' ? JSON.parse(found.api_response_fields) : found.api_response_fields) : ['id', 'name', 'amount', 'date'],
+          dashboard_permission_status: found.dashboard_permission_status,
+          api_permission_status: found.api_permission_status,
+          api_response_fields: found.api_response_fields ? (typeof found.api_response_fields === 'string' ? JSON.parse(found.api_response_fields) : found.api_response_fields) : [],
+          
           api_enabled: found.api_enabled == 1 || found.api_enabled === '1' || found.api_enabled === true,
+        };
+
+        // Fetch clones for API tab
+        try {
+          const cloneRes = await apiClient.post('/getDatasetApiEndpoints', { 
+            dataset_id: found.dataset_id || found.service_id,
+            user: localStorage.getItem('user')
+          });
+          if (cloneRes.data && cloneRes.data.data) {
+             apiClones.value = cloneRes.data.data.map(clone => {
+               let respFields = clone.api_response_fields;
+               if (typeof respFields === 'string') {
+                 try { respFields = JSON.parse(respFields); } catch(e) { respFields = []; }
+               }
+               return {
+                 ...clone,
+                 api_response_fields: Array.isArray(respFields) ? respFields : []
+               };
+             });
+          }
+        } catch (e) {
+          console.error('Failed to fetch clones', e);
+        }
+        
+        // Merge the rest just to satisfy old code
+        selectedDataset.value = {
+          ...selectedDataset.value,
+
           formats: found.data_format ? found.data_format.split(',') : ['CSV', 'API', 'JSON'],
           file_path: found.file_path,
-          views: (Math.floor(Math.random() * 900) + 100) + 'K records',
+          excel_file_path: found.excel_file_path,
+          data_dictionary_path: found.data_dictionary_path,
+          data_sampling_path: found.data_sampling_path,
           updated: 'ปรับปรุงเมื่อ 2 วันที่แล้ว',
           dataset_type: found.dataset_type || 'general',
           stat_year_start: found.stat_year_start,
@@ -115,51 +302,260 @@ const fetchDatasetDetail = async () => {
   }
 };
 
-const submitPermissionRequest = async () => {
-  if (requestForm.value.fields.length === 0) {
-    reqError.value = 'โปรดเลือกอย่างน้อย 1 ฟิลด์ข้อมูล';
+const isValidMouFile = (file) => {
+  if (!file) return { valid: false, error: 'กรุณาเลือกไฟล์เอกสารแนบ' };
+  
+  const fileName = file.name.toLowerCase();
+  const fileType = (file.type || '').toLowerCase();
+  
+  // Explicitly block SVG
+  if (fileName.endsWith('.svg') || fileType.includes('svg')) {
+    return { valid: false, error: 'ไม่อนุญาตให้อัปโหลดไฟล์ SVG รองรับเฉพาะ PDF หรือรูปภาพ (PNG, JPG, JPEG) เท่านั้น' };
+  }
+  
+  const allowedExtensions = ['.pdf', '.jpg', '.jpeg', '.png'];
+  const allowedMimeTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/pjpeg'];
+  
+  const hasValidExt = allowedExtensions.some(ext => fileName.endsWith(ext));
+  const hasValidMime = allowedMimeTypes.includes(fileType) || (!fileType && hasValidExt);
+  
+  if (!hasValidExt || !hasValidMime) {
+    return { valid: false, error: 'รองรับเฉพาะไฟล์ PDF หรือรูปภาพ (PNG, JPG, JPEG) ขนาดไม่เกิน 10MB เท่านั้น' };
+  }
+  
+  if (file.size > 10 * 1024 * 1024) {
+    return { valid: false, error: 'ขนาดไฟล์เอกสารแนบต้องไม่เกิน 10MB' };
+  }
+  
+  return { valid: true };
+};
+
+const handleDashboardMouChange = (event) => {
+  const file = event.target.files[0];
+  if (file) {
+    const check = isValidMouFile(file);
+    if (!check.valid) {
+      dashboardRequestForm.value.error = check.error;
+      event.target.value = '';
+      dashboardRequestForm.value.mouFile = null;
+      dashboardRequestForm.value.mouFileName = '';
+      return;
+    }
+    dashboardRequestForm.value.error = '';
+    dashboardRequestForm.value.mouFileName = file.name;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      dashboardRequestForm.value.mouFile = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  } else {
+    dashboardRequestForm.value.mouFile = null;
+    dashboardRequestForm.value.mouFileName = '';
+  }
+};
+
+const handleApiMouChange = (event) => {
+  const file = event.target.files[0];
+  if (file) {
+    const check = isValidMouFile(file);
+    if (!check.valid) {
+      apiRequestForm.value.error = check.error;
+      event.target.value = '';
+      apiRequestForm.value.mouFile = null;
+      apiRequestForm.value.mouFileName = '';
+      return;
+    }
+    apiRequestForm.value.error = '';
+    apiRequestForm.value.mouFileName = file.name;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      apiRequestForm.value.mouFile = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  } else {
+    apiRequestForm.value.mouFile = null;
+    apiRequestForm.value.mouFileName = '';
+  }
+};
+
+const toggleAllApiFields = () => {
+  const allFields = selectedDataset.value?.api_response_fields || [];
+  if (apiRequestForm.value.fields.length === allFields.length) {
+    apiRequestForm.value.fields = [];
+  } else {
+    apiRequestForm.value.fields = [...allFields];
+  }
+};
+
+const submitDashboardPermissionRequest = async () => {
+  if (!dashboardRequestForm.value.reason.trim()) {
+    dashboardRequestForm.value.error = 'โปรดระบุวัตถุประสงค์ในการขอเข้าถึงแดชบอร์ด';
     return;
   }
-  if (!requestForm.value.reason.trim()) {
-    reqError.value = 'โปรดระบุวัตถุประสงค์ในการขอเข้าถึง';
+  if (!dashboardRequestForm.value.mouFile || !dashboardRequestForm.value.mouFileName) {
+    dashboardRequestForm.value.error = 'กรุณาแนบเอกสารประกอบคำขอ (รองรับไฟล์ PDF หรือรูปภาพ ขนาดไม่เกิน 10MB)';
     return;
   }
   
-  isSubmittingReq.value = true;
-  reqError.value = '';
-  reqSuccess.value = '';
+  dashboardRequestForm.value.isSubmitting = true;
+  dashboardRequestForm.value.error = '';
+  dashboardRequestForm.value.success = '';
   
   try {
     const userData = localStorage.getItem('user');
     const response = await apiClient.post('/requestDatasetPermission', {
       user: encodeUserData(JSON.parse(userData)),
       service_id: selectedDataset.value.id,
-      fields: requestForm.value.fields,
-      reason: requestForm.value.reason
+      request_type: 'dashboard',
+      reason: dashboardRequestForm.value.reason,
+      mou_file: dashboardRequestForm.value.mouFile,
+      mou_filename: dashboardRequestForm.value.mouFileName,
+      fields: []
     });
     
     if (response.data.status === 'success') {
-      reqSuccess.value = 'ส่งคำขอเข้าถึงข้อมูลเรียบร้อยแล้ว';
-      selectedDataset.value.permission_status = 'Pending';
-      requestForm.value.fields = [];
-      requestForm.value.reason = '';
+      dashboardRequestForm.value.success = 'ส่งคำขอเข้าถึงแดชบอร์ดเรียบร้อยแล้ว';
+      selectedDataset.value.dashboard_permission_status = 'Pending';
+      dashboardRequestForm.value.reason = '';
+      dashboardRequestForm.value.mouFile = null;
+      dashboardRequestForm.value.mouFileName = '';
       fetchDatasetDetail();
     } else {
-      reqError.value = response.data.message || 'เกิดข้อผิดพลาด';
+      dashboardRequestForm.value.error = response.data.message || 'เกิดข้อผิดพลาด';
     }
   } catch (error) {
-    reqError.value = error.response?.data?.message || 'ไม่สามารถส่งคำขอได้';
+    dashboardRequestForm.value.error = error.response?.data?.message || 'ไม่สามารถส่งคำขอได้';
   } finally {
-    isSubmittingReq.value = false;
+    dashboardRequestForm.value.isSubmitting = false;
   }
 };
 
+const submitApiPermissionRequest = async () => {
+  if (apiRequestForm.value.fields.length === 0) {
+    apiRequestForm.value.error = 'โปรดเลือกอย่างน้อย 1 ฟิลด์ข้อมูล';
+    return;
+  }
+  if (!apiRequestForm.value.reason.trim()) {
+    apiRequestForm.value.error = 'โปรดระบุวัตถุประสงค์ในการขอเข้าถึง API';
+    return;
+  }
+  if (!apiRequestForm.value.mouFile || !apiRequestForm.value.mouFileName) {
+    apiRequestForm.value.error = 'กรุณาแนบเอกสารประกอบคำขอ (รองรับไฟล์ PDF หรือรูปภาพ ขนาดไม่เกิน 10MB)';
+    return;
+  }
+  
+  apiRequestForm.value.isSubmitting = true;
+  apiRequestForm.value.error = '';
+  apiRequestForm.value.success = '';
+  
+  try {
+    const userData = localStorage.getItem('user');
+    const response = await apiClient.post('/requestDatasetPermission', {
+      user: encodeUserData(JSON.parse(userData)),
+      service_id: selectedDataset.value.id,
+      request_type: 'api',
+      fields: apiRequestForm.value.fields,
+      reason: apiRequestForm.value.reason,
+      mou_file: apiRequestForm.value.mouFile,
+      mou_filename: apiRequestForm.value.mouFileName
+    });
+    
+    if (response.data.status === 'success') {
+      apiRequestForm.value.success = 'ส่งคำขอเข้าถึง API เรียบร้อยแล้ว';
+      selectedDataset.value.api_permission_status = 'Pending';
+      apiRequestForm.value.fields = [];
+      apiRequestForm.value.reason = '';
+      apiRequestForm.value.mouFile = null;
+      apiRequestForm.value.mouFileName = '';
+      fetchDatasetDetail();
+    } else {
+      apiRequestForm.value.error = response.data.message || 'เกิดข้อผิดพลาด';
+    }
+  } catch (error) {
+    apiRequestForm.value.error = error.response?.data?.message || 'ไม่สามารถส่งคำขอได้';
+  } finally {
+    apiRequestForm.value.isSubmitting = false;
+  }
+};
+
+const dictIsCsv = computed(() => {
+  const path = selectedDataset.value?.data_dictionary_path;
+  return path ? path.toLowerCase().endsWith('.csv') : false;
+});
+const dictIsExcel = computed(() => {
+  const path = selectedDataset.value?.data_dictionary_path;
+  return path ? (path.toLowerCase().endsWith('.xls') || path.toLowerCase().endsWith('.xlsx')) : false;
+});
+
+const apiIsCsv = computed(() => {
+  const path = selectedDataset.value?.file_path;
+  return path ? path.toLowerCase().endsWith('.csv') : false;
+});
+const apiIsExcel = computed(() => {
+  const p1 = selectedDataset.value?.excel_file_path;
+  const p2 = selectedDataset.value?.file_path;
+  const path = p1 || (p2 && (p2.toLowerCase().endsWith('.xls') || p2.toLowerCase().endsWith('.xlsx')) ? p2 : '');
+  return path ? (path.toLowerCase().endsWith('.xls') || path.toLowerCase().endsWith('.xlsx')) : false;
+});
+const apiIsJson = computed(() => {
+  const path = selectedDataset.value?.file_path;
+  return path ? path.toLowerCase().endsWith('.json') : false;
+});
+const apiIsXml = computed(() => {
+  const path = selectedDataset.value?.file_path;
+  return path ? path.toLowerCase().endsWith('.xml') : false;
+});
+
 const openPreview = (format) => {
-  alert(`กำลังเปิดดาวน์โหลดไฟล์/แสดงพรีวิวในรูปแบบ ${format}`);
+  if (selectedDataset.value) {
+    let fileTypeParam = 'data';
+    const fmt = String(format || '').toUpperCase();
+    if (fmt === 'DICTIONARY') fileTypeParam = 'dictionary';
+    else if (fmt === 'SAMPLING') fileTypeParam = 'sampling';
+    else if (fmt === 'EXCEL' || fmt === 'XLS' || fmt === 'XLSX') fileTypeParam = 'excel';
+    
+    // Fallback: If they want data (CSV) but it's null, and dictionary exists, download dictionary instead
+    if (fileTypeParam === 'data' && !selectedDataset.value.file_path && selectedDataset.value.data_dictionary_path) {
+        fileTypeParam = 'dictionary';
+    }
+    
+    const userStr = localStorage.getItem('user');
+    let userParam = '';
+    if (userStr) {
+      try {
+        userParam = `&user=${encodeURIComponent(encodeUserData(JSON.parse(userStr)))}`;
+      } catch (e) {
+        console.error('User encode error:', e);
+      }
+    }
+    
+    const hasPhysicalFile = selectedDataset.value.file_path || selectedDataset.value.excel_file_path || (fileTypeParam === 'dictionary' && selectedDataset.value.data_dictionary_path) || (fileTypeParam === 'sampling' && selectedDataset.value.data_sampling_path);
+    
+    if (hasPhysicalFile || fileTypeParam === 'dictionary' || fileTypeParam === 'sampling') {
+      window.open(`/api/downloadFile/${selectedDataset.value.id}?type=${fileTypeParam}${userParam}`, '_blank');
+    } else if (selectedDataset.value.dataset_id) {
+      const exportFormat = fileTypeParam === 'excel' ? 'xls' : 'csv';
+      window.open(`/api/exportData/${selectedDataset.value.dataset_id}?format=${exportFormat}`, '_blank');
+    } else {
+      window.open(`/api/downloadFile/${selectedDataset.value.id}?type=${fileTypeParam}${userParam}`, '_blank');
+    }
+    try {
+      localStorage.setItem('datax_download_event', Date.now().toString());
+    } catch (e) {}
+  } else {
+    alert(`กำลังเปิดดาวน์โหลดไฟล์/แสดงพรีวิวในรูปแบบ ${format}`);
+  }
 };
 
 onMounted(() => {
   fetchDatasetDetail();
+  syncServerFavorites();
+});
+
+watch(() => route.params.id, (newId) => {
+  if (newId) {
+    fetchDatasetDetail();
+  }
 });
 </script>
 
@@ -197,14 +593,13 @@ onMounted(() => {
             </div>
             
             <div class="header-meta">
-              <span class="meta-badge access">{{ selectedDataset.accessibility }}</span>
+              <span class="meta-badge" :class="selectedDataset.accessClass || 'access-public'">{{ selectedDataset.accessibility }}</span>
               <span class="meta-item">{{ selectedDataset.category }} / {{ selectedDataset.sub_category }}</span>
-              <span class="meta-item">• {{ selectedDataset.views }}</span>
             </div>
           </div>
           
           <div class="header-actions">
-            <button class="btn-outline" :class="{ 'is-active': isFavorite(selectedDataset) }" @click="toggleFavorite(selectedDataset)">
+            <button class="btn-outline" :class="{ 'is-active': isFavorite(selectedDataset) }" @click="toggleFavorite(selectedDataset)" title="เพิ่ม/ลบ ชุดข้อมูลนี้ในรายการโปรดของคุณ">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" :fill="isFavorite(selectedDataset) ? 'currentColor' : 'none'" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.921-1.103 1.821-1.891 1.118l-3.976-2.888a1 1 0 00-1.175 0l-3.976 2.888c-.788.703-2.191-.197-1.891-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
               </svg>
@@ -217,8 +612,8 @@ onMounted(() => {
           <nav class="tabs">
             <button :class="['tab-btn', { active: activeTab === 'info' }]" @click="activeTab = 'info'">คำอธิบายข้อมูล</button>
             <button :class="['tab-btn', { active: activeTab === 'dictionary' }]" @click="activeTab = 'dictionary'">พจนานุกรมข้อมูล</button>
-            <button :class="['tab-btn', { active: activeTab === 'visual' }]" @click="activeTab = 'visual'">แดชบอร์ด</button>
-            <button :class="['tab-btn', { active: activeTab === 'api' }]" @click="activeTab = 'api'">ข้อมูล API</button>
+            <button :class="['tab-btn', { active: activeTab === 'visual' }]" @click="activeTab = 'visual'" title="ดูแดชบอร์ดสรุปผลข้อมูล">แดชบอร์ด</button title="ดูแดชบอร์ดสรุปผลข้อมูล">
+            <button :class="['tab-btn', { active: activeTab === 'api' }]" @click="activeTab = 'api'" title="ดูเอกสารและการเชื่อมต่อ API">ข้อมูล API</button title="ดูเอกสารและการเชื่อมต่อ API">
           </nav>
           
           <div class="tab-content">
@@ -278,68 +673,53 @@ onMounted(() => {
                 </div>
                 
                 <aside class="info-sidebar">
-                  <!-- If has access, show download options -->
-                  <div v-if="selectedDataset.has_access" class="action-card">
-                    <h4>ดาวน์โหลดข้อมูล</h4>
-                    <p>ดาวน์โหลดไฟล์ข้อมูลต้นฉบับในรูปแบบต่างๆ</p>
-                    <div class="download-buttons">
-                      <button class="btn-download csv" @click="openPreview('CSV')">CSV</button>
-                      <button class="btn-download xls" @click="openPreview('Excel')">Excel</button>
+                  
+                  <!-- Data Dictionary (Public - always open) -->
+                  <div class="action-card" style="margin-bottom: 16px;">
+                    <h4>Data Dictionary</h4>
+                    <p style="font-size: 0.85rem; color: #64748b; margin-top: 4px;">ดาวน์โหลดพจนานุกรมอธิบายโครงสร้างข้อมูล</p>
+                    <div class="download-buttons" style="margin-top: 12px; display: flex; gap: 8px;">
+                      <button class="btn-download csv" :disabled="!dictIsCsv" @click="openPreview('DICTIONARY')" title="ดาวน์โหลด Data Dictionary (CSV)">CSV</button>
+                      <button class="btn-download xls" :disabled="!dictIsExcel" @click="openPreview('DICTIONARY')" title="ดาวน์โหลด Data Dictionary (Excel)">Excel</button>
                     </div>
-                    <button v-if="selectedDataset.file_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('ไฟล์แนบต้นฉบับ')">ดาวน์โหลดไฟล์แนบ</button>
+                  </div>
+
+                  <!-- API / File download card -->
+                  <div v-if="selectedDataset.has_api_access" class="action-card">
+                    <h4>API & Data Files</h4>
+                    <p style="font-size: 0.85rem; color: #64748b; margin-top: 4px;">ดาวน์โหลดไฟล์ข้อมูลต้นฉบับ</p>
+                    <div class="download-buttons" style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+                      <button class="btn-download csv" :disabled="!apiIsCsv" @click="openPreview('CSV')" title="ดาวน์โหลดไฟล์ในรูปแบบ CSV">CSV</button>
+                      <button class="btn-download xls" :disabled="!apiIsExcel" @click="openPreview('Excel')" title="ดาวน์โหลดไฟล์ในรูปแบบ Excel">Excel</button>
+                      <button v-if="apiIsXml" class="btn-download xml" @click="openPreview('XML')" title="ดาวน์โหลดไฟล์ในรูปแบบ XML">XML</button>
+                      <button v-if="apiIsJson" class="btn-download json" @click="openPreview('JSON')" title="ดาวน์โหลดไฟล์ในรูปแบบ JSON">JSON</button>
+                    </div>
+                    
+                    <button v-if="selectedDataset.data_sampling_path" class="btn-primary-outline w-full mt-4" style="width:100%; margin-top:16px;" @click="openPreview('SAMPLING')" title="ดาวน์โหลดข้อมูลตัวอย่างสำหรับทดสอบ">ดาวน์โหลดชุดข้อมูลสุ่ม (Zip File)</button>
                   </div>
                   
-                  <!-- If does NOT have access, show Request Access form -->
+                  <!-- If does NOT have API access, show clean prompt in sidebar -->
                   <div v-else class="action-card">
-                    <h4 style="display:flex;align-items:center;gap:6px;">🔒 จำกัดสิทธิ์การใช้งาน</h4>
-                    <p style="font-size:0.875rem;color:#64748b;margin-bottom:16px;">ชุดข้อมูลนี้จำกัดสิทธิ์ โปรดส่งคำขออนุญาตเพื่อดาวน์โหลดข้อมูลหรือใช้ API</p>
-                    
-                    <div v-if="!selectedDataset.permission_status" class="request-access-form-wrapper">
-                      <!-- Field selector -->
-                      <div class="form-group mb-4" style="margin-bottom: 12px;">
-                        <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px; font-weight:600;">ฟิลด์ข้อมูลที่ต้องการ *</label>
-                        <div class="field-checkbox-list" style="max-height:120px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;padding:8px;background:#f8fafc; text-align:left;">
-                          <label v-for="field in selectedDataset.api_response_fields" :key="field" class="flex items-center gap-2 mb-1 cursor-pointer" style="display:flex;align-items:center;gap:6px;font-size:0.85rem; margin-bottom: 4px; cursor:pointer;">
-                            <input type="checkbox" :value="field" v-model="requestForm.fields">
-                            <span>{{ field }}</span>
-                          </label>
-                        </div>
-                      </div>
-                      
-                      <!-- Reason input -->
-                      <div class="form-group mb-4" style="margin-bottom: 12px;">
-                        <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px; font-weight:600;">วัตถุประสงค์ในการขอเข้าถึง *</label>
-                        <textarea v-model="requestForm.reason" rows="2" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px;font-size:0.85rem;resize:none; box-sizing:border-box;" placeholder="ระบุเหตุผลและวัตถุประสงค์การใช้งาน..."></textarea>
-                      </div>
-
-                      <div v-if="reqError" style="color:#e11d48;font-size:0.75rem;margin-bottom:8px;text-align:left;">{{ reqError }}</div>
-                      <div v-if="reqSuccess" style="color:#16a34a;font-size:0.75rem;margin-bottom:8px;text-align:left;">{{ reqSuccess }}</div>
-
-                      <button class="btn-primary w-full" style="padding:10px;font-size:0.9rem;width:100%; border:none; border-radius:8px; background:var(--mso-accent, var(--primary)); color:white; font-weight:600; cursor:pointer;" :disabled="isSubmittingReq" @click="submitPermissionRequest">
-                        {{ isSubmittingReq ? 'กำลังส่งคำขอ...' : 'ส่งคำขอเข้าถึงข้อมูล' }}
-                      </button>
-                    </div>
-
-                    <!-- If status is Pending -->
-                    <div v-else-if="selectedDataset.permission_status === 'Pending'" style="background:#fef3c7; color:#92400e; padding:12px; border-radius:8px; border:1px solid #fde68a; text-align:center;">
-                      <p style="font-weight:bold; margin:0 0 4px 0; font-size:0.875rem;">⏳ รอการอนุมัติสิทธิ์ (Pending Approval)</p>
-                      <p style="font-size:0.75rem; margin:0; color:#b45309;">คำขอเข้าถึงข้อมูลอยู่ระหว่างการพิจารณาโดยผู้ดูแลระบบ</p>
-                    </div>
-
-                    <!-- If status is Rejected -->
-                    <div v-else-if="selectedDataset.permission_status === 'Rejected'" style="background:#fee2e2; color:#991b1b; padding:12px; border-radius:8px; border:1px solid #fecaca; text-align:center;">
-                      <p style="font-weight:bold; margin:0 0 4px 0; font-size:0.875rem;">❌ ปฏิเสธการขอสิทธิ์ (Rejected)</p>
-                      <p style="font-size:0.75rem; margin:0 0 8px 0; color:#b91c1c;">คำขอเข้าถึงข้อมูลของคุณถูกปฏิเสธ</p>
-                      <button class="btn-primary-outline w-full" style="padding:6px; font-size:0.75rem; width:100%;" @click="selectedDataset.permission_status = null">ส่งคำขอใหม่อีกครั้ง</button>
-                    </div>
+                    <h4 style="display:flex;align-items:center;gap:6px;">🔒 ดาวน์โหลดไฟล์ & API</h4>
+                    <p style="font-size:0.85rem;color:#64748b;margin-top:4px;margin-bottom:12px;">ชุดข้อมูลนี้จำกัดสิทธิ์การดาวน์โหลดไฟล์ข้อมูลและ API</p>
+                    <button class="btn-primary-outline w-full" style="width:100%; font-size:0.85rem; padding:8px 12px;" @click="activeTab = 'api'">
+                      ไปที่แท็บ ข้อมูล API เพื่อส่งคำขอ
+                    </button>
                   </div>
                 </aside>
               </div>
             </div>
             
-            <!-- Dictionary Tab -->
+            <!-- Dictionary Tab (Always Publicly Viewable) -->
             <div v-if="activeTab === 'dictionary'" class="dictionary-tab transition-fade">
-              <table class="dictionary-table">
+              <div v-if="!selectedDataset.api_response_fields || selectedDataset.api_response_fields.length === 0" style="padding: 48px 24px; text-align: center; color: #64748b; background: white; border-radius: 12px; border: 1px solid #e2e8f0;">
+                <svg xmlns="http://www.w3.org/2000/svg" style="width: 48px; height: 48px; margin: 0 auto 12px auto; color: #cbd5e1;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+                <h4 style="font-size: 1.05rem; font-weight: 600; color: #334155; margin: 0 0 6px 0;">ยังไม่มีพจนานุกรมข้อมูลสำหรับชุดข้อมูลนี้</h4>
+                <p style="font-size: 0.85rem; color: #94a3b8; margin: 0;">ชุดข้อมูลนี้ยังไม่มีการสร้าง API หรืออัปโหลดไฟล์พจนานุกรมข้อมูล (Data Dictionary)</p>
+              </div>
+              <table v-else class="dictionary-table">
                 <thead>
                   <tr>
                     <th style="width: 10%">ลำดับ</th>
@@ -359,19 +739,60 @@ onMounted(() => {
               </table>
             </div>
             
-            <!-- Visual Tab -->
+            <!-- Visual Tab (Dashboard) -->
             <div v-if="activeTab === 'visual'" class="visual-tab transition-fade" style="padding: 0;">
-              <!-- If does not have access, hide dashboard visualizer -->
-              <div v-if="!selectedDataset.has_access" class="visual-restricted-card" style="padding: 40px; text-align: center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px;">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto mb-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="height: 64px; width: 64px; margin: 0 auto 16px auto; color: #94a3b8;">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-                <p style="font-weight: bold; font-size: 1.125rem; margin-bottom: 4px; color:#1e293b;">แดชบอร์ดถูกจำกัดสิทธิ์</p>
-                <p style="font-size: 0.875rem; color: #64748b; margin-bottom: 16px;">โปรดส่งคำขอเข้าถึงข้อมูลเพื่อเรียกดูแดชบอร์ดของชุดข้อมูลนี้</p>
-                <button style="padding: 8px 24px; background: #1e293b; color: white; border: none; border-radius: 8px; font-weight: 500; cursor: pointer;" @click="activeTab = 'info'">
-                  ส่งคำขอเข้าถึงข้อมูล
-                </button>
+              <!-- If does NOT have dashboard access, show Dashboard Permission Request / Status -->
+              <div v-if="!selectedDataset.has_dashboard_access" style="padding: 32px 20px; background: white; border-radius: 16px; border: 1px solid #e2e8f0;">
+                <div v-if="selectedDataset.dashboard_permission_status === 'Pending'" style="background:#fef3c7; color:#92400e; padding:32px 24px; border-radius:12px; border:1px solid #fde68a; text-align:center; max-width:640px; margin:0 auto;">
+                  <div style="font-size: 40px; margin-bottom: 12px;">⏳</div>
+                  <h4 style="font-size:1.15rem; font-weight:700; margin:0 0 6px 0;">คำขอเข้าถึงแดชบอร์ดอยู่ระหว่างรอการอนุมัติ</h4>
+                  <p style="font-size:0.9rem; margin:0; color:#b45309;">คำขอเข้าถึงแดชบอร์ดของคุณถูกส่งเรียบร้อยแล้ว และอยู่ระหว่างการพิจารณาโดยผู้ดูแลระบบ</p>
+                </div>
+
+                <div v-else-if="selectedDataset.dashboard_permission_status === 'Rejected'" style="background:#fee2e2; color:#991b1b; padding:32px 24px; border-radius:12px; border:1px solid #fecaca; text-align:center; max-width:640px; margin:0 auto;">
+                  <div style="font-size: 40px; margin-bottom: 12px;">❌</div>
+                  <h4 style="font-size:1.15rem; font-weight:700; margin:0 0 6px 0;">คำขอเข้าถึงแดชบอร์ดถูกปฏิเสธ</h4>
+                  <p style="font-size:0.9rem; margin:0 0 16px 0; color:#b91c1c;">คำขอเข้าถึงแดชบอร์ดของคุณไม่ผ่านการอนุมัติ คุณสามารถตรวจสอบเอกสารและส่งคำขอใหม่อีกครั้ง</p>
+                  <button class="btn-primary-outline" style="padding:8px 20px;" @click="selectedDataset.dashboard_permission_status = null">ส่งคำขอเข้าถึงแดชบอร์ดใหม่</button>
+                </div>
+
+                <div v-else class="dashboard-request-form" style="max-width: 640px; margin: 0 auto; padding: 28px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+                  <div style="text-align: center; margin-bottom: 24px;">
+                    <div style="width: 56px; height: 56px; border-radius: 50%; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px auto; font-size: 26px;">
+                      📊
+                    </div>
+                    <h3 style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin: 0 0 8px 0;">ขอสิทธิ์เข้าถึงแดชบอร์ด (Dashboard Access Request)</h3>
+                    <p style="font-size: 0.9rem; color: #64748b; margin: 0;">ชุดข้อมูลนี้จำกัดสิทธิ์การเข้าถึงแดชบอร์ด กรุณากรอกวัตถุประสงค์และแนบเอกสารเพื่อขออนุมัติสิทธิ์</p>
+                  </div>
+
+                  <div class="form-group mb-4" style="margin-bottom: 16px;">
+                    <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.9rem; display:block; margin-bottom: 6px; font-weight:600;">วัตถุประสงค์ในการขอเข้าถึงแดชบอร์ด <span style="color:#ef4444;">*</span></label>
+                    <textarea v-model="dashboardRequestForm.reason" rows="3" style="width:100%; border:1px solid #cbd5e1; border-radius:8px; padding:10px 12px; font-size:0.9rem; resize:vertical; box-sizing:border-box;" placeholder="ระบุเหตุผลและวัตถุประสงค์ในการใช้งานแดชบอร์ดชุดข้อมูลนี้..."></textarea>
+                  </div>
+
+                  <div class="form-group mb-4" style="margin-bottom: 20px;">
+                    <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.9rem; display:block; margin-bottom: 4px; font-weight:600;">เอกสารประกอบคำขอ (MOU / หนังสือขอความอนุเคราะห์ / รูปภาพหลักฐาน) <span style="color:#ef4444;">* (จำเป็นต้องแนบ)</span></label>
+                    <div style="font-size:0.8rem; color:#1e3a8a; margin:0 0 8px 0; background:#eff6ff; padding:8px 12px; border-radius:8px; border:1px solid #bfdbfe; display:flex; align-items:center; gap:6px;">
+                      <span>📌</span>
+                      <span><strong>เงื่อนไขไฟล์แนบ:</strong> รองรับไฟล์ <strong>PDF หรือรูปภาพ (PNG, JPG, JPEG)</strong> ขนาดไม่เกิน <strong>10 MB</strong> (ไม่อนุญาตไฟล์ SVG)</span>
+                    </div>
+                    <input type="file" @change="handleDashboardMouChange" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" style="width:100%; border:1px solid #cbd5e1; border-radius:8px; padding:8px 12px; font-size:0.85rem; background:white; cursor:pointer;" required>
+                    <div v-if="dashboardRequestForm.mouFileName" style="margin-top:6px; font-size:0.8rem; color:#059669; display:flex; align-items:center; gap:4px;">
+                      <span>📎 ไฟล์ที่เลือก: <strong>{{ dashboardRequestForm.mouFileName }}</strong></span>
+                    </div>
+                  </div>
+
+                  <div v-if="dashboardRequestForm.error" style="color:#e11d48; font-size:0.85rem; margin-bottom:12px; padding:8px 12px; background:#ffe4e6; border-radius:6px;">{{ dashboardRequestForm.error }}</div>
+                  <div v-if="dashboardRequestForm.success" style="color:#16a34a; font-size:0.85rem; margin-bottom:12px; padding:8px 12px; background:#dcfce7; border-radius:6px;">{{ dashboardRequestForm.success }}</div>
+
+                  <button class="btn-primary w-full" style="width:100%; padding:12px; font-size:0.95rem; border:none; border-radius:8px; background:var(--mso-accent, var(--primary)); color:white; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;" :disabled="dashboardRequestForm.isSubmitting" @click="submitDashboardPermissionRequest">
+                    <span v-if="dashboardRequestForm.isSubmitting">กำลังส่งคำขอ...</span>
+                    <span v-else>ส่งคำขอเข้าถึงแดชบอร์ด</span>
+                  </button>
+                </div>
               </div>
+
+              <!-- If HAS dashboard access -->
               <div v-else-if="selectedDataset.external_dashboard_url" class="dashboard-container">
                 <div class="dashboard-actions mb-4 p-4 flex justify-between items-center bg-slate-50 border-b border-slate-100" style="display:flex; justify-content:space-between; align-items:center; padding:16px; background:#f8fafc; border-bottom:1px solid #cbd5e1;">
                   <div style="display:flex; align-items:center; gap:8px; color:#475569; font-weight:500;">
@@ -392,64 +813,172 @@ onMounted(() => {
                   ></iframe>
                 </div>
               </div>
-              <div v-else class="dashboard-mockup-container bg-slate-50 p-6" style="height: 600px; overflow-y: auto; border-radius: 0 0 1rem 1rem; background:#f8fafc; padding:24px;">
-                <!-- Mockup Header Stats -->
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
-                  <div style="padding: 16px; background: white; border-radius: 12px; border: 1px solid #f1f5f9; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                    <p style="font-size: 0.75rem; color: #64748b; font-weight: 700; text-transform: uppercase; margin: 0 0 4px 0;">ปริมาณการใช้งานทั้งหมด</p>
-                    <p style="font-size: 1.5rem; font-weight: 800; color: #1e293b; margin: 0;">5.47M <span style="font-size: 0.75rem; color: #10b981; font-weight: normal;">+2.4%</span></p>
-                  </div>
-                  <div style="padding: 16px; background: white; border-radius: 12px; border: 1px solid #f1f5f9; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                    <p style="font-size: 0.75rem; color: #64748b; font-weight: 700; text-transform: uppercase; margin: 0 0 4px 0;">สัดส่วนการเชื่อมต่อ</p>
-                    <p style="font-size: 1.5rem; font-weight: 800; color: #1e293b; margin: 0;">3,620 <span style="font-size: 0.75rem; color: #64748b; font-weight: normal;">ครั้ง/วัน</span></p>
-                  </div>
-                  <div style="padding: 16px; background: white; border-radius: 12px; border: 1px solid #f1f5f9; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                    <p style="font-size: 0.75rem; color: #64748b; font-weight: 700; text-transform: uppercase; margin: 0 0 4px 0;">ประสิทธิภาพ API</p>
-                    <p style="font-size: 1.5rem; font-weight: 800; color: var(--primary); margin: 0;">99.85% <span style="font-size: 0.75rem; color: var(--primary); font-weight: normal;">เสถียรภาพสูง</span></p>
-                  </div>
-                </div>
-
-                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
-                  <!-- Main Bar Chart Mockup -->
-                  <div style="padding:16px; background:white; border-radius:12px; border:1px solid #f1f5f9; grid-column:span 2; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                    <p style="font-size: 0.875rem; font-weight: 700; color: #334155; margin: 0 0 16px 0;">ปริมาณข้อมูลรายวันแยกตามประเภท</p>
-                    <div style="display: flex; align-items: flex-end; gap: 0.5rem; height: 180px; padding-bottom: 20px; border-bottom: 1px solid #f1f5f9;">
-                      <div style="flex: 1; height: 90%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 45%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 40%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 35%; background: var(--primary); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 65%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 50%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 30%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 25%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 55%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                      <div style="flex: 1; height: 20%; background: var(--mso-pink-dark); border-radius: 4px 4px 0 0;"></div>
-                    </div>
-                  </div>
-                </div>
+              <div v-else class="dashboard-empty-container" style="padding: 40px; text-align: center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px;">
+                <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto mb-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="height: 64px; width: 64px; margin: 0 auto 16px auto; color: #cbd5e1;">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <p style="font-weight: bold; font-size: 1.125rem; margin-bottom: 4px; color:#475569;">ไม่มีแดชบอร์ดสำหรับชุดข้อมูลนี้</p>
+                <p style="font-size: 0.875rem; color: #94a3b8; margin: 0;">ชุดข้อมูลนี้ยังไม่ได้ตั้งค่าการเชื่อมต่อแดชบอร์ด</p>
               </div>
             </div>
             
             <!-- API Tab -->
             <div v-if="activeTab === 'api'" class="api-tab transition-fade">
-              <!-- If does not have API enabled -->
-              <div v-if="!selectedDataset.api_enabled" style="padding:40px; text-align:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px;">
-                <p style="font-weight:bold; font-size:1.1rem; color:#475569; margin:0 0 8px 0;">🔒 ข้อมูล API เฉพาะ Private API</p>
-                <p style="font-size:0.875rem; color:#64748b; margin:0;">ชุดข้อมูลนี้ยังไม่เปิดบริการเรียกใช้ผ่านช่องทาง API สำหรับระดับสิทธิ์ของคุณ</p>
+              <!-- If does NOT have API access, show API Permission Request / Status -->
+              <div v-if="!selectedDataset.has_api_access" style="padding: 32px 20px; background: white; border-radius: 16px; border: 1px solid #e2e8f0;">
+                <div v-if="selectedDataset.api_permission_status === 'Pending'" style="background:#fef3c7; color:#92400e; padding:32px 24px; border-radius:12px; border:1px solid #fde68a; text-align:center; max-width:640px; margin:0 auto;">
+                  <div style="font-size: 40px; margin-bottom: 12px;">⏳</div>
+                  <h4 style="font-size:1.15rem; font-weight:700; margin:0 0 6px 0;">คำขอเข้าถึง API อยู่ระหว่างรอการอนุมัติ</h4>
+                  <p style="font-size:0.9rem; margin:0; color:#b45309;">คำขอเข้าถึง API ของคุณถูกส่งเรียบร้อยแล้ว และอยู่ระหว่างการพิจารณาโดยผู้ดูแลระบบ</p>
+                </div>
+
+                <div v-else-if="selectedDataset.api_permission_status === 'Rejected'" style="background:#fee2e2; color:#991b1b; padding:32px 24px; border-radius:12px; border:1px solid #fecaca; text-align:center; max-width:640px; margin:0 auto;">
+                  <div style="font-size: 40px; margin-bottom: 12px;">❌</div>
+                  <h4 style="font-size:1.15rem; font-weight:700; margin:0 0 6px 0;">คำขอเข้าถึง API ถูกปฏิเสธ</h4>
+                  <p style="font-size:0.9rem; margin:0 0 16px 0; color:#b91c1c;">คำขอเข้าถึง API ของคุณไม่ผ่านการอนุมัติ คุณสามารถตรวจสอบข้อมูลและส่งคำขอใหม่อีกครั้ง</p>
+                  <button class="btn-primary-outline" style="padding:8px 20px;" @click="selectedDataset.api_permission_status = null">ส่งคำขอเข้าถึง API ใหม่</button>
+                </div>
+
+                <div v-else class="api-request-form" style="max-width: 720px; margin: 0 auto; padding: 28px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+                  <div style="text-align: center; margin-bottom: 24px;">
+                    <div style="width: 56px; height: 56px; border-radius: 50%; background: #ecfdf5; color: #059669; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px auto; font-size: 26px;">
+                      ⚡
+                    </div>
+                    <h3 style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin: 0 0 8px 0;">ขอสิทธิ์เข้าถึง API (API Access Request)</h3>
+                    <p style="font-size: 0.9rem; color: #64748b; margin: 0;">ชุดข้อมูลนี้จำกัดสิทธิ์การเข้าถึง API โปรดเลือกฟิลด์ข้อมูลที่ต้องการใช้งาน พร้อมระบุวัตถุประสงค์</p>
+                  </div>
+
+                  <!-- Field Selector with Quick Action -->
+                  <div class="form-group mb-4" style="margin-bottom: 16px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                      <label class="font-semibold text-slate-700" style="font-size:0.9rem; font-weight:600;">ฟิลด์ข้อมูลที่ต้องการใช้งาน (Request Fields) <span style="color:#ef4444;">*</span></label>
+                      <button v-if="selectedDataset.api_response_fields && selectedDataset.api_response_fields.length > 0" type="button" @click="toggleAllApiFields" style="background:none; border:none; color:var(--mso-accent, var(--primary)); font-size:0.8rem; font-weight:600; cursor:pointer; text-decoration:underline;">
+                        {{ apiRequestForm.fields.length === (selectedDataset.api_response_fields || []).length ? 'ล้างการเลือกทั้งหมด' : 'เลือกทั้งหมด' }}
+                      </button>
+                    </div>
+                    <div v-if="!selectedDataset.api_response_fields || selectedDataset.api_response_fields.length === 0" style="padding:16px; text-align:center; background:white; border:1px solid #cbd5e1; border-radius:8px; color:#94a3b8; font-size:0.85rem;">
+                      ชุดข้อมูลนี้ยังไม่มีรายการฟิลด์ข้อมูล API ที่เปิดให้บริการ
+                    </div>
+                    <div v-else class="field-checkbox-list" style="max-height:160px; overflow-y:auto; border:1px solid #cbd5e1; border-radius:8px; padding:10px 14px; background:white; display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px;">
+                      <label v-for="field in selectedDataset.api_response_fields" :key="field" class="flex items-center gap-2 cursor-pointer" style="display:flex; align-items:center; gap:8px; font-size:0.85rem; cursor:pointer;">
+                        <input type="checkbox" :value="field" v-model="apiRequestForm.fields" style="accent-color: var(--primary);">
+                        <span class="font-mono text-slate-700">{{ field }}</span>
+                      </label>
+                    </div>
+                    <p v-if="selectedDataset.api_response_fields && selectedDataset.api_response_fields.length > 0" style="font-size:0.75rem; color:#64748b; margin-top:4px;">เลือกแล้ว {{ apiRequestForm.fields.length }} จาก {{ (selectedDataset.api_response_fields || []).length }} ฟิลด์</p>
+                  </div>
+
+                  <div class="form-group mb-4" style="margin-bottom: 16px;">
+                    <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.9rem; display:block; margin-bottom: 6px; font-weight:600;">วัตถุประสงค์ในการขอเข้าถึง API <span style="color:#ef4444;">*</span></label>
+                    <textarea v-model="apiRequestForm.reason" rows="3" style="width:100%; border:1px solid #cbd5e1; border-radius:8px; padding:10px 12px; font-size:0.9rem; resize:vertical; box-sizing:border-box;" placeholder="ระบุเหตุผลและวัตถุประสงค์ในการเชื่อมต่อ API ชุดข้อมูลนี้..."></textarea>
+                  </div>
+
+                  <div class="form-group mb-4" style="margin-bottom: 20px;">
+                    <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.9rem; display:block; margin-bottom: 4px; font-weight:600;">เอกสารประกอบคำขอ (MOU / หนังสือขอความอนุเคราะห์ / รูปภาพหลักฐาน) <span style="color:#ef4444;">* (จำเป็นต้องแนบ)</span></label>
+                    <div style="font-size:0.8rem; color:#065f46; margin:0 0 8px 0; background:#ecfdf5; padding:8px 12px; border-radius:8px; border:1px solid #a7f3d0; display:flex; align-items:center; gap:6px;">
+                      <span>📌</span>
+                      <span><strong>เงื่อนไขไฟล์แนบ:</strong> รองรับไฟล์ <strong>PDF หรือรูปภาพ (PNG, JPG, JPEG)</strong> ขนาดไม่เกิน <strong>10 MB</strong> (ไม่อนุญาตไฟล์ SVG)</span>
+                    </div>
+                    <input type="file" @change="handleApiMouChange" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" style="width:100%; border:1px solid #cbd5e1; border-radius:8px; padding:8px 12px; font-size:0.85rem; background:white; cursor:pointer;" required>
+                    <div v-if="apiRequestForm.mouFileName" style="margin-top:6px; font-size:0.8rem; color:#059669; display:flex; align-items:center; gap:4px;">
+                      <span>📎 ไฟล์ที่เลือก: <strong>{{ apiRequestForm.mouFileName }}</strong></span>
+                    </div>
+                  </div>
+
+                  <div v-if="apiRequestForm.error" style="color:#e11d48; font-size:0.85rem; margin-bottom:12px; padding:8px 12px; background:#ffe4e6; border-radius:6px;">{{ apiRequestForm.error }}</div>
+                  <div v-if="apiRequestForm.success" style="color:#16a34a; font-size:0.85rem; margin-bottom:12px; padding:8px 12px; background:#dcfce7; border-radius:6px;">{{ apiRequestForm.success }}</div>
+
+                  <button class="btn-primary w-full" style="width:100%; padding:12px; font-size:0.95rem; border:none; border-radius:8px; background:var(--mso-accent, var(--primary)); color:white; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;" :disabled="apiRequestForm.isSubmitting" @click="submitApiPermissionRequest">
+                    <span v-if="apiRequestForm.isSubmitting">กำลังส่งคำขอ...</span>
+                    <span v-else>ส่งคำขอเข้าถึง API</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- If HAS API access and no endpoints available -->
+              <div v-else-if="combinedApis.length === 0" style="padding:40px; text-align:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px;">
+                <p style="font-weight:bold; font-size:1.1rem; color:#475569; margin:0 0 8px 0;">🔒 ไม่พบปลายทาง API ที่เปิดใช้งาน</p>
+                <p style="font-size:0.875rem; color:#64748b; margin:0;">ชุดข้อมูลนี้ยังไม่มีการกำหนด API Endpoint สำหรับให้บริการ</p>
               </div>
               
               <!-- If has API, show details -->
-              <div v-else class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white;">
-                <div class="method-badge" style="display: inline-block; background: var(--mso-accent, var(--primary)); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px;">GET</div>
-                <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 24px; font-size:0.9rem;">
-                  {{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/datasets/' + selectedDataset.dataset_id }}
-                </code>
+              <div v-else class="api-cards" style="display: flex; flex-direction: column; gap: 1rem;">
                 
-                <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
-                  <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
-curl -X GET "{{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/datasets/' + selectedDataset.dataset_id }}" \
-  -H "Authorization: Bearer YOUR_API_KEY"</pre>
+                <!-- Card 1: File for API -->
+                <div v-if="selectedDataset.file_path" class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white; border: 1px solid #334155;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <h3 style="margin: 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                      File API (ดาวน์โหลดไฟล์ข้อมูลดิบ)
+                    </h3>
+                    <span style="background: rgba(148, 163, 184, 0.2); color: #cbd5e1; font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(148, 163, 184, 0.3);">
+                      RAW FILE (/file)
+                    </span>
+                  </div>
+                  <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px; cursor: pointer;" @click="copyToClipboard(selectedDataset.external_api_url || apiBaseUrl + (selectedDataset.api_endpoint || selectedDataset.dataset_id) + '/file?apikey=' + userApiKey)">คัดลอกเพื่อใช้งาน API</div>
+                  <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem; word-break: break-all;">
+                    {{ selectedDataset.external_api_url || apiBaseUrl + (selectedDataset.api_endpoint || selectedDataset.dataset_id) + '/file?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>
+                  </code>
+                  <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
+                    <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
+curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + (selectedDataset.api_endpoint || selectedDataset.dataset_id) + '/file?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>"</pre>
+                  </div>
                 </div>
+
+                <!-- Loop through all configured APIs (Original + Clones) -->
+                <div v-for="(api, index) in combinedApis" :key="index">
+                  <!-- General API -->
+                  <div v-if="api.api_type === 'general' || api.api_type === 'public' || api.api_type === 'private' || !api.api_type" class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white; border: 1px solid #334155;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                      <h3 style="margin: 0; color: #f8fafc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
+                        General API (ข้อมูลทั่วไปครบทุกฟิลด์) - {{ api.api_endpoint }}
+                      </h3>
+                      <span style="background: rgba(16, 185, 129, 0.2); color: #34d399; font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.3);">
+                        GENERAL API
+                      </span>
+                    </div>
+                    <div class="method-badge" style="display: inline-block; background: var(--primary, #059669); padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px; cursor: pointer;" @click="copyToClipboard(selectedDataset.external_api_url || apiBaseUrl + api.api_endpoint + '?apikey=' + userApiKey)">คัดลอกเพื่อใช้งาน API</div>
+                    <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem; word-break: break-all;">
+                      {{ selectedDataset.external_api_url || apiBaseUrl + api.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>
+                    </code>
+                    <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
+                      <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
+curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + api.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>"</pre>
+                    </div>
+                  </div>
+
+                  <!-- Scope API -->
+                  <div v-if="api.api_type === 'scope'" class="api-doc" style="background: #0f172a; padding: 24px; border-radius: 16px; color: white; border: 1px solid #0284c7;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                      <h3 style="margin: 0; color: #38bdf8; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                        Scope API (ข้อมูลเฉพาะฟิลด์/เงื่อนไขที่กำหนด) - {{ api.api_endpoint }}
+                      </h3>
+                      <span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.4);">
+                        SCOPE API (/scope/)
+                      </span>
+                    </div>
+
+                    <!-- Scoped Fields Tag List -->
+                    <div v-if="api.api_response_fields && api.api_response_fields.length > 0" style="margin-bottom: 14px; font-size: 0.82rem; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; background: rgba(56, 189, 248, 0.08); padding: 8px 12px; border-radius: 8px; border: 1px dashed rgba(56, 189, 248, 0.3);">
+                      <span style="color: #38bdf8; font-weight: 600;">🎯 ฟิลด์ใน Scope ({{ api.api_response_fields.length }} ฟิลด์):</span>
+                      <span v-for="field in api.api_response_fields" :key="field" style="background: rgba(56, 189, 248, 0.2); color: #e0f2fe; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem;">
+                        {{ field }}
+                      </span>
+                    </div>
+
+                    <div class="method-badge" style="display: inline-block; background: #0284c7; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px; cursor: pointer;" @click="copyToClipboard(selectedDataset.external_api_url || apiBaseUrl + 'scope/' + api.api_endpoint + '?apikey=' + userApiKey)">คัดลอกเพื่อใช้งาน API</div>
+                    <code class="endpoint" style="display: block; font-family: monospace; color: #94a3b8; margin-bottom: 16px; font-size:0.9rem; word-break: break-all;">
+                      {{ selectedDataset.external_api_url || apiBaseUrl + 'scope/' + api.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>
+                    </code>
+                    <div class="code-block" style="background: #1e293b; padding: 16px; border-radius: 8px; font-family: monospace;">
+                      <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
+curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + 'scope/' + api.api_endpoint + '?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>"</pre>
+                    </div>
+                  </div>
+                </div>
+
               </div>
             </div>
           </div>
@@ -460,6 +989,11 @@ curl -X GET "{{ selectedDataset.external_api_url || 'https://api.datax.go.th/v1/
 </template>
 
 <style scoped>
+.blur-key { filter: blur(4px); transition: filter 0.3s; user-select: text; }
+.blur-key:hover { filter: blur(0px); }
+.endpoint-url { display: flex; align-items: center; gap: 8px; }
+.copy-btn { background: #334155; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; transition: background 0.2s; }
+.copy-btn:hover { background: #475569; }
 .loading-state, .error-state {
   display: flex;
   flex-direction: column;
@@ -579,9 +1113,30 @@ h1 {
   font-weight: 700;
 }
 
-.meta-badge.access {
+.meta-badge.access,
+.meta-badge.access-public,
+.meta-badge.access-open {
   background: #ecfdf5;
-  color: #065f46;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.meta-badge.access-internal {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.meta-badge.access-restricted {
+  background: #fff1f2;
+  color: #e11d48;
+  border: 1px solid #fecdd3;
+}
+
+.meta-badge.access-pii {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
 }
 
 .meta-item {
@@ -767,19 +1322,40 @@ h1 {
 
 .btn-download {
   flex: 1;
+  min-width: 70px;
   padding: 10px;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background-color: white;
+  border: 1px solid #cbd5e1;
+  background-color: #e2e8f0;
+  color: #94a3b8;
   font-size: 0.8125rem;
   font-weight: 700;
-  cursor: pointer;
+  cursor: not-allowed;
   transition: all 0.2s;
+  text-align: center;
 }
 
-.btn-download:hover {
-  border-color: var(--mso-accent, var(--primary));
-  color: var(--mso-accent, var(--primary));
+.btn-download:not(:disabled) {
+  background-color: #008236;
+  color: #ffffff;
+  border-color: #008236;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 130, 54, 0.2);
+}
+
+.btn-download:hover:not(:disabled) {
+  background-color: #00682b;
+  border-color: #00682b;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.btn-download:disabled, .btn-download.disabled {
+  background-color: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+  border-color: #cbd5e1;
+  opacity: 0.85;
 }
 
 .btn-primary-outline {

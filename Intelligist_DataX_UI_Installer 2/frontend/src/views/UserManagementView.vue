@@ -49,9 +49,9 @@ const formData = ref({
     email: '',
     password: '',
     confirmPassword: '',
-    previlage_id: 3,
+    previlage_id: 2,
     org_id: '',
-    status_id: 4,
+    status_id: 1,
     groups: []
 });
 
@@ -104,8 +104,9 @@ const openAddModal = () => {
         email: '',
         password: '',
         confirmPassword: '',
-        previlage_id: 3,
-        status_id: 4,
+        previlage_id: 2,
+        org_id: '',
+        status_id: 1,
         groups: []
     };
     showPassword.value = false;
@@ -643,10 +644,10 @@ onMounted(() => {
                 </div>
               </div>
 
-              <div class="form-group" v-if="formData.previlage_id == 3">
-                <label>Organization <span class="required">*</span></label>
+              <div class="form-group">
+                <label>Organization <span class="required" v-if="formData.previlage_id == 3">*</span></label>
                 <select v-model="formData.org_id" class="dark-input">
-                  <option value="" disabled>Select Organization</option>
+                  <option value="" :disabled="formData.previlage_id == 3">{{ formData.previlage_id == 3 ? 'Select Organization' : 'Select Organization (Optional)' }}</option>
                   <option v-for="org in organizations" :key="org.org_id" :value="org.org_id">
                     {{ org.org_name }}
                   </option>

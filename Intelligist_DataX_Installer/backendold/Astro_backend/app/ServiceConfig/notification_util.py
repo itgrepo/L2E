@@ -32,13 +32,19 @@ def notify_all_users(notif_type, message):
 
 def notify_dataset_lifecycle(service_id, event_type='updated', custom_message=None):
     """
-    หลักการการแจ้งเตือนกระดิ่ง L2E เมื่อมีการสร้างหรือ Update ชุดข้อมูล:
-    1. สาธารณะ (Public) - ทุกคนรับการแจ้งเตือน
-    2. ภายในหน่วยงาน (Internal) - เฉพาะ Account In Group / In Org รับการแจ้งเตือน, Account Not In Group ไม่ได้รับ
-    3. จำกัดสิทธิ์ (Restricted) - ทุกคนรับการแจ้งเตือน
-    4. เฉพาะเจ้าของ (Private/PII) - มีเพียงคนสร้าง Dataset และ Super Admin เท่านั้นที่ได้รับการแจ้งเตือน
-    *** คนสร้างชุดข้อมูล และ Super Admin ได้รับการแจ้งเตือนทุกกรณี
-    *** ผู้ใช้งานที่ได้รับอนุญาตให้เข้าถึงชุดข้อมูลแล้ว จะได้รับการแจ้งเตือนเมื่อมีการอัปเดตชุดข้อมูลนั้น
+    หลักการการแจ้งเตือน L2E (In-App และ Email) เมื่อมีการสร้างหรือแก้ไขชุดข้อมูล:
+    1. จำกัดสิทธิ์ (Restricted):
+       - เมื่อสร้าง (created): แจ้งเตือนทุกคน
+       - เมื่ออัปเดต (updated): ไม่ควรมีการแจ้งเตือน (ไม่มีใครได้รับแจ้งเตือน)
+    2. ภายในหน่วยงาน (Internal):
+       - เมื่อสร้าง (created): แจ้งเตือนคนในหน่วยงานนั้นเท่านั้น
+       - เมื่อแก้ไข (updated): แจ้งเตือนคนในหน่วยงานนั้นเท่านั้น
+    3. สาธารณะ (Public):
+       - เมื่อสร้าง (created): แจ้งเตือนทุกคน
+       - เมื่อแก้ไข (updated): แจ้งแค่คนที่กด Favorite ชุดข้อมูลนั้นเท่านั้น (ถ้าไม่ได้กดใจไม่ต้องแจ้งเตือน)
+    4. เฉพาะเจ้าของ (Private/PII):
+       - เมื่อสร้าง (created): แจ้งเตือนแค่คนที่สร้าง
+       - เมื่อแก้ไข (updated): แจ้งเตือนแค่คนที่สร้าง
     """
     try:
         conn = mysql.connect()
@@ -46,94 +52,76 @@ def notify_dataset_lifecycle(service_id, event_type='updated', custom_message=No
 
         # Fetch dataset details
         cursor.execute("""
-            SELECT service_name, access_type, organization, l2e_group_id, created_by, contact_email 
+            SELECT service_name, access_type, organization, l2e_group_id, created_by, contact_email, description 
             FROM service WHERE service_id = %s
         """, (service_id,))
         svc = cursor.fetchone()
         if not svc:
             cursor.close()
             conn.close()
-            return
+            return set()
 
-        service_name, access_type, org_name, l2e_group_id, created_by, contact_email = svc
+        service_name, access_type, org_name, l2e_group_id, created_by, contact_email, svc_desc = svc
         access_type_lower = (access_type or 'public').lower().strip()
         svc_title = service_name or f"ID {service_id}"
 
-        # 1. Super Admins (previlage_id = 4) always receive notifications
-        cursor.execute("SELECT user_id FROM user WHERE previlage_id = 4 AND status_account = 'active'")
-        recipients = {row[0] for row in cursor.fetchall() if row[0]}
+        recipients = set()
 
-        # 2. Dataset creator always receives notification
-        if created_by:
-            recipients.add(created_by)
-        if contact_email:
-            cursor.execute("SELECT user_id FROM user WHERE LOWER(email) = LOWER(%s) AND status_account = 'active'", (contact_email.strip(),))
-            c_row = cursor.fetchone()
-            if c_row and c_row[0]:
-                recipients.add(c_row[0])
+        # 1. จำกัดสิทธิ์ (Restricted)
+        if access_type_lower == 'restricted':
+            if event_type == 'created':
+                cursor.execute("SELECT user_id FROM user WHERE status_account = 'active'")
+                recipients = {row[0] for row in cursor.fetchall() if row[0]}
+            else:
+                # อัปเดต Restricted: ไม่ควรมีการแจ้งเตือน
+                recipients = set()
 
-        # 3. For 'updated' event: Users who have approved access must also be notified
-        if event_type == 'updated':
-            cursor.execute("""
-                SELECT DISTINCT u.user_id 
-                FROM user u
-                WHERE u.status_account = 'active'
-                  AND (
-                    u.user_id IN (SELECT user_id FROM dataset_permission_requests WHERE service_id = %s AND status = 'Approved')
-                    OR u.user_id IN (SELECT user_id FROM service_user_access WHERE service_id = %s)
-                  )
-            """, (service_id, service_id))
-            for row in cursor.fetchall():
-                if row[0]:
-                    recipients.add(row[0])
-
-        # 4. Access Type routing:
-        if access_type_lower in ['public', 'restricted']:
-            # Public & Restricted: All active users get notified
-            cursor.execute("SELECT user_id FROM user WHERE status_account = 'active'")
-            for row in cursor.fetchall():
-                if row[0]:
-                    recipients.add(row[0])
-
+        # 2. ภายในหน่วยงาน (Internal)
         elif access_type_lower == 'internal':
-            # Internal: Account In Group / Org receives notification
-            # a) Users in the same organization
-            if org_name:
+            if org_name and org_name.strip():
                 cursor.execute("""
                     SELECT u.user_id FROM user u 
                     JOIN organization o ON u.org_id = o.org_id 
-                    WHERE o.org_name = %s AND u.status_account = 'active'
+                    WHERE TRIM(o.org_name) = TRIM(%s) AND u.status_account = 'active'
                 """, (org_name.strip(),))
-                for row in cursor.fetchall():
-                    if row[0]:
-                        recipients.add(row[0])
+                recipients = {row[0] for row in cursor.fetchall() if row[0]}
+            else:
+                recipients = set()
 
-            # b) Users in the dataset's assigned group (l2e_group_id or service_group_access)
-            if l2e_group_id:
+        # 3. สาธารณะ (Public)
+        elif access_type_lower == 'public':
+            if event_type == 'created':
+                cursor.execute("SELECT user_id FROM user WHERE status_account = 'active'")
+                recipients = {row[0] for row in cursor.fetchall() if row[0]}
+            else:
+                # แก้ไข Public: แจ้งแค่คนที่กด Favorite ชุดข้อมูลนั้นเท่านั้น
                 cursor.execute("""
-                    SELECT gud.user_id FROM group_user_detail gud 
-                    JOIN user u ON gud.user_id = u.user_id 
-                    WHERE gud.group_id = %s AND u.status_account = 'active'
-                """, (l2e_group_id,))
-                for row in cursor.fetchall():
-                    if row[0]:
-                        recipients.add(row[0])
+                    SELECT DISTINCT uf.user_id 
+                    FROM user_favorites uf
+                    JOIN user u ON uf.user_id = u.user_id 
+                    WHERE uf.service_id = %s AND u.status_account = 'active'
+                """, (service_id,))
+                recipients = {row[0] for row in cursor.fetchall() if row[0]}
 
-            cursor.execute("""
-                SELECT gud.user_id FROM service_group_access sga 
-                JOIN group_user_detail gud ON sga.group_id = gud.group_id 
-                JOIN user u ON gud.user_id = u.user_id 
-                WHERE sga.service_id = %s AND u.status_account = 'active'
-            """, (service_id,))
-            for row in cursor.fetchall():
-                if row[0]:
-                    recipients.add(row[0])
-
+        # 4. เฉพาะเจ้าของ (Private / PII)
         elif access_type_lower in ['private', 'pii']:
-            # Private: Only creator, Super Admin (and approved users if updated)
-            pass
+            if created_by:
+                cursor.execute("SELECT user_id FROM user WHERE user_id = %s AND status_account = 'active'", (created_by,))
+                c_row = cursor.fetchone()
+                if c_row and c_row[0]:
+                    recipients.add(c_row[0])
+            elif contact_email:
+                cursor.execute("SELECT user_id FROM user WHERE LOWER(email) = LOWER(%s) AND status_account = 'active'", (contact_email.strip(),))
+                c_row = cursor.fetchone()
+                if c_row and c_row[0]:
+                    recipients.add(c_row[0])
 
-        # Prepare message
+        if not recipients:
+            cursor.close()
+            conn.close()
+            return set()
+
+        # Prepare in-app message
         if custom_message:
             message = custom_message
         elif event_type == 'created':
@@ -145,11 +133,28 @@ def notify_dataset_lifecycle(service_id, event_type='updated', custom_message=No
         for uid in recipients:
             cursor.execute("INSERT INTO notifications (user_id, type, message) VALUES (%s, %s, %s)", (uid, notif_type, message))
 
+        # Send Email notification to the same recipients
+        try:
+            format_strings = ','.join(['%s'] * len(recipients))
+            cursor.execute(f"SELECT email FROM user WHERE user_id IN ({format_strings}) AND email IS NOT NULL AND status_account = 'active'", tuple(recipients))
+            recipient_emails = [row[0] for row in cursor.fetchall() if row[0]]
+            if recipient_emails:
+                if event_type == 'created':
+                    from .email_service import notify_dataset_created
+                    notify_dataset_created(svc_title, svc_desc or '', recipient_emails)
+                else:
+                    from .email_service import notify_dataset_updated
+                    notify_dataset_updated(svc_title, recipient_emails)
+        except Exception as mail_err:
+            logger.warning(f"Could not send email notifications: {mail_err}")
+
         conn.commit()
         cursor.close()
         conn.close()
+        return recipients
     except Exception as e:
         print("Failed to notify dataset lifecycle:", e)
+        return set()
 
 def notify_dataset_interest(service_id, notif_type, message):
     """Backward compatibility wrapper: routes to notify_dataset_lifecycle."""

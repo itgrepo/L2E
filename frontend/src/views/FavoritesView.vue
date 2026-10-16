@@ -49,18 +49,35 @@ const getAccessBadgeClass = (access) => {
 };
 
 onMounted(async () => {
-    const rawFavs = JSON.parse(localStorage.getItem('user_favorites') || '[]');
+    let rawFavs = JSON.parse(localStorage.getItem('user_favorites') || '[]');
     favoriteDatasets.value = rawFavs;
     
     // Fetch live dataset details to ensure all fields (title, description, accessibility, formats) are fully populated
     try {
         const userStored = JSON.parse(localStorage.getItem('user') || '{}');
         const tokenUser = encodeUserData(userStored);
+
+        // Sync with server favorites first
+        try {
+            const favRes = await apiClient.post('/getUserFavorites', { user: tokenUser });
+            if (favRes.data?.status === 'success' && Array.isArray(favRes.data.data)) {
+                const favIds = favRes.data.data.map(Number);
+                rawFavs = rawFavs.filter(f => favIds.includes(Number(f.id)));
+                favIds.forEach(id => {
+                    if (!rawFavs.some(f => Number(f.id) === id)) {
+                        rawFavs.push({ id });
+                    }
+                });
+            }
+        } catch (favErr) {
+            console.warn('Could not sync user favorites from server:', favErr);
+        }
+
         const res = await apiClient.post('/retrieveService', { user: tokenUser });
         if (res.data?.status === 'success' && Array.isArray(res.data.data)) {
             const allDatasets = res.data.data;
             favoriteDatasets.value = rawFavs.map(fav => {
-                const live = allDatasets.find(d => String(d.service_id) === String(fav.id || fav.service_id));
+                const live = allDatasets.find(d => Number(d.service_id) === Number(fav.id || fav.service_id));
                 if (live) {
                     const accessInfo = getAccessInfo(live);
                     return {
@@ -85,7 +102,7 @@ onMounted(async () => {
                     accessibility: fav.accessibility || 'Public',
                     formats: fav.formats || ['CSV']
                 };
-            });
+            }).filter(f => f.title !== 'ชุดข้อมูลไม่มีชื่อ');
             localStorage.setItem('user_favorites', JSON.stringify(favoriteDatasets.value));
         }
     } catch (e) {
@@ -93,9 +110,17 @@ onMounted(async () => {
     }
 });
 
-const removeFavorite = (id) => {
-    favoriteDatasets.value = favoriteDatasets.value.filter(f => f.id !== id);
+const removeFavorite = async (id) => {
+    favoriteDatasets.value = favoriteDatasets.value.filter(f => Number(f.id) !== Number(id));
     localStorage.setItem('user_favorites', JSON.stringify(favoriteDatasets.value));
+
+    try {
+        const userStored = JSON.parse(localStorage.getItem('user') || '{}');
+        const tokenUser = encodeUserData(userStored);
+        await apiClient.post('/toggleFavorite', { user: tokenUser, service_id: id });
+    } catch (e) {
+        console.error('Error toggling favorite on server:', e);
+    }
 };
 </script>
 

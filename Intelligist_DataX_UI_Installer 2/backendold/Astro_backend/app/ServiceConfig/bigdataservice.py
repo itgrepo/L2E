@@ -343,14 +343,6 @@ def addService():
                     try:
                         from ServiceConfig.notification_util import notify_dataset_lifecycle
                         notify_dataset_lifecycle(new_service_id, 'created')
-
-                        # Email notification for public/restricted datasets
-                        if access_type in ['public', 'restricted']:
-                            from .email_service import notify_dataset_created
-                            cursor.execute("SELECT email FROM user WHERE status_account = 'active' AND email IS NOT NULL")
-                            all_emails = [row[0] for row in cursor.fetchall() if row[0]]
-                            if all_emails:
-                                notify_dataset_created(service_name, description, all_emails)
                     except Exception as e:
                         current_app.logger.error(f"Error sending dataset creation notification: {e}")
                         
@@ -747,18 +739,6 @@ def addService():
                     try:
                         from ServiceConfig.notification_util import notify_dataset_lifecycle
                         notify_dataset_lifecycle(service_id, 'updated')
-
-                        from .email_service import notify_dataset_updated
-                        # Fetch admins and current user for email
-                        cursor.execute("SELECT email FROM user WHERE previlage_id IN (1, 3, 4) AND status_account = 'active' AND email IS NOT NULL")
-                        admin_emails = [row[0] for row in cursor.fetchall() if row[0]]
-                        current_user_email = user_data.get('email')
-                        notify_emails = set(admin_emails)
-                        if current_user_email:
-                            notify_emails.add(current_user_email)
-                            
-                        if notify_emails:
-                            notify_dataset_updated(service_name or str(service_id), list(notify_emails))
                     except Exception as e:
                         current_app.logger.error(f"Error sending dataset update notification: {e}")
                         
@@ -3919,6 +3899,18 @@ def init_notifications_table():
           updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         ''')
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_favorites (
+          id int(11) NOT NULL AUTO_INCREMENT,
+          user_id int(11) NOT NULL,
+          service_id int(11) NOT NULL,
+          created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_user_service (user_id, service_id),
+          KEY idx_service (service_id),
+          KEY idx_user (user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ''')
         conn.commit()
         cursor.close()
         conn.close()
@@ -3927,6 +3919,55 @@ def init_notifications_table():
 
 # Run init on load
 init_notifications_table()
+
+@app.route('/toggleFavorite', methods=['POST'])
+def toggle_favorite():
+    try:
+        user_data = extract_user_from_req()
+        user_id = user_data.get("user_id")
+        if not user_id:
+            return jsonify({"status": "error", "message": "Unauthorized"}), 401
+            
+        dataInput = request.json or {}
+        service_id = dataInput.get('service_id')
+        if not service_id:
+            return jsonify({'status': 'error', 'message': 'Missing service_id'}), 400
+            
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM user_favorites WHERE user_id = %s AND service_id = %s", (user_id, service_id))
+        row = cursor.fetchone()
+        if row:
+            cursor.execute("DELETE FROM user_favorites WHERE user_id = %s AND service_id = %s", (user_id, service_id))
+            is_fav = False
+        else:
+            cursor.execute("INSERT INTO user_favorites (user_id, service_id) VALUES (%s, %s)", (user_id, service_id))
+            is_fav = True
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({'status': 'success', 'is_favorite': is_fav})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/getUserFavorites', methods=['POST'])
+def get_user_favorites():
+    try:
+        user_data = extract_user_from_req()
+        user_id = user_data.get("user_id")
+        if not user_id:
+            return jsonify({'status': 'success', 'data': []})
+            
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        cursor.execute("SELECT service_id FROM user_favorites WHERE user_id = %s", (user_id,))
+        fav_rows = cursor.fetchall()
+        fav_ids = [row[0] for row in fav_rows]
+        cursor.close()
+        conn.close()
+        return jsonify({'status': 'success', 'data': fav_ids})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 def add_notification(user_id, type_str, message):
     try:

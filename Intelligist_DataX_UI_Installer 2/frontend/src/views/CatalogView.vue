@@ -1,25 +1,105 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
-import apiClient from '../utils/api';
+import apiClient, { encodeUserData } from '../utils/api';
 
+const router = useRouter();
 const searchQuery = ref('');
+
+
+const showSuggestions = ref(false);
+
+const searchSuggestions = computed(() => {
+  if (!searchQuery.value.trim()) return [];
+  const query = searchQuery.value.toLowerCase().trim();
+  const suggestions = [];
+  const maxSuggestions = 8;
+  
+  datasets.value.forEach(ds => {
+    if (ds.title.toLowerCase().includes(query) && !suggestions.find(s => s.text === ds.title)) {
+      suggestions.push({ text: ds.title, type: 'ชุดข้อมูล' });
+    }
+  });
+  
+  datasets.value.forEach(ds => {
+    if (ds.tags) {
+      const tagsList = ds.tags.split(',');
+      tagsList.forEach(t => {
+        const tag = t.trim();
+        if (tag.toLowerCase().includes(query) && !suggestions.find(s => s.text === tag)) {
+          suggestions.push({ text: tag, type: 'แท็ก' });
+        }
+      });
+    }
+  });
+  
+  return suggestions.slice(0, maxSuggestions);
+});
+
+const selectSuggestion = (text) => {
+  searchQuery.value = text;
+  showSuggestions.value = false;
+};
+
+const hideSuggestions = () => {
+  setTimeout(() => {
+    showSuggestions.value = false;
+  }, 200);
+};
+
+const highlight = (text, query) => {
+  if (!query) return text;
+  const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escapedQuery})`, 'gi');
+  return text.replace(regex, '<strong style="color: var(--primary);">$1</strong>');
+};
 
 const requestForm = ref({
   fields: [],
-  reason: ''
+  reason: '',
+  mouFile: null,
+  mouFileName: ''
 });
 const isSubmittingReq = ref(false);
 const reqError = ref('');
 const reqSuccess = ref('');
 
-const submitPermissionRequest = async () => {
-  if (requestForm.value.fields.length === 0) {
-    reqError.value = 'โปรดเลือกอย่างน้อย 1 ฟิลด์ข้อมูล';
-    return;
+const isValidMouFile = (file) => {
+  if (!file) return { valid: false, error: 'กรุณาเลือกไฟล์เอกสารแนบ' };
+  
+  const fileName = file.name.toLowerCase();
+  const fileType = (file.type || '').toLowerCase();
+  
+  // Explicitly block SVG
+  if (fileName.endsWith('.svg') || fileType.includes('svg')) {
+    return { valid: false, error: 'ไม่อนุญาตให้อัปโหลดไฟล์ SVG รองรับเฉพาะ PDF หรือรูปภาพ (PNG, JPG, JPEG) เท่านั้น' };
   }
+  
+  const allowedExtensions = ['.pdf', '.jpg', '.jpeg', '.png'];
+  const allowedMimeTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/pjpeg'];
+  
+  const hasValidExt = allowedExtensions.some(ext => fileName.endsWith(ext));
+  const hasValidMime = allowedMimeTypes.includes(fileType) || (!fileType && hasValidExt);
+  
+  if (!hasValidExt || !hasValidMime) {
+    return { valid: false, error: 'รองรับเฉพาะไฟล์ PDF หรือรูปภาพ (PNG, JPG, JPEG) ขนาดไม่เกิน 10MB เท่านั้น' };
+  }
+  
+  if (file.size > 10 * 1024 * 1024) {
+    return { valid: false, error: 'ขนาดไฟล์เอกสารแนบต้องไม่เกิน 10MB' };
+  }
+  
+  return { valid: true };
+};
+
+const submitPermissionRequest = async () => {
   if (!requestForm.value.reason.trim()) {
     reqError.value = 'โปรดระบุวัตถุประสงค์ในการขอเข้าถึง';
+    return;
+  }
+  if (!requestForm.value.mouFile || !requestForm.value.mouFileName) {
+    reqError.value = 'กรุณาแนบเอกสารประกอบคำขอ (รองรับไฟล์ PDF หรือรูปภาพ ขนาดไม่เกิน 10MB)';
     return;
   }
   
@@ -30,10 +110,12 @@ const submitPermissionRequest = async () => {
   try {
     const userData = localStorage.getItem('user');
     const response = await apiClient.post('/requestDatasetPermission', {
-      user: btoa(userData),
+      user: encodeUserData(JSON.parse(userData)),
       service_id: selectedDataset.value.id,
       fields: requestForm.value.fields,
-      reason: requestForm.value.reason
+      reason: requestForm.value.reason,
+      mou_file: requestForm.value.mouFile,
+      mou_filename: requestForm.value.mouFileName
     });
     
     if (response.data.status === 'success') {
@@ -41,6 +123,8 @@ const submitPermissionRequest = async () => {
       selectedDataset.value.permission_status = 'Pending';
       requestForm.value.fields = [];
       requestForm.value.reason = '';
+      requestForm.value.mouFile = null;
+      requestForm.value.mouFileName = '';
       fetchDatasets();
     } else {
       reqError.value = response.data.message || 'เกิดข้อผิดพลาด';
@@ -51,13 +135,37 @@ const submitPermissionRequest = async () => {
     isSubmittingReq.value = false;
   }
 };
+
+const handleMouFileChange = (e) => {
+  const file = e.target.files[0];
+  if (!file) {
+    requestForm.value.mouFile = null;
+    requestForm.value.mouFileName = '';
+    return;
+  }
+  const check = isValidMouFile(file);
+  if (!check.valid) {
+    reqError.value = check.error;
+    e.target.value = '';
+    requestForm.value.mouFile = null;
+    requestForm.value.mouFileName = '';
+    return;
+  }
+  reqError.value = '';
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    requestForm.value.mouFile = event.target.result;
+    requestForm.value.mouFileName = file.name;
+  };
+  reader.readAsDataURL(file);
+};
 const datasets = ref([]);
 const isLoading = ref(true);
 const errorMessage = ref('');
 
 // Pagination State
 const currentPage = ref(1);
-const itemsPerPage = 2; // Fixed at 2 for the demo (6 items = 3 pages)
+const itemsPerPage = 10; // Increased to 10
 
 const user = ref(JSON.parse(localStorage.getItem('user') || '{}'));
 
@@ -79,10 +187,89 @@ const isPreviewModalOpen = ref(false);
 const previewType = ref('');
 const selectedDataset = ref(null);
 const activeTab = ref('info');
+const catIsCsv = computed(() => {
+  const path = selectedDataset.value?.file_path;
+  return path ? path.toLowerCase().endsWith('.csv') : false;
+});
+const catIsExcel = computed(() => {
+  const p1 = selectedDataset.value?.excel_file_path;
+  const p2 = selectedDataset.value?.file_path;
+  const path = p1 || (p2 && (p2.toLowerCase().endsWith('.xls') || p2.toLowerCase().endsWith('.xlsx')) ? p2 : '');
+  return path ? (path.toLowerCase().endsWith('.xls') || path.toLowerCase().endsWith('.xlsx')) : false;
+});
 
-const openPreview = (type) => {
+const isPreviewLoading = ref(false);
+const previewColumns = ref([]);
+const previewRows = ref([]);
+
+const openPreview = async (type) => {
   previewType.value = type;
   isPreviewModalOpen.value = true;
+  isPreviewLoading.value = true;
+  previewColumns.value = [];
+  previewRows.value = [];
+
+  if (selectedDataset.value) {
+    try {
+      let fileTypeParam = 'data';
+      const fmt = String(type || '').toUpperCase();
+      if (fmt === 'DICTIONARY') fileTypeParam = 'dictionary';
+      else if (fmt === 'SAMPLING') fileTypeParam = 'sampling';
+      else if (fmt === 'EXCEL' || fmt === 'XLS' || fmt === 'XLSX') fileTypeParam = 'excel';
+      else if (fmt === 'CSV') fileTypeParam = 'csv';
+
+      const response = await apiClient.get(`/previewDatasetFile/${selectedDataset.value.service_id}?type=${fileTypeParam}`);
+      if (response.data && response.data.status === 'success') {
+        previewColumns.value = response.data.columns || [];
+        previewRows.value = response.data.rows || [];
+      } else {
+        previewColumns.value = ['ข้อความ'];
+        previewRows.value = [['ไม่พบตัวอย่างข้อมูลสำหรับไฟล์นี้']];
+      }
+    } catch (e) {
+      console.error('Failed to load preview:', e);
+      previewColumns.value = ['ข้อผิดพลาด'];
+      previewRows.value = [['ไม่สามารถโหลดตัวอย่างข้อมูลได้']];
+    } finally {
+      isPreviewLoading.value = false;
+    }
+  }
+};
+
+const downloadFile = () => {
+  if (selectedDataset.value) {
+    const userData = localStorage.getItem('user');
+    let userParam = '';
+    if (userData) {
+      try {
+        userParam = `&user=${encodeURIComponent(encodeUserData(JSON.parse(userData)))}`;
+      } catch (e) {
+        console.error('User encode error:', e);
+      }
+    }
+
+    if (previewType.value === 'CSV' || previewType.value === 'Excel') {
+        const isExcel = previewType.value === 'Excel';
+        const uploaded = isExcel ? selectedDataset.value.excel_file_path : selectedDataset.value.file_path;
+        if (uploaded) {
+            // Serve the uploaded file of exactly this type (CSV -> file_path, Excel -> excel_file_path)
+            window.open(`/api/downloadFile/${selectedDataset.value.service_id}?type=${isExcel ? 'excel' : 'data'}${userParam}`, '_blank');
+        } else {
+            const format = isExcel ? 'xls' : 'csv';
+            window.open(`/api/exportData/${selectedDataset.value.dataset_id}?format=${format}`, '_blank');
+        }
+    } else {
+        let fileTypeParam = 'data';
+        if (previewType.value === 'DICTIONARY') fileTypeParam = 'dictionary';
+        else if (previewType.value === 'SAMPLING') fileTypeParam = 'sampling';
+        
+        window.open(`/api/downloadFile/${selectedDataset.value.service_id}?type=${fileTypeParam}${userParam}`, '_blank');
+    }
+    try {
+        localStorage.setItem('datax_download_event', Date.now().toString());
+    } catch (e) {}
+    isPreviewModalOpen.value = false;
+  }
 };
 
 const closePreview = () => {
@@ -114,19 +301,67 @@ watch(activeTab, (newTab) => {
 });
 
 const categories = ref([
-  { name: 'ข้อมูลประชากร', count: 2, active: false },
-  { name: 'สาธารณสุข', count: 2, active: false },
-  { name: 'การศึกษา', count: 1, active: false },
-  { name: 'สวัสดิการสังคมและสิทธิมนุษยชน', count: 0, active: false },
-  { name: 'แรงงาน', count: 0, active: false },
-  { name: 'เศรษฐกิจ', count: 1, active: false },
-  { name: 'คมนาคม', count: 0, active: false }
+  { name: 'Learning Catalog', count: 0, active: false },
+  { name: 'Learning Record', count: 0, active: false },
+  { name: 'Learner Profile', count: 0, active: false },
+  { name: 'Job Market', count: 0, active: false },
+  { name: 'Skill Intelligence', count: 0, active: false }
 ]);
 
+const fetchCategories = async () => {
+  try {
+    const response = await apiClient.get('/retrieveCategories');
+    if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
+      categories.value = response.data.data.map(c => ({
+        name: c.name || c.category_name,
+        count: 0,
+        active: false
+      }));
+    }
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+  }
+};
+
+const getAccessInfo = (item) => {
+  const raw = String((item && (item.access_type || item.accessibility)) || 'public').trim().toLowerCase();
+  if (raw === 'internal' || raw === 'ภายในหน่วยงาน') {
+    return {
+      key: 'internal',
+      label: 'ภายในหน่วยงาน (Internal)',
+      shortLabel: 'Internal',
+      cssClass: 'access-internal'
+    };
+  }
+  if (raw === 'restricted' || raw === 'จำกัดสิทธิ์' || raw === 'confidential') {
+    return {
+      key: 'restricted',
+      label: 'จำกัดสิทธิ์ (Restricted)',
+      shortLabel: 'Restricted',
+      cssClass: 'access-restricted'
+    };
+  }
+  if (raw === 'pii' || raw === 'ข้อมูลส่วนบุคคล' || raw === 'private' || raw === 'เฉพาะเจ้าของ') {
+    return {
+      key: 'pii',
+      label: 'เฉพาะเจ้าของ (Private)',
+      shortLabel: 'Private',
+      cssClass: 'access-pii'
+    };
+  }
+  return {
+    key: 'public',
+    label: 'สาธารณะ (Public)',
+    shortLabel: 'Public',
+    cssClass: 'access-public'
+  };
+};
+
 const accessLevels = ref([
-  { name: 'Open Data', count: 5, active: false },
-  { name: 'Restricted', count: 1, active: false },
-  { name: 'Confidential', count: 0, active: false }
+  { name: 'สาธารณะ (Public)', key: 'public', count: 0, active: false },
+  { name: 'ภายในหน่วยงาน (Internal)', key: 'internal', count: 0, active: false },
+  { name: 'จำกัดสิทธิ์ (Restricted)', key: 'restricted', count: 0, active: false },
+  { name: 'เฉพาะเจ้าของ (Private)', key: 'pii', count: 0, active: false }
 ]);
 
 const formats = ['CSV', 'XLS', 'API', 'JSON', 'XML'];
@@ -136,11 +371,14 @@ const filteredDatasets = computed(() => {
 
   // 1. Search Query Filter
   if (searchQuery.value) {
-    const query = searchQuery.value.toLowerCase();
+    const query = String(searchQuery.value).toLowerCase();
     result = result.filter(ds => 
-      ds.title.toLowerCase().includes(query) || 
-      ds.agency.toLowerCase().includes(query) ||
-      ds.description.toLowerCase().includes(query)
+      String(ds.title || '').toLowerCase().includes(query) || 
+      String(ds.agency || '').toLowerCase().includes(query) ||
+      String(ds.description || '').toLowerCase().includes(query) ||
+      String(ds.tags || '').toLowerCase().includes(query) ||
+      String(ds.category || '').toLowerCase().includes(query) ||
+      String(ds.dataset_id || '').toLowerCase().includes(query)
     );
   }
 
@@ -151,9 +389,9 @@ const filteredDatasets = computed(() => {
   }
 
   // 3. Access Level Filter
-  const activeLevels = accessLevels.value.filter(l => l.active).map(l => l.name);
-  if (activeLevels.length > 0) {
-    result = result.filter(ds => activeLevels.includes(ds.accessibility));
+  const activeLevelKeys = accessLevels.value.filter(l => l.active).map(l => l.key);
+  if (activeLevelKeys.length > 0) {
+    result = result.filter(ds => activeLevelKeys.includes(ds.access_type_raw));
   }
 
   // 4. Format Filter
@@ -161,6 +399,15 @@ const filteredDatasets = computed(() => {
     result = result.filter(ds => 
       ds.formats.some(f => selectedFormats.value.includes(f))
     );
+  }
+
+  // 5. Sorting
+  if (sortOption.value === 'newest') {
+    result = result.sort((a, b) => b.id - a.id);
+  } else if (sortOption.value === 'popular') {
+    result = result.sort((a, b) => (b.title || '').localeCompare(a.title || ''));
+  } else if (sortOption.value === 'relevant') {
+    result = result.sort((a, b) => b.id - a.id);
   }
 
   return result;
@@ -184,9 +431,10 @@ const goToPage = (page) => {
 };
 
 const selectedFormats = ref([]);
+const sortOption = ref('newest');
 
-// Reset page when filtering
-watch([searchQuery, categories, accessLevels, selectedFormats], () => {
+// Reset page when filtering or sorting
+watch([searchQuery, categories, accessLevels, selectedFormats, sortOption], () => {
   currentPage.value = 1;
 }, { deep: true });
 
@@ -207,6 +455,9 @@ const toggleFormat = (format) => {
   }
 };
 
+const handleDatasetCardClick = (ds) => {
+  router.push('/dataset/' + ds.id);
+};
 const openDatasetDetail = (ds) => {
   selectedDataset.value = ds;
   activeTab.value = 'info';
@@ -223,8 +474,8 @@ const closeDatasetDetail = () => {
 
 const favorites = ref(JSON.parse(localStorage.getItem('user_favorites') || '[]'));
 
-const toggleFavorite = (ds) => {
-  const index = favorites.value.findIndex(f => f.id === ds.id);
+const toggleFavorite = async (ds) => {
+  const index = favorites.value.findIndex(f => Number(f.id) === Number(ds.id));
   if (index >= 0) {
     favorites.value.splice(index, 1);
   } else {
@@ -234,8 +485,8 @@ const toggleFavorite = (ds) => {
       title: ds.title,
       description: ds.description,
       accessibility: ds.accessibility,
+      accessClass: ds.accessClass,
       agency: ds.agency,
-      views: ds.views,
       updated: ds.updated,
       api_enabled: ds.api_enabled,
       api_type: ds.api_type,
@@ -243,64 +494,134 @@ const toggleFavorite = (ds) => {
     });
   }
   localStorage.setItem('user_favorites', JSON.stringify(favorites.value));
+
+  try {
+    const userDataStr = localStorage.getItem('user');
+    if (userDataStr) {
+      const userPayload = encodeUserData(JSON.parse(userDataStr));
+      await apiClient.post('/toggleFavorite', {
+        user: userPayload,
+        service_id: ds.id
+      });
+    }
+  } catch (err) {
+    console.error('Failed to toggle favorite on server:', err);
+  }
+};
+
+const syncServerFavorites = async () => {
+  try {
+    const userDataStr = localStorage.getItem('user');
+    if (userDataStr) {
+      const userPayload = encodeUserData(JSON.parse(userDataStr));
+      const res = await apiClient.post('/getUserFavorites', { user: userPayload });
+      if (res.data?.status === 'success' && Array.isArray(res.data.data)) {
+        const favIds = res.data.data.map(Number);
+        favorites.value = favorites.value.filter(f => favIds.includes(Number(f.id)));
+        favIds.forEach(id => {
+          if (!favorites.value.some(f => Number(f.id) === id)) {
+            const ds = datasets.value.find(d => Number(d.id) === id);
+            if (ds) {
+              favorites.value.push({
+                id: ds.id,
+                dataset_id: ds.dataset_id,
+                title: ds.title,
+                description: ds.description,
+                accessibility: ds.accessibility,
+                accessClass: ds.accessClass,
+                agency: ds.agency,
+                updated: ds.updated,
+                api_enabled: ds.api_enabled,
+                api_type: ds.api_type,
+                formats: ds.formats || ['CSV', 'API']
+              });
+            } else {
+              favorites.value.push({ id });
+            }
+          }
+        });
+        localStorage.setItem('user_favorites', JSON.stringify(favorites.value));
+      }
+    }
+  } catch (err) {
+    console.error('Failed to sync favorites with server:', err);
+  }
 };
 
 const isFavorite = (ds) => {
-  return favorites.value.some(f => f.id === ds.id);
+  return favorites.value.some(f => Number(f.id) === Number(ds.id));
 };
 
 const fetchDatasets = async () => {
   isLoading.value = true;
   errorMessage.value = '';
   try {
-    const response = await apiClient.get('/retrieveService');
+    const userDataStr = localStorage.getItem('user');
+    let userPayload = '';
+    if (userDataStr) {
+        userPayload = encodeUserData(JSON.parse(userDataStr));
+    }
+    const response = await apiClient.post('/retrieveService', { user: userPayload });
     if (response.data.status === 'success') {
       console.log('Catalog Raw Data (first 3):', response.data.data.slice(0, 3).map(i => ({ name: i.service_name, api: i.api_enabled })));
-      datasets.value = response.data.data.map(item => ({
-        id: item.service_id,
-        dataset_id: item.dataset_id,
-        title: item.service_name,
-        agency: item.organization || 'ไม่ระบุหน่วยงาน',
-        category: item.category || 'ทั่วไป',
-        sub_category: item.sub_category || '-',
-        description: item.description || 'ข้อมูลชุดนี้รวบรวมเพื่อการวิเคราะห์และนำไปใช้ประโยชน์ในระดับภาครัฐและเอกชน โดยเน้นความถูกต้องและเป็นปัจจุบัน',
-        contact_name: item.contact_name || '-',
-        contact_email: item.contact_email || '-',
-        tags: item.tags || '',
-        purpose: item.purpose || '-',
-        accessibility: item.accessibility || 'Open Data',
-        access_type: item.access_type || '-',
-        dept_contact: item.dept_contact || '-',
-        update_freq: (item.update_freq_value || '-') + ' ' + (item.update_freq_unit || ''),
-        geo_scope: item.geo_scope || '-',
-        data_source: item.data_source || '-',
-        gov_category: item.gov_category || '-',
-        license: item.license || '-',
-        access_conditions: item.access_conditions || '-',
-        sponsor: item.sponsor || '-',
-        smallest_unit: item.smallest_unit || '-',
-        languages: item.languages || '-',
-        objective_type: item.objective_type || '-',
-        external_dashboard_url: item.external_dashboard_url,
-        external_api_url: item.external_api_url,
-        has_access: item.has_access === 1 || item.has_access === '1' || item.has_access === true,
-        permission_status: item.permission_status,
-        api_response_fields: item.api_response_fields ? (typeof item.api_response_fields === 'string' ? JSON.parse(item.api_response_fields) : item.api_response_fields) : ['id', 'name', 'amount', 'date'],
-        api_enabled: item.api_enabled == 1 || item.api_enabled === '1' || item.api_enabled === true || String(item.api_enabled).toLowerCase() === 'true',
-        api_type: item.api_type || 'public',
-        formats: item.data_format ? item.data_format.split(',') : ['CSV', 'API', 'JSON'],
-        file_path: item.file_path,
-        views: (Math.floor(Math.random() * 900) + 100) + 'K records',
-        updated: 'อัปเดต ' + (Math.floor(Math.random() * 5) + 1) + ' วันก่อน',
-        isNew: Math.random() > 0.7
-      }));
+      datasets.value = response.data.data.map(item => {
+        const accessInfo = getAccessInfo(item);
+        return {
+          id: item.service_id,
+          dataset_id: item.dataset_id,
+          title: item.service_name,
+          agency: item.organization || 'ไม่ระบุหน่วยงาน',
+          category: item.category || 'ทั่วไป',
+          sub_category: item.sub_category || '-',
+          description: item.description || 'ข้อมูลชุดนี้รวบรวมเพื่อการวิเคราะห์และนำไปใช้ประโยชน์ในระดับภาครัฐและเอกชน โดยเน้นความถูกต้องและเป็นปัจจุบัน',
+          contact_name: item.contact_name || '-',
+          contact_email: item.contact_email || '-',
+          tags: item.tags || '',
+          purpose: item.purpose || '-',
+          accessibility: accessInfo.shortLabel,
+          access_type_raw: accessInfo.key,
+          access_type_label: accessInfo.label,
+          accessClass: accessInfo.cssClass,
+          access_type: accessInfo.label,
+          dept_contact: item.dept_contact || '-',
+          update_freq: (item.update_freq_value || '-') + ' ' + (item.update_freq_unit || ''),
+          geo_scope: item.geo_scope || '-',
+          data_source: item.data_source || '-',
+          gov_category: item.gov_category || '-',
+          license: item.license || '-',
+          access_conditions: item.access_conditions || '-',
+          sponsor: item.sponsor || '-',
+          smallest_unit: item.smallest_unit || '-',
+          languages: item.languages || '-',
+          objective_type: item.objective_type || '-',
+          external_dashboard_url: item.external_dashboard_url,
+          external_api_url: item.external_api_url,
+          has_access: item.has_access === 1 || item.has_access === '1' || item.has_access === true,
+          permission_status: item.permission_status,
+          api_response_fields: item.api_response_fields ? (typeof item.api_response_fields === 'string' ? JSON.parse(item.api_response_fields) : item.api_response_fields) : [],
+          api_enabled: item.api_enabled == 1 || item.api_enabled === '1' || item.api_enabled === true || String(item.api_enabled).toLowerCase() === 'true',
+          api_type: item.api_type || 'public',
+          formats: item.data_format ? item.data_format.split(',') : ['CSV', 'API', 'JSON'],
+          file_path: item.file_path,
+          updated: 'อัปเดต ' + (Math.floor(Math.random() * 5) + 1) + ' วันก่อน',
+          isNew: Math.random() > 0.7
+        };
+      });
+      
+      // Ensure all unique categories from datasets exist in the sidebar
+      const datasetCategories = [...new Set(datasets.value.map(ds => ds.category))];
+      datasetCategories.forEach(catName => {
+        if (catName && !categories.value.find(c => c.name === catName)) {
+          categories.value.push({ name: catName, count: 0, active: false });
+        }
+      });
       
       // Update dynamic counts
       categories.value.forEach(cat => {
         cat.count = datasets.value.filter(ds => ds.category === cat.name).length;
       });
       accessLevels.value.forEach(lvl => {
-        lvl.count = datasets.value.filter(ds => ds.accessibility === lvl.name).length;
+        lvl.count = datasets.value.filter(ds => ds.access_type_raw === lvl.key).length;
       });
     }
   } catch (error) {
@@ -311,8 +632,10 @@ const fetchDatasets = async () => {
   }
 };
 
-onMounted(() => {
-  fetchDatasets();
+onMounted(async () => {
+  await fetchCategories();
+  await fetchDatasets();
+  syncServerFavorites();
 });
 </script>
 
@@ -350,9 +673,23 @@ onMounted(() => {
             <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            <input type="text" v-model="searchQuery" placeholder="ค้นหาชุดข้อมูล เช่น สถิติประชากร...">
+            <input type="text" v-model="searchQuery" @focus="showSuggestions = true" @blur="hideSuggestions" placeholder="ค้นหาชุดข้อมูล เช่น Course Data, Job Market...">
+            
+            <ul v-if="showSuggestions && searchSuggestions.length > 0" class="auto-suggestions-dropdown">
+              <li v-for="(sug, index) in searchSuggestions" :key="index" @mousedown.prevent="selectSuggestion(sug.text)">
+                <div class="sug-content">
+                  <svg v-if="sug.type === 'ชุดข้อมูล'" xmlns="http://www.w3.org/2000/svg" class="sug-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+                  </svg>
+                  <svg v-else xmlns="http://www.w3.org/2000/svg" class="sug-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                  </svg>
+                  <span v-html="highlight(sug.text, searchQuery)"></span>
+                </div>
+                <span class="sug-type">{{ sug.type }}</span>
+              </li>
+            </ul>
             <button class="btn-search">ค้นหา</button>
-            <router-link to="/dataset-config" class="btn-add-dataset">Add Dataset</router-link>
           </div>
         </div>
       </header>
@@ -416,23 +753,23 @@ onMounted(() => {
             
             <div class="sort-control">
               <span>เรียงตาม:</span>
-              <select>
-                <option>เกี่ยวข้องมากที่สุด</option>
-                <option>ใหม่ล่าสุด</option>
-                <option>ยอดนิยม</option>
+              <select v-model="sortOption">
+                <option value="relevant">เกี่ยวข้องมากที่สุด</option>
+                <option value="newest">ใหม่ล่าสุด</option>
+                <option value="popular">ยอดนิยม</option>
               </select>
             </div>
           </div>
 
           <div v-if="paginatedDatasets.length > 0" class="datasets-list-vertical">
-            <router-link v-for="ds in paginatedDatasets" :key="ds.id" :to="'/dataset/' + ds.id" class="ds-horizontal-card">
+            <a v-for="ds in paginatedDatasets" :key="ds.id" href="#" @click.prevent="handleDatasetCardClick(ds)" class="ds-horizontal-card">
               <div class="ds-main-content">
                 <div class="ds-header">
                   <h4 class="ds-title">
                     <span v-if="!ds.has_access" style="margin-right: 6px;" title="ต้องขอสิทธิ์การเข้าถึง">🔒</span>
                     {{ ds.title }}
                   </h4>
-                  <button class="btn-favorite" :class="{ 'is-active': isFavorite(ds) }" @click.stop.prevent="toggleFavorite(ds)">
+                  <button class="btn-favorite custom-tooltip" :class="{ 'is-active': isFavorite(ds) }" @click.stop.prevent="toggleFavorite(ds)" data-tooltip="เพิ่ม/ลบ ในรายการโปรด">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" :fill="isFavorite(ds) ? 'currentColor' : 'none'" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.921-1.103 1.821-1.891 1.118l-3.976-2.888a1 1 0 00-1.175 0l-3.976 2.888c-.788.703-2.191-.197-1.891-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
                     </svg>
@@ -441,7 +778,7 @@ onMounted(() => {
                 <p class="ds-description">{{ ds.description }}</p>
                 <div class="ds-footer">
                   <div class="ds-badges">
-                    <span class="badge access-open">{{ ds.accessibility }}</span>
+                    <span class="badge" :class="ds.accessClass || 'access-public'">{{ ds.accessibility }}</span>
                     <span v-if="ds.api_enabled" :class="['badge', ds.api_type === 'private' ? 'format-api-private' : (ds.api_type === 'scope' ? 'format-api-scope' : 'format-api-public')]">
                       API: {{ ds.api_type === 'private' ? 'Private' : (ds.api_type === 'scope' ? 'Scope' : 'Public') }}
                     </span>
@@ -449,14 +786,12 @@ onMounted(() => {
                   </div>
                   <div class="ds-meta">
                     <span class="agency">{{ ds.agency }}</span>
-                    <span class="separator">•</span>
-                    <span class="views">{{ ds.views }}</span>
-                    <span class="separator">•</span>
-                    <span class="updated">{{ ds.updated }}</span>
+                    
+                    
                   </div>
                 </div>
               </div>
-            </router-link>
+            </a>
           </div>
           
           <div v-else-if="!isLoading" class="no-results">
@@ -592,8 +927,8 @@ onMounted(() => {
                     <h4>ดาวน์โหลดข้อมูล</h4>
                     <p>ดาวน์โหลดไฟล์ข้อมูลต้นฉบับในรูปแบบต่างๆ</p>
                     <div class="download-buttons">
-                      <button class="btn-download csv" @click="openPreview('CSV')">CSV</button>
-                      <button class="btn-download xls" @click="openPreview('Excel')">Excel</button>
+                      <button class="btn-download csv" :disabled="!catIsCsv" @click="openPreview('CSV')">CSV</button>
+                      <button class="btn-download xls" :disabled="!catIsExcel" @click="openPreview('Excel')">Excel</button>
                     </div>
                     <button v-if="selectedDataset?.file_path" class="btn-primary-outline w-full mt-4" @click="openPreview('ไฟล์แนบต้นฉบับ')">ดาวน์โหลดไฟล์แนบ</button>
                   </div>
@@ -605,21 +940,23 @@ onMounted(() => {
                     
                     <!-- If no request yet or rejected and user clicks request again -->
                     <div v-if="!selectedDataset?.permission_status" class="request-access-form-wrapper">
-                      <!-- Field selector -->
-                      <div class="form-group mb-4" style="margin-bottom: 12px;">
-                        <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px;">ฟิลด์ข้อมูลที่ต้องการ *</label>
-                        <div class="field-checkbox-list" style="max-height:120px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;padding:8px;background:#f8fafc; text-align:left;">
-                          <label v-for="field in selectedDataset?.api_response_fields" :key="field" class="flex items-center gap-2 mb-1 cursor-pointer" style="display:flex;align-items:center;gap:6px;font-size:0.85rem; margin-bottom: 4px; cursor:pointer;">
-                            <input type="checkbox" :value="field" v-model="requestForm.fields">
-                            <span>{{ field }}</span>
-                          </label>
-                        </div>
-                      </div>
-                      
                       <!-- Reason input -->
                       <div class="form-group mb-4" style="margin-bottom: 12px;">
                         <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px;">วัตถุประสงค์ในการขอเข้าถึง *</label>
                         <textarea v-model="requestForm.reason" rows="2" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px;font-size:0.85rem;resize:none; box-sizing:border-box;" placeholder="ระบุเหตุผลและวัตถุประสงค์การใช้งาน..."></textarea>
+                      </div>
+
+                      <!-- MOU File Upload -->
+                      <div class="form-group mb-4" style="margin-bottom: 12px;">
+                        <label class="font-semibold block mb-1 text-slate-700" style="font-size:0.85rem; display:block; margin-bottom: 4px; font-weight:600;">เอกสารประกอบคำขอ (MOU / หนังสือขอความอนุเคราะห์ / รูปภาพหลักฐาน) <span style="color:#ef4444;">* (จำเป็นต้องแนบ)</span></label>
+                        <div style="font-size:0.75rem; color:#1e3a8a; margin-bottom:6px; background:#eff6ff; padding:6px 10px; border-radius:6px; border:1px solid #bfdbfe; display:flex; align-items:center; gap:6px;">
+                          <span>📌</span>
+                          <span><strong>เงื่อนไขไฟล์แนบ:</strong> รองรับไฟล์ <strong>PDF หรือรูปภาพ (PNG, JPG, JPEG)</strong> ขนาดไม่เกิน <strong>10 MB</strong> (ไม่อนุญาตไฟล์ SVG)</span>
+                        </div>
+                        <input type="file" @change="handleMouFileChange" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:0.8rem;background:#f8fafc;cursor:pointer;" required>
+                        <div v-if="requestForm.mouFileName" style="margin-top:4px; font-size:0.75rem; color:#059669;">
+                          📎 ไฟล์ที่เลือก: <strong>{{ requestForm.mouFileName }}</strong>
+                        </div>
                       </div>
 
                       <div v-if="reqError" style="color:#e11d48;font-size:0.75rem;margin-bottom:8px;text-align:left;">{{ reqError }}</div>
@@ -649,7 +986,14 @@ onMounted(() => {
 
             <!-- Dictionary Tab -->
             <div v-if="activeTab === 'dictionary'" class="tab-content transition-fade">
-              <table class="dictionary-table">
+              <div v-if="!selectedDataset?.api_response_fields || selectedDataset.api_response_fields.length === 0" style="padding: 40px 20px; text-align: center; color: #94a3b8; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0;">
+                <svg xmlns="http://www.w3.org/2000/svg" style="width: 44px; height: 44px; margin: 0 auto 10px auto; color: #cbd5e1;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+                <h4 style="font-size: 1rem; font-weight: 600; color: #475569; margin: 0 0 4px 0;">ยังไม่มีพจนานุกรมข้อมูลสำหรับชุดข้อมูลนี้</h4>
+                <p style="font-size: 0.85rem; color: #94a3b8; margin: 0;">ชุดข้อมูลนี้ยังไม่มีการสร้าง API หรืออัปโหลดไฟล์พจนานุกรมข้อมูล (Data Dictionary)</p>
+              </div>
+              <table v-else class="dictionary-table">
                 <thead>
                   <tr>
                     <th>ลำดับ</th>
@@ -661,7 +1005,7 @@ onMounted(() => {
                 <tbody>
                   <tr v-for="(field, index) in selectedDataset?.api_response_fields" :key="field">
                     <td>{{ index + 1 }}</td>
-                    <td>{{ field }}</td>
+                    <td class="font-mono" style="font-weight:600;">{{ field }}</td>
                     <td>VARCHAR / String</td>
                     <td>ฟิลด์ข้อมูลที่ให้บริการสำหรับชุดข้อมูลนี้</td>
                   </tr>
@@ -728,7 +1072,7 @@ onMounted(() => {
                 <div class="grid grid-cols-2 gap-4" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
                   <!-- Main Bar Chart Mockup -->
                   <div class="chart-box p-4 bg-white rounded-xl border border-slate-100 shadow-sm col-span-2" style="grid-column: span 2;">
-                    <p class="text-sm font-bold text-slate-700 mb-4">สถิติประชากรแยกตามรายหน้า (Top 10)</p>
+                    <p class="text-sm font-bold text-slate-700 mb-4">สถิติการใช้งานชุดข้อมูล L2E (Top 10)</p>
                     <div class="flex items-end gap-2" style="display: flex; align-items: flex-end; gap: 0.5rem; height: 180px; padding-bottom: 20px; border-bottom: 1px solid #f1f5f9;">
                       <div class="bg-pink-100 hover:bg-pink-500 transition-colors rounded-t" style="flex: 1; height: 90%; cursor: pointer;" title="กทม."></div>
                       <div class="bg-pink-100 hover:bg-pink-500 transition-colors rounded-t" style="flex: 1; height: 45%;" title="สมุทรปราการ"></div>
@@ -755,7 +1099,7 @@ onMounted(() => {
                         <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#f1f5f9" stroke-width="3"></circle>
                         <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="var(--primary)" stroke-width="3" stroke-dasharray="40 60" stroke-dashoffset="25"></circle>
                         <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="var(--mso-accent)" stroke-width="3" stroke-dasharray="25 75" stroke-dashoffset="85"></circle>
-                        <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#fce7f3" stroke-width="3" stroke-dasharray="35 65" stroke-dashoffset="60"></circle>
+                        <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="var(--mso-pink-dark)" stroke-width="3" stroke-dasharray="35 65" stroke-dashoffset="60"></circle>
                       </svg>
                       <div class="absolute text-center" style="position: absolute;">
                         <p class="text-[10px] font-bold text-slate-400 uppercase leading-none">วัยทำงาน</p>
@@ -768,7 +1112,7 @@ onMounted(() => {
                         <span class="font-bold">40%</span>
                       </div>
                       <div class="flex items-center justify-between text-[10px]" style="display: flex; justify-content: space-between; font-size: 10px;">
-                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[#fce7f3]"></span> วัยเด็ก</span>
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[var(--mso-pink-dark)]"></span> วัยเด็ก</span>
                         <span class="font-bold">35%</span>
                       </div>
                       <div class="flex items-center justify-between text-[10px]" style="display: flex; justify-content: space-between; font-size: 10px;">
@@ -913,46 +1257,30 @@ onMounted(() => {
             </button>
           </header>
           
-          <div class="modal-body" style="padding: 0; max-height: 400px; overflow-y: auto;">
-            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem;">
-              <thead style="background-color: #f8fafc; position: sticky; top: 0;">
+          <div class="modal-body" style="padding: 0; max-height: 420px; overflow-x: auto; overflow-y: auto;">
+            <div v-if="isPreviewLoading" style="padding: 48px; text-align: center; color: #64748b;">
+              <div class="spinner" style="margin: 0 auto 12px auto; width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+              <p style="margin: 0; font-size: 0.9rem;">กำลังโหลดตัวอย่างข้อมูลจากไฟล์จริง...</p>
+            </div>
+            <div v-else-if="previewRows.length === 0" style="padding: 48px; text-align: center; color: #94a3b8;">
+              <svg xmlns="http://www.w3.org/2000/svg" style="width: 40px; height: 40px; margin: 0 auto 8px auto; color: #cbd5e1;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <p style="margin: 0; font-size: 0.9rem;">ไม่พบข้อมูลแถวในไฟล์นี้ หรือชุดข้อมูลยังไม่มีไฟล์แนบ</p>
+            </div>
+            <table v-else style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; white-space: nowrap;">
+              <thead style="background-color: #f8fafc; position: sticky; top: 0; z-index: 10;">
                 <tr>
-                  <th style="padding: 12px 24px; border-bottom: 1px solid #e2e8f0; color: #475569; font-weight: 600;">รหัสรายการ</th>
-                  <th style="padding: 12px 24px; border-bottom: 1px solid #e2e8f0; color: #475569; font-weight: 600;">พื้นที่ / จังหวัด</th>
-                  <th style="padding: 12px 24px; border-bottom: 1px solid #e2e8f0; color: #475569; font-weight: 600;">จำนวน (คน)</th>
-                  <th style="padding: 12px 24px; border-bottom: 1px solid #e2e8f0; color: #475569; font-weight: 600;">ปีที่สำรวจ</th>
+                  <th v-for="(col, idx) in previewColumns" :key="idx" style="padding: 12px 18px; border-bottom: 2px solid #e2e8f0; color: #475569; font-weight: 600;">
+                    {{ col }}
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                <tr style="border-bottom: 1px solid #f1f5f9; background-color: white; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='white'">
-                  <td style="padding: 12px 24px; color: #1e293b; font-weight: 500;">001</td>
-                  <td style="padding: 12px 24px; color: #475569;">กรุงเทพมหานคร</td>
-                  <td style="padding: 12px 24px; color: #475569;">5,476,120</td>
-                  <td style="padding: 12px 24px; color: #475569;">2566</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #f1f5f9; background-color: white; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='white'">
-                  <td style="padding: 12px 24px; color: #1e293b; font-weight: 500;">002</td>
-                  <td style="padding: 12px 24px; color: #475569;">สมุทรปราการ</td>
-                  <td style="padding: 12px 24px; color: #475569;">1,350,540</td>
-                  <td style="padding: 12px 24px; color: #475569;">2566</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #f1f5f9; background-color: white; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='white'">
-                  <td style="padding: 12px 24px; color: #1e293b; font-weight: 500;">003</td>
-                  <td style="padding: 12px 24px; color: #475569;">นนทบุรี</td>
-                  <td style="padding: 12px 24px; color: #475569;">1,280,000</td>
-                  <td style="padding: 12px 24px; color: #475569;">2566</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #f1f5f9; background-color: white; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='white'">
-                  <td style="padding: 12px 24px; color: #1e293b; font-weight: 500;">004</td>
-                  <td style="padding: 12px 24px; color: #475569;">ปทุมธานี</td>
-                  <td style="padding: 12px 24px; color: #475569;">1,170,900</td>
-                  <td style="padding: 12px 24px; color: #475569;">2566</td>
-                </tr>
-                <tr style="background-color: white; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='white'">
-                  <td style="padding: 12px 24px; color: #1e293b; font-weight: 500;">005</td>
-                  <td style="padding: 12px 24px; color: #475569;">เชียงใหม่</td>
-                  <td style="padding: 12px 24px; color: #475569;">1,780,210</td>
-                  <td style="padding: 12px 24px; color: #475569;">2566</td>
+                <tr v-for="(row, rIdx) in previewRows" :key="rIdx" style="border-bottom: 1px solid #f1f5f9; background-color: white; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='white'">
+                  <td v-for="(val, cIdx) in row" :key="cIdx" style="padding: 10px 18px; color: #334155; font-family: monospace; font-size: 0.8rem;">
+                    {{ val }}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -962,7 +1290,7 @@ onMounted(() => {
             <button @click="closePreview" style="padding: 8px 16px; border: none; background: none; color: #64748b; font-weight: 600; cursor: pointer; border-radius: 8px; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
               ยกเลิก
             </button>
-            <button @click="closePreview" style="padding: 8px 24px; background-color: var(--mso-accent); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 4px rgba(233, 30, 99, 0.2); transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='var(--primary)'" onmouseout="this.style.backgroundColor='var(--mso-accent)'">
+            <button @click="downloadFile" style="padding: 8px 24px; background-color: var(--mso-accent); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 4px rgba(233, 30, 99, 0.2); transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='var(--primary)'" onmouseout="this.style.backgroundColor='var(--mso-accent)'">
               <svg xmlns="http://www.w3.org/2000/svg" style="height: 16px; width: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
@@ -1091,7 +1419,7 @@ onMounted(() => {
   border-radius: 16px;
   padding: 24px;
   position: sticky;
-  top: 88px;
+  top: 116px;
 }
 
 .filter-section {
@@ -1139,7 +1467,7 @@ onMounted(() => {
 }
 
 .filter-checkbox input {
-  display: none;
+  display: none !important;
 }
 
 .checkbox-custom {
@@ -1197,7 +1525,7 @@ onMounted(() => {
 }
 
 .format-btn.active {
-  background-color: #fdf2f8;
+  background-color: var(--mso-pink-dark);
   color: var(--primary);
   border-color: #bbf7d0;
 }
@@ -1205,7 +1533,7 @@ onMounted(() => {
 .badge.access-restricted { background-color: #fef2f2; color: #dc2626; border-color: #fecaca; }
 
 .badge.format-api-public { background-color: #e0e7ff; color: #4338ca; border-color: #c7d2fe; }
-.badge.format-api-private { background-color: #fce7f3; color: #be185d; border-color: #fbcfe8; }
+.badge.format-api-private { background-color: var(--mso-pink-dark); color: var(--primary-hover); border-color: var(--mso-pink-dark); }
 .badge.format-api-scope { background-color: #ffedd5; color: #c2410c; border-color: #fed7aa; }
 
 .results-section {
@@ -1321,9 +1649,29 @@ onMounted(() => {
   font-weight: 700;
 }
 
+.access-public,
 .access-open {
-  background-color: #fdf2f8;
-  color: var(--mso-accent);
+  background-color: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.access-internal {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.access-restricted {
+  background-color: #fff1f2;
+  color: #e11d48;
+  border: 1px solid #fecdd3;
+}
+
+.access-pii {
+  background-color: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
 }
 
 .format {
@@ -1372,7 +1720,7 @@ onMounted(() => {
 .page-btn:hover:not(:disabled) {
   border-color: var(--primary);
   color: var(--primary);
-  background-color: #fdf2f8;
+  background-color: var(--mso-pink-dark);
 }
 
 .page-btn:disabled {
@@ -1567,7 +1915,7 @@ onMounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 12px 20px 6px;
-  background-color: #fdf2f8;
+  background-color: var(--mso-pink-dark);
   border-bottom: 1px solid #e2e8f0;
 }
 
@@ -1633,19 +1981,40 @@ onMounted(() => {
 
 .btn-download {
   flex: 1;
+  min-width: 70px;
   padding: 10px;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background-color: white;
+  border: 1px solid #cbd5e1;
+  background-color: #e2e8f0;
+  color: #94a3b8;
   font-size: 0.8125rem;
   font-weight: 700;
-  cursor: pointer;
+  cursor: not-allowed;
   transition: all 0.2s;
+  text-align: center;
 }
 
-.btn-download:hover {
-  border-color: var(--primary);
-  color: var(--primary);
+.btn-download:not(:disabled) {
+  background-color: #008236;
+  color: #ffffff;
+  border-color: #008236;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 130, 54, 0.2);
+}
+
+.btn-download:hover:not(:disabled) {
+  background-color: #00682b;
+  border-color: #00682b;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.btn-download:disabled, .btn-download.disabled {
+  background-color: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+  border-color: #cbd5e1;
+  opacity: 0.85;
 }
 
 .btn-primary-outline {
@@ -1738,6 +2107,21 @@ onMounted(() => {
 
 /* ===== RESPONSIVE: Mobile ===== */
 @media (max-width: 768px) {
+  .catalog-layout {
+    flex-direction: column !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    overflow-x: hidden !important;
+  }
+  
+  .catalog-content {
+    width: 100% !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
   .catalog-header {
     padding: 20px 16px 16px;
   }
@@ -1752,10 +2136,30 @@ onMounted(() => {
   }
 
   .search-input-wrapper {
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 8px;
     padding: 8px;
+    background: transparent;
+    border: none;
+    box-shadow: none;
   }
+  .search-input-wrapper input {
+    width: 100%;
+    background-color: white !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 12px !important;
+    padding: 12px !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.03) !important;
+  }
+  .search-input-wrapper .btn-search,
+  .search-input-wrapper .btn-add-dataset {
+    width: 100%;
+    margin: 0;
+  }
+  .search-input-wrapper > * {
+    width: 100%;
+  }
+
 
   .search-icon {
     display: none;
@@ -1912,4 +2316,159 @@ onMounted(() => {
     font-size: 0.8rem;
   }
 }
+
+
+.custom-tooltip {
+  position: relative;
+}
+.custom-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-5px);
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  pointer-events: none;
+  z-index: 999;
+}
+.custom-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(5px);
+  border-width: 5px;
+  border-style: solid;
+  border-color: rgba(0, 0, 0, 0.85) transparent transparent transparent;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  pointer-events: none;
+  z-index: 999;
+}
+.custom-tooltip:hover::after,
+.custom-tooltip:hover::before {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
 </style>
+<style scoped>
+.search-input-wrapper {
+  position: relative;
+}
+
+.auto-suggestions-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 8px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+  list-style: none;
+  padding: 8px 0;
+  z-index: 50;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.auto-suggestions-dropdown li {
+  padding: 10px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid #f8fafc;
+}
+
+.auto-suggestions-dropdown li:last-child {
+  border-bottom: none;
+}
+
+.auto-suggestions-dropdown li:hover {
+  background-color: #f1f5f9;
+}
+
+.sug-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  color: #334155;
+}
+
+.sug-icon {
+  width: 16px;
+  height: 16px;
+  color: #94a3b8;
+}
+
+.sug-type {
+  font-size: 0.7rem;
+  background: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.custom-tooltip {
+  position: relative;
+}
+.custom-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-5px);
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  pointer-events: none;
+  z-index: 999;
+}
+.custom-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(5px);
+  border-width: 5px;
+  border-style: solid;
+  border-color: rgba(0, 0, 0, 0.85) transparent transparent transparent;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  pointer-events: none;
+  z-index: 999;
+}
+.custom-tooltip:hover::after,
+.custom-tooltip:hover::before {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+</style>
+

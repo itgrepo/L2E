@@ -75,9 +75,9 @@ const combinedApis = computed(() => {
 const favorites = ref(JSON.parse(localStorage.getItem('user_favorites') || '[]'));
 
 const isFavorite = (ds) => {
-  return favorites.value.some(fav => fav.id === ds.id);
+  if (!ds) return false;
+  return favorites.value.some(fav => Number(fav.id) === Number(ds.id));
 };
-
 
 const copyToClipboard = async (text) => {
   try {
@@ -88,8 +88,9 @@ const copyToClipboard = async (text) => {
   }
 };
 
-const toggleFavorite = (ds) => {
-  const index = favorites.value.findIndex(fav => fav.id === ds.id);
+const toggleFavorite = async (ds) => {
+  if (!ds) return;
+  const index = favorites.value.findIndex(fav => Number(fav.id) === Number(ds.id));
   if (index >= 0) {
     favorites.value.splice(index, 1);
   } else {
@@ -108,6 +109,41 @@ const toggleFavorite = (ds) => {
     });
   }
   localStorage.setItem('user_favorites', JSON.stringify(favorites.value));
+
+  try {
+    const userDataStr = localStorage.getItem('user');
+    if (userDataStr) {
+      const userPayload = encodeUserData(JSON.parse(userDataStr));
+      await apiClient.post('/toggleFavorite', {
+        user: userPayload,
+        service_id: ds.id
+      });
+    }
+  } catch (err) {
+    console.error('Failed to toggle favorite on server:', err);
+  }
+};
+
+const syncServerFavorites = async () => {
+  try {
+    const userDataStr = localStorage.getItem('user');
+    if (userDataStr) {
+      const userPayload = encodeUserData(JSON.parse(userDataStr));
+      const res = await apiClient.post('/getUserFavorites', { user: userPayload });
+      if (res.data?.status === 'success' && Array.isArray(res.data.data)) {
+        const favIds = res.data.data.map(Number);
+        favorites.value = favorites.value.filter(f => favIds.includes(Number(f.id)));
+        favIds.forEach(id => {
+          if (!favorites.value.some(f => Number(f.id) === id)) {
+            favorites.value.push({ id });
+          }
+        });
+        localStorage.setItem('user_favorites', JSON.stringify(favorites.value));
+      }
+    }
+  } catch (err) {
+    console.error('Failed to sync favorites with server:', err);
+  }
 };
 
 const getAccessInfo = (item) => {
@@ -513,6 +549,7 @@ const openPreview = (format) => {
 
 onMounted(() => {
   fetchDatasetDetail();
+  syncServerFavorites();
 });
 
 watch(() => route.params.id, (newId) => {
