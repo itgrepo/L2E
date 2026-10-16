@@ -27,6 +27,9 @@ const user = ref({
 });
 
 const organizations = ref([]);
+const activeOrganizations = computed(() => {
+  return organizations.value.filter(o => o.is_active !== false);
+});
 const isSubmittingOnboarding = ref(false);
 const isOnboardingSubmitted = ref(false);
 
@@ -470,7 +473,7 @@ const saveChanges = async () => {
               </label>
               <select v-model="user.org_id" class="onboarding-select">
                 <option value="" disabled>-- กรุณาเลือกองค์กรที่ท่านสังกัด --</option>
-                <option v-for="org in organizations" :key="org.org_id" :value="org.org_id">
+                <option v-for="org in activeOrganizations" :key="org.org_id" :value="org.org_id">
                   {{ org.org_name }}
                 </option>
               </select>
@@ -539,7 +542,7 @@ const saveChanges = async () => {
               <label>องค์กร / หน่วยงานที่สังกัด (Organization)</label>
               <select v-model="user.org_id" class="form-control" style="width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; background: #fff; font-size: 0.95rem;">
                 <option value="" disabled>-- เลือกองค์กรที่สังกัด --</option>
-                <option v-for="org in organizations" :key="org.org_id" :value="org.org_id">
+                <option v-for="org in activeOrganizations" :key="org.org_id" :value="org.org_id">
                   {{ org.org_name }}
                 </option>
               </select>

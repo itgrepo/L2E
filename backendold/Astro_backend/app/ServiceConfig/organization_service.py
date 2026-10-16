@@ -2,16 +2,10 @@ from ServiceConfig import app, mysql, toJson, platform_decode, safe_json_loads, 
 from flask import request, jsonify
 import json
 
-@app.route('/getOrganizations', methods=['POST'])
+@app.route('/getOrganizations', methods=['POST', 'GET'])
 def getOrganizations():
     try:
-        dataInput = request.json
-        decoded_user = platform_decode(dataInput.get('user'))
-        user_data = safe_json_loads(decoded_user)
-
-        if not user_data or not checkUserIsAdmin(user_data):
-            return jsonify({"status": "Permission Denied"})
-
+        # Organization list is public metadata (needed for onboarding, registration, profile, and catalog)
         conn = mysql.connect()
         cursor = conn.cursor()
         
