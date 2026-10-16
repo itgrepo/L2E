@@ -88,6 +88,7 @@ def updateUserById():
         org_id = dataInput.get('org_id')
         status_id = dataInput.get('status_id')
         target_user_id = dataInput.get('target_user_id') # New field for clarity
+        link = dataInput.get('link', 'http://learn2earndatax.bde.go.th')
         
         user_data = safe_json_loads(platform_decode(dataInput.get('user', '')))
         
@@ -107,9 +108,31 @@ def updateUserById():
                 if status_id is not None:
                     updates.append("status_id = %s")
                     params.append(status_id)
-                    if str(status_id) == '1':
+                    if str(status_id) in ['1', '2']:
                         updates.append("status_account = 'active'")
+                        updates.append("count_login = 0")
                         cursor.execute("UPDATE user_activity SET status_account = '1' WHERE user_id = %s", (target_user_id,))
+                    elif str(status_id) == '3':
+                        updates.append("status_account = 'suspend'")
+                        cursor.execute("UPDATE user_activity SET status_account = '0' WHERE user_id = %s", (target_user_id,))
+                    elif str(status_id) == '4':
+                        updates.append("status_account = 'pending_verification'")
+                        cursor.execute("UPDATE user_activity SET status_account = '0' WHERE user_id = %s", (target_user_id,))
+                        # Generate verification token and send verification email
+                        cursor.execute("SELECT username, email FROM user WHERE user_id = %s", (target_user_id,))
+                        u_row = cursor.fetchone()
+                        if u_row:
+                            u_name, u_email = u_row[0], u_row[1]
+                            import uuid
+                            token = (str(uuid.uuid4()) + str(uuid.uuid1())).replace('-', '')
+                            cursor.execute("DELETE FROM token_register WHERE username = %s OR email = %s", (u_name, u_email))
+                            cursor.execute("INSERT INTO token_register VALUES (NULL, %s, %s, %s, %s, CURRENT_TIMESTAMP)", (token, u_name, u_email, 'active'))
+                            try:
+                                verify_url = f"{link}/verify/{token}"
+                                notify_verification_email(u_name, '', verify_url, u_email)
+                                print(f"DEBUG: Sent verification email for user {u_name} on status change to 4. URL: {verify_url}")
+                            except Exception as m_err:
+                                print(f"Error sending verification email: {m_err}")
                 
                 if updates:
                     sql = f"UPDATE user SET {', '.join(updates)} WHERE user_id = %s"
@@ -270,8 +293,8 @@ def createUser():
         username = dataInput.get('username')
         email = dataInput.get('email')
         password = dataInput.get('password')
-        status_id = dataInput.get('status_id', 1)
-        previlage_id = dataInput.get('previlage_id', 3)
+        status_id = dataInput.get('status_id', 4)
+        previlage_id = dataInput.get('previlage_id', 2)
         org_id = dataInput.get('org_id')
         groups = dataInput.get('groups', [])
         
@@ -293,7 +316,9 @@ def createUser():
             cursor.close()
             return jsonify({"status": "error", "message": "Username or Email already exists"})
 
-        # Insert user
+        status_account_val = 'active' if str(status_id) in ['1', '2'] else ('suspend' if str(status_id) == '3' else 'pending_verification')
+
+        # Insert user with admin_created tag
         sql_user = """
             INSERT INTO user (username, password, email, firstname, lastname,
                               national_id, national_id_book, national_id_mode,
@@ -304,26 +329,25 @@ def createUser():
         cursor.execute(sql_user, (
             username, password, email, '', '',
             username, '', 1,
-            status_id, 'active', previlage_id, org_id, '',
-            1, ''
+            status_id, status_account_val, previlage_id, org_id, '',
+            1, 'admin_created'
         ))
         user_id = cursor.lastrowid
         
-        # If pending verification (4), generate token and send email
+        # If pending verification (4), generate token and send verification email
         if int(status_id) == 4:
             import uuid
             token = (str(uuid.uuid4()) + str(uuid.uuid1())).replace('-', '')
+            cursor.execute("DELETE FROM token_register WHERE username = %s OR email = %s", (username, email))
             sql_token = "INSERT INTO token_register VALUES (NULL, %s, %s, %s, %s, CURRENT_TIMESTAMP)"
             cursor.execute(sql_token, (token, username, email, 'active'))
             
             try:
-                # Use same LINK logic as registerSimple
-                # We can assume request.host_url or a fallback
                 fallback_link = "http://learn2earndatax.bde.go.th"
                 link = dataInput.get('link', fallback_link)
                 verify_url = f"{link}/verify/{token}"
                 notify_verification_email(username, '', verify_url, email)
-                print(f"DEBUG: Admin AddUser Verification Email sent. URL: {verify_url}")
+                print(f"DEBUG: Admin AddUser Verification Email sent to {email}. URL: {verify_url}")
             except Exception as mail_err:
                 print("Could not send verification email in Admin AddUser: " + str(mail_err))
 

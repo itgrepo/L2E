@@ -51,7 +51,7 @@ const formData = ref({
     confirmPassword: '',
     previlage_id: 2,
     org_id: '',
-    status_id: 1,
+    status_id: 4,
     groups: []
 });
 
@@ -106,7 +106,7 @@ const openAddModal = () => {
         confirmPassword: '',
         previlage_id: 2,
         org_id: '',
-        status_id: 1,
+        status_id: 4,
         groups: []
     };
     showPassword.value = false;
@@ -239,6 +239,49 @@ const handleRoleChange = async (user, newRoleId) => {
         alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
     }
 };
+
+const getUserStatusValue = (statusId) => {
+    const s = String(statusId);
+    if (s === '1' || s === '2') return 1;
+    if (s === '4') return 4;
+    if (s === '3') return 3;
+    if (s === '6') return 6;
+    if (s === '8') return 8;
+    return 1;
+};
+
+const getStatusBadgeClass = (statusId) => {
+    const val = getUserStatusValue(statusId);
+    if (val === 1) return 'status-active';
+    if (val === 4) return 'status-pending';
+    if (val === 3) return 'status-suspended';
+    if (val === 6) return 'status-locked';
+    if (val === 8) return 'status-approval';
+    return 'status-active';
+};
+
+const handleStatusChange = async (user, newStatusId) => {
+    try {
+        const userStored = JSON.parse(localStorage.getItem('user') || '{}');
+        const response = await postWithUser('/mgmt/updateUserById', userStored, {
+            target_user_id: user.user_id,
+            status_id: parseInt(newStatusId),
+            link: window.location.origin
+        });
+        
+        if (response.data.status === 'success') {
+            const statusNames = { 1: 'Active', 4: 'Pending Verification', 3: 'Suspend' };
+            showAlert(`อัปเดตสถานะของ ${user.username} เป็น ${statusNames[newStatusId] || newStatusId} สำเร็จ`, 'success');
+            fetchUsers();
+        } else {
+            alert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status));
+        }
+    } catch (error) {
+        console.error('Error updating status:', error);
+        alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
+    }
+};
+
 
 
 const handleUnlockUser = async (user) => {
@@ -442,6 +485,23 @@ onMounted(() => {
                   </div>
                 </div>
                 <div class="mc-row">
+                  <span class="mc-label">สถานะ</span>
+                  <div class="role-selector-box mobile-select">
+                    <select 
+                        :value="getUserStatusValue(u.status_id)" 
+                        @change="handleStatusChange(u, $event.target.value)"
+                        class="role-select status-select"
+                        :class="getStatusBadgeClass(u.status_id)"
+                    >
+                        <option :value="1">🟢 Active</option>
+                        <option :value="4">🟡 Pending Verification</option>
+                        <option :value="3">🔴 Suspend</option>
+                        <option v-if="u.status_id == 6" :value="6" disabled>🔒 Locked</option>
+                        <option v-if="u.status_id == 8" :value="8" disabled>⏳ รออนุมัติ R2</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="mc-row">
                   <span class="mc-label">หน่วยงาน</span>
                   <div class="role-selector-box mobile-select" v-if="u.previlage_id == 3">
                     <select 
@@ -469,6 +529,7 @@ onMounted(() => {
                 <th>อีเมล</th>
                 <th>วันที่เข้าร่วม</th>
                 <th>บทบาทปัจจุบัน</th>
+                <th>สถานะ</th>
                 <th>หน่วยงาน (สำหรับเจ้าของข้อมูล)</th>
                 <th>ดำเนินการ</th>
               </tr>
@@ -503,6 +564,22 @@ onMounted(() => {
                   <span v-else class="role-badge" :class="'role-' + u.previlage_id">
                     {{ u.previlage_name || 'No Role' }}
                   </span>
+                </td>
+                <td class="status-cell">
+                  <div class="role-selector-box">
+                    <select 
+                        :value="getUserStatusValue(u.status_id)" 
+                        @change="handleStatusChange(u, $event.target.value)"
+                        class="role-select status-select"
+                        :class="getStatusBadgeClass(u.status_id)"
+                    >
+                        <option :value="1">🟢 Active</option>
+                        <option :value="4">🟡 Pending Verification</option>
+                        <option :value="3">🔴 Suspend</option>
+                        <option v-if="u.status_id == 6" :value="6" disabled>🔒 Locked</option>
+                        <option v-if="u.status_id == 8" :value="8" disabled>⏳ รออนุมัติ R2</option>
+                    </select>
+                  </div>
                 </td>
                 <td class="org-cell">
                     <div class="role-selector-box">
@@ -637,12 +714,15 @@ onMounted(() => {
                 <div class="form-group half">
                   <label>Status</label>
                   <select v-model="formData.status_id" class="dark-input">
+                    <option :value="4">Pending Verification (ส่งอีเมลยืนยัน)</option>
                     <option :value="1">Active</option>
-                    <option :value="4">Pending Verification</option>
                     <option :value="3">Suspended</option>
                   </select>
                 </div>
               </div>
+              <p style="font-size: 0.78rem; color: #10b981; margin: -12px 0 16px 0;" v-if="formData.status_id == 4">
+                ✉️ ระบบจะส่งอีเมลยืนยันตัวตน และเปิดใช้งานบัญชีพร้อมสิทธิ์ที่เลือกโดยอัตโนมัติ (Auto-Approve) เมื่อผู้ใช้กดยืนยันในอีเมล
+              </p>
 
               <div class="form-group">
                 <label>Organization <span class="required" v-if="formData.previlage_id == 3">*</span></label>
@@ -913,6 +993,65 @@ h1 {
 .btn-icon {
     width: 18px;
     height: 18px;
+}
+
+.status-cell {
+    width: 200px;
+    min-width: 190px;
+}
+
+.status-select {
+    width: 185px;
+    max-width: 185px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-width: 1.5px;
+}
+
+.status-select.status-active {
+    background-color: #ecfdf5;
+    color: #065f46;
+    border-color: #a7f3d0;
+}
+.status-select.status-active:hover {
+    background-color: #d1fae5;
+    border-color: #6ee7b7;
+}
+
+.status-select.status-pending {
+    background-color: #fffbeb;
+    color: #92400e;
+    border-color: #fde68a;
+}
+.status-select.status-pending:hover {
+    background-color: #fef3c7;
+    border-color: #fcd34d;
+}
+
+.status-select.status-suspended {
+    background-color: #fef2f2;
+    color: #991b1b;
+    border-color: #fecaca;
+}
+.status-select.status-suspended:hover {
+    background-color: #fee2e2;
+    border-color: #f87171;
+}
+
+.status-select.status-locked {
+    background-color: #f8fafc;
+    color: #64748b;
+    border-color: #cbd5e1;
+}
+
+.status-select.status-approval {
+    background-color: #fef3c7;
+    color: #b45309;
+    border-color: #fde68a;
 }
 
 .org-cell {

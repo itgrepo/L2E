@@ -541,7 +541,7 @@ def getEmailFromToken():
 
         # 2. Get user and activity details
         sql_user = """
-            SELECT u.user_id, u.username, u.national_id, ua.create_date 
+            SELECT u.user_id, u.username, u.national_id, u.previlage_id, u.usage_objective, ua.create_date 
             FROM user u 
             JOIN user_activity ua ON u.user_id = ua.user_id 
             WHERE u.username = %s AND u.status_id != '7'
@@ -580,9 +580,23 @@ def getEmailFromToken():
             conn.close()
             return jsonify({'status': 'link expire', 'message': 'ลิงก์ยืนยันตัวตนหมดอายุแล้ว ระบบได้ลบข้อมูลเดิมเพื่อให้คุณสามารถสมัครใหม่ได้'})
 
-        # 4. Success: Promote user to Pending Admin Approval / Onboarding (8) with External role (1)
-        cursor.execute("UPDATE user SET status_id = 8, previlage_id = 1 WHERE user_id = %s", (user_id,))
-        cursor.execute("UPDATE user_activity SET status_account = '1' WHERE user_id = %s", (user_id,))
+        # 4. Success:
+        previlage_id = user_res.get('previlage_id')
+        usage_objective = user_res.get('usage_objective')
+        is_admin_created = (usage_objective == 'admin_created') or (previlage_id and int(previlage_id) > 1)
+
+        if is_admin_created:
+            # User was created by Admin: Auto-approve directly to Active (1), keep assigned role and org
+            cursor.execute("UPDATE user SET status_id = 1, status_account = 'active' WHERE user_id = %s", (user_id,))
+            cursor.execute("UPDATE user_activity SET status_account = '1' WHERE user_id = %s", (user_id,))
+            logAction(user_id, '/getEmailFromToken', f'User {username} (Role {previlage_id}) email verified and auto-approved', 'info')
+            print(f"DEBUG: User {username} (Role {previlage_id}) email verified and auto-approved successfully")
+        else:
+            # Public self-registered user: Move to Pending Admin Approval / Onboarding (8) with External role (1)
+            cursor.execute("UPDATE user SET status_id = 8, previlage_id = 1, status_account = 'active' WHERE user_id = %s", (user_id,))
+            cursor.execute("UPDATE user_activity SET status_account = '1' WHERE user_id = %s", (user_id,))
+            logAction(user_id, '/getEmailFromToken', f'User {username} email verified, pending admin approval', 'info')
+
         cursor.execute("DELETE FROM token_register WHERE token = %s", (token,))
         
         conn.commit()
