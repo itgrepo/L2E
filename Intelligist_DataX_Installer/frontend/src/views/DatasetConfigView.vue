@@ -1,10 +1,42 @@
 <script setup>
 import { ref, onMounted, watch, computed, onActivated, reactive } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { encodeUserData, postWithUser } from '../utils/api';
 
 const route = useRoute();
+const router = useRouter();
+
+const currentUser = computed(() => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || '{}');
+  } catch (e) {
+    return {};
+  }
+});
+
+const isSuperAdmin = computed(() => {
+  const role = String(currentUser.value.previlage_id || currentUser.value.role_id || '');
+  return role === '4';
+});
+
+const organizations = ref([]);
+
+const userOrgName = computed(() => {
+  const user = currentUser.value;
+  if (!user) return '';
+  if (user.org_id && Array.isArray(organizations.value)) {
+    const match = organizations.value.find(o => String(o.org_id) === String(user.org_id));
+    if (match && match.org_name) {
+      return match.org_name.trim();
+    }
+  }
+  return (user.org_name || user.organization || '').trim();
+});
+
+const availableOrganizations = computed(() => {
+  return organizations.value.filter(org => org.is_active || (formData.value.organization && org.org_name === formData.value.organization));
+});
 
 const activeTab = ref('create');
 const tabs = [
@@ -25,7 +57,7 @@ const formData = ref({
   sub_category: '',
   status: 'Inactive', // Match portal default
   service_name: '',
-  organization: '',
+  organization: !isSuperAdmin.value ? (userOrgName.value || '') : '',
   access_type: '',
   contact_name: '', // Will be used for "ชื่อฝ่ายงานสำหรับติดต่อ"
   contact_email: '',
@@ -97,6 +129,11 @@ const govConflictMessage = computed(() => {
   return null;
 });
 
+watch(userOrgName, (newOrg) => {
+  if (!isSuperAdmin.value && newOrg && !editingId.value) {
+    formData.value.organization = newOrg;
+  }
+}, { immediate: true });
 
 const isSubmitting = ref(false);
 const successMessage = ref('');
@@ -108,6 +145,9 @@ const switchTab = (tabId) => {
   if (tabId === 'create' && !editingId.value) {
     if (!formData.value.dataset_type) {
       formData.value.dataset_type = 'record';
+    }
+    if (!isSuperAdmin.value && userOrgName.value) {
+      formData.value.organization = userOrgName.value;
     }
   }
 };
@@ -171,7 +211,7 @@ const fetchDatasets = async () => {
 
 const canEditItem = (item) => {
   try {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const user = currentUser.value;
     const role = String(user.previlage_id || user.role_id || '');
     if (role === '4') return true;
     const uid = user.user_id || user.id;
@@ -179,9 +219,9 @@ const canEditItem = (item) => {
     if (!item.created_by && item.contact_email && user.email) {
       if (item.contact_email.trim().toLowerCase() === user.email.trim().toLowerCase()) return true;
     }
-    const userOrg = (user.org_name || user.organization || '').trim();
-    if (role === '3' && userOrg && item.organization) {
-      if (item.organization.trim() === userOrg && item.access_type !== 'pii') {
+    const currentOrg = (userOrgName.value || user.org_name || user.organization || '').trim();
+    if ((role === '3' || role === '5') && currentOrg && item.organization) {
+      if (item.organization.trim() === currentOrg && item.access_type !== 'pii') {
         return true;
       }
     }
@@ -300,7 +340,7 @@ const resetForm = () => {
     sub_category: '',
     status: 'Inactive',
     service_name: '',
-    organization: '',
+    organization: !isSuperAdmin.value ? (userOrgName.value || '') : '',
     access_type: '',
     contact_name: '',
     contact_email: '',
@@ -596,6 +636,9 @@ const handleSubmit = async () => {
     if (!formData.value.dataset_type) {
       formData.value.dataset_type = 'record';
     }
+    if (!isSuperAdmin.value && userOrgName.value) {
+      formData.value.organization = userOrgName.value;
+    }
     const userData = localStorage.getItem('user');
     const fd = new FormData();
     fd.append('user', encodeUserData(JSON.parse(userData))); 
@@ -687,9 +730,7 @@ const handleAddSubCategory = async () => {
   }
 };
 
-const organizations = ref([]);
 const categoriesList = ref([]);
-
 
 const fetchOrganizations = async () => {
   try {
@@ -698,15 +739,14 @@ const fetchOrganizations = async () => {
     const response = await apiClient.post('/getOrganizations', { user: userParam });
     if (response.data.status === 'success') {
       organizations.value = response.data.data;
+      if (!isSuperAdmin.value && userOrgName.value && !editingId.value) {
+        formData.value.organization = userOrgName.value;
+      }
     }
   } catch (error) {
     console.error('Error fetching organizations:', error);
   }
 };
-
-const availableOrganizations = computed(() => {
-  return organizations.value.filter(org => org.is_active || (formData.value.organization && org.org_name === formData.value.organization));
-});
 
 const fetchCategories = async () => {
   try {
@@ -1050,10 +1090,22 @@ const updateDatasetPrefix = onSubgroupChange;
                 <div class="form-row">
                   <div class="form-group">
                     <label>หน่วยงานที่รับผิดชอบ (Organization Owner) *</label>
-                    <select v-model="formData.organization" required class="form-select-custom">
-                      <option value="">เลือกหน่วยงาน</option>
+                    <select 
+                      v-model="formData.organization" 
+                      :disabled="!isSuperAdmin"
+                      required 
+                      class="form-select-custom"
+                      :style="!isSuperAdmin ? 'background-color: #f1f5f9; cursor: not-allowed; opacity: 0.85; border-color: #cbd5e1;' : ''"
+                    >
+                      <option value="" disabled>เลือกหน่วยงาน</option>
                       <option v-for="org in availableOrganizations" :key="org.org_id" :value="org.org_name">{{ org.org_name }}</option>
+                      <option v-if="formData.organization && !availableOrganizations.some(o => o.org_name === formData.organization)" :value="formData.organization">
+                        {{ formData.organization }}
+                      </option>
                     </select>
+                    <small v-if="!isSuperAdmin" class="text-gray-500 mt-1 block" style="color: #64748b; font-size: 0.82rem;">
+                      🔒 หน่วยงานถูกกำหนดตามสังกัดของคุณ (เฉพาะผู้ดูแลระบบสูงสุดเท่านั้นที่สามารถเปลี่ยนหน่วยงานได้)
+                    </small>
                   </div>
                   <div class="form-group">
                     <label>ระบบต้นทาง (Source System) *</label>

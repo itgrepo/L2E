@@ -216,18 +216,36 @@ def addService():
                     conn.close()
                     return jsonify({"status": err_msg}), 400
 
-                # Check organization binding for Role 3
-                user_data = getattr(request, 'current_user', {})
-                previlage_id = str(user_data.get('previlage_id', ''))
-                org_id = user_data.get('org_id')
-                if previlage_id == '3' and org_id:
-                    cursor.execute("SELECT org_name FROM organization WHERE org_id = %s", (org_id,))
-                    org_row = cursor.fetchone()
-                    user_org_name = org_row[0] if org_row else ''
-                    if user_org_name != organization:
+                # Enforce organization binding for Admins (Role != 4)
+                # Super Admin (4) can create dataset for ANY organization.
+                # Department/Org Admins (3 or 5, or any non-4) must create dataset for THEIR OWN organization only.
+                caller_user_id = current_user_id or user_data.get('user_id')
+                caller_role = None
+                caller_org_id = None
+                if caller_user_id:
+                    cursor.execute("SELECT previlage_id, org_id FROM user WHERE user_id = %s", (caller_user_id,))
+                    u_row = cursor.fetchone()
+                    if u_row:
+                        caller_role = str(u_row[0])
+                        caller_org_id = u_row[1]
+                if not caller_role and isinstance(user_data, dict):
+                    caller_role = str(user_data.get('previlage_id', ''))
+                if not caller_org_id and isinstance(user_data, dict):
+                    caller_org_id = user_data.get('org_id')
+
+                if caller_role != '4':
+                    if not caller_org_id:
                         cursor.close()
                         conn.close()
-                        return jsonify({"status": "คุณมีสิทธิ์จัดการชุดข้อมูลเฉพาะของหน่วยงานที่คุณสังกัดเท่านั้น"}), 403
+                        return jsonify({"status": "คุณไม่มีหน่วยงานสังกัด ไม่สามารถสร้างชุดข้อมูลได้", "message": "คุณไม่มีหน่วยงานสังกัด ไม่สามารถสร้างชุดข้อมูลได้"}), 403
+
+                    cursor.execute("SELECT org_name FROM organization WHERE org_id = %s", (caller_org_id,))
+                    org_row = cursor.fetchone()
+                    user_org_name = (org_row[0] if org_row else '').strip()
+                    if not user_org_name or organization.strip() != user_org_name:
+                        cursor.close()
+                        conn.close()
+                        return jsonify({"status": "คุณมีสิทธิ์จัดการชุดข้อมูลเฉพาะของหน่วยงานที่คุณสังกัดเท่านั้น", "message": "คุณมีสิทธิ์จัดการชุดข้อมูลเฉพาะของหน่วยงานที่คุณสังกัดเท่านั้น"}), 403
 
                 if not dataset_id:
                     cursor.close()
@@ -471,6 +489,33 @@ def addService():
                         cursor.close()
                         conn.close()
                         return err_owner
+
+                    # Check organization change permission: Org Admin cannot change organization to another organization
+                    caller_user_id = current_user_id or user_data.get('user_id')
+                    caller_role = None
+                    caller_org_id = None
+                    if caller_user_id:
+                        cursor.execute("SELECT previlage_id, org_id FROM user WHERE user_id = %s", (caller_user_id,))
+                        u_row = cursor.fetchone()
+                        if u_row:
+                            caller_role = str(u_row[0])
+                            caller_org_id = u_row[1]
+                    if not caller_role and isinstance(user_data, dict):
+                        caller_role = str(user_data.get('previlage_id', ''))
+                    if not caller_org_id and isinstance(user_data, dict):
+                        caller_org_id = user_data.get('org_id')
+
+                    if caller_role != '4' and organization is not None:
+                        user_org_name = ''
+                        if caller_org_id:
+                            cursor.execute("SELECT org_name FROM organization WHERE org_id = %s", (caller_org_id,))
+                            orow = cursor.fetchone()
+                            if orow and orow[0]:
+                                user_org_name = orow[0].strip()
+                        if not user_org_name or organization.strip() != user_org_name:
+                            cursor.close()
+                            conn.close()
+                            return jsonify({"status": "คุณมีสิทธิ์จัดการชุดข้อมูลเฉพาะของหน่วยงานที่คุณสังกัดเท่านั้น", "message": "คุณมีสิทธิ์จัดการชุดข้อมูลเฉพาะของหน่วยงานที่คุณสังกัดเท่านั้น"}), 403
 
                     # Construct update query dynamically for provided fields
                     fields = []
