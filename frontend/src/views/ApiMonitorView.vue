@@ -125,10 +125,246 @@ const parseApiDetail = (detail) => {
   return { result: detail.includes('error') ? 'Error' : 'Info', message: detail, isSuccess: !detail.includes('error') };
 };
 
+const copiedLogId = ref(null);
+const copyUserAgent = (uaText, logId) => {
+  if (!uaText) return;
+  navigator.clipboard.writeText(uaText).then(() => {
+    copiedLogId.value = logId;
+    setTimeout(() => {
+      if (copiedLogId.value === logId) copiedLogId.value = null;
+    }, 2000);
+  });
+};
+
+const parseDeviceInfo = (ua) => {
+  if (!ua || ua === 'Unknown' || ua === '-') {
+    return {
+      browser: 'ไม่ระบุอุปกรณ์',
+      shortBrowser: 'ไม่ระบุ',
+      shortLabel: 'ไม่ระบุ',
+      os: 'ไม่ระบุ',
+      deviceType: 'ไม่ระบุ',
+      version: '',
+      icon: '❓',
+      badgeClass: 'badge-unknown',
+      raw: ua || '-'
+    };
+  }
+
+  // 1. API Clients / Scripts / Bots
+  if (/python-requests/i.test(ua)) {
+    const m = ua.match(/python-requests\/([0-9\.]+)/i);
+    return {
+      browser: 'Python Requests',
+      shortBrowser: 'Python',
+      shortLabel: 'Python Requests',
+      os: 'API / Script',
+      deviceType: 'สคริปต์/API (Script)',
+      version: m ? m[1] : '',
+      icon: '🐍',
+      badgeClass: 'badge-python',
+      raw: ua
+    };
+  }
+  if (/python-urllib/i.test(ua)) {
+    const m = ua.match(/python-urllib\/([0-9\.]+)/i);
+    return {
+      browser: 'Python urllib',
+      shortBrowser: 'Python',
+      shortLabel: 'Python urllib',
+      os: 'API / Script',
+      deviceType: 'สคริปต์/API (Script)',
+      version: m ? m[1] : '',
+      icon: '🐍',
+      badgeClass: 'badge-python',
+      raw: ua
+    };
+  }
+  if (/aiohttp/i.test(ua)) {
+    const m = ua.match(/aiohttp\/([0-9\.]+)/i);
+    return {
+      browser: 'aiohttp Client',
+      shortBrowser: 'aiohttp',
+      shortLabel: 'aiohttp',
+      os: 'API / Script',
+      deviceType: 'สคริปต์/API (Script)',
+      version: m ? m[1] : '',
+      icon: '🐍',
+      badgeClass: 'badge-python',
+      raw: ua
+    };
+  }
+  if (/curl\//i.test(ua)) {
+    const m = ua.match(/curl\/([0-9\.]+)/i);
+    return {
+      browser: 'cURL Command-Line Tool',
+      shortBrowser: 'cURL',
+      shortLabel: 'cURL CLI',
+      os: 'Terminal / CLI',
+      deviceType: 'คำสั่งเทอร์มินัล (CLI)',
+      version: m ? m[1] : '',
+      icon: '💻',
+      badgeClass: 'badge-cli',
+      raw: ua
+    };
+  }
+  if (/wget\//i.test(ua)) {
+    const m = ua.match(/wget\/([0-9\.]+)/i);
+    return {
+      browser: 'Wget Download Tool',
+      shortBrowser: 'Wget',
+      shortLabel: 'Wget CLI',
+      os: 'Terminal / CLI',
+      deviceType: 'คำสั่งเทอร์มินัล (CLI)',
+      version: m ? m[1] : '',
+      icon: '💻',
+      badgeClass: 'badge-cli',
+      raw: ua
+    };
+  }
+  if (/postman/i.test(ua)) {
+    const m = ua.match(/PostmanRuntime\/([0-9\.]+)/i);
+    return {
+      browser: 'Postman API Client',
+      shortBrowser: 'Postman',
+      shortLabel: 'Postman',
+      os: 'Developer Tool',
+      deviceType: 'เครื่องมือทดสอบ API (Tool)',
+      version: m ? m[1] : '',
+      icon: '🚀',
+      badgeClass: 'badge-postman',
+      raw: ua
+    };
+  }
+
+  // 2. OS & Device Type Detection
+  let os = 'ทั่วไป';
+  let shortOs = '';
+  let deviceType = 'เดสก์ท็อป (Desktop)';
+
+  if (/iPhone/i.test(ua)) {
+    deviceType = 'สมาร์ตโฟน (Mobile)';
+    shortOs = 'iOS';
+    const m = ua.match(/iPhone OS ([0-9_]+)/i);
+    os = m ? `iOS ${m[1].replace(/_/g, '.')}` : 'iOS (iPhone)';
+  } else if (/iPad/i.test(ua)) {
+    deviceType = 'แท็บเล็ต (Tablet)';
+    shortOs = 'iPad';
+    const m = ua.match(/CPU OS ([0-9_]+)/i);
+    os = m ? `iPadOS ${m[1].replace(/_/g, '.')}` : 'iPadOS';
+  } else if (/Android/i.test(ua)) {
+    deviceType = /Mobile/i.test(ua) ? 'สมาร์ตโฟน (Mobile)' : 'แท็บเล็ต (Tablet)';
+    shortOs = 'Android';
+    const m = ua.match(/Android ([0-9\.]+)/i);
+    os = m ? `Android ${m[1]}` : 'Android';
+  } else if (/Windows NT 10.0/i.test(ua)) {
+    shortOs = 'Win';
+    const arch = /Win64; x64|WOW64|x86_64/i.test(ua) ? '64-bit' : '32-bit';
+    os = `Windows 10/11 (${arch})`;
+  } else if (/Windows NT 6.3/i.test(ua)) {
+    shortOs = 'Win';
+    os = 'Windows 8.1';
+  } else if (/Windows NT 6.2/i.test(ua)) {
+    shortOs = 'Win';
+    os = 'Windows 8';
+  } else if (/Windows NT 6.1/i.test(ua)) {
+    shortOs = 'Win';
+    os = 'Windows 7';
+  } else if (/Windows/i.test(ua)) {
+    shortOs = 'Win';
+    os = 'Windows';
+  } else if (/Macintosh|Mac OS X/i.test(ua)) {
+    shortOs = 'Mac';
+    const m = ua.match(/Mac OS X ([0-9_]+)/i);
+    os = m ? `macOS (${m[1].replace(/_/g, '.')})` : 'macOS';
+  } else if (/Ubuntu/i.test(ua)) {
+    shortOs = 'Linux';
+    os = 'Ubuntu Linux';
+  } else if (/Linux/i.test(ua)) {
+    shortOs = 'Linux';
+    os = 'Linux';
+  }
+
+  // 3. Browser Detection (Ordered by specificity)
+  let browser = 'Web Browser';
+  let shortBrowser = 'Browser';
+  let version = '';
+  let icon = '🌐';
+  let badgeClass = 'badge-generic';
+
+  if (/Edg\/|Edge\//i.test(ua)) {
+    const m = ua.match(/Edg(?:e)?\/([0-9\.]+)/i);
+    browser = 'Microsoft Edge';
+    shortBrowser = 'Edge';
+    version = m ? m[1] : '';
+    icon = '🌊';
+    badgeClass = 'badge-edge';
+  } else if (/OPR\/|Opera\//i.test(ua)) {
+    const m = ua.match(/(?:OPR|Opera)\/([0-9\.]+)/i);
+    browser = 'Opera';
+    shortBrowser = 'Opera';
+    version = m ? m[1] : '';
+    icon = '🔴';
+    badgeClass = 'badge-opera';
+  } else if (/SamsungBrowser\//i.test(ua)) {
+    const m = ua.match(/SamsungBrowser\/([0-9\.]+)/i);
+    browser = 'Samsung Internet';
+    shortBrowser = 'Samsung';
+    version = m ? m[1] : '';
+    icon = '📱';
+    badgeClass = 'badge-samsung';
+  } else if (/Line\//i.test(ua)) {
+    const m = ua.match(/Line\/([0-9\.]+)/i);
+    browser = 'LINE In-App Browser';
+    shortBrowser = 'LINE';
+    version = m ? m[1] : '';
+    icon = '💬';
+    badgeClass = 'badge-line';
+  } else if (/Chrome\/|CriOS\//i.test(ua)) {
+    const m = ua.match(/(?:Chrome|CriOS)\/([0-9\.]+)/i);
+    browser = 'Google Chrome';
+    shortBrowser = 'Chrome';
+    version = m ? m[1] : '';
+    icon = '🌐';
+    badgeClass = 'badge-chrome';
+  } else if (/Firefox\/|FxiOS\//i.test(ua)) {
+    const m = ua.match(/(?:Firefox|FxiOS)\/([0-9\.]+)/i);
+    browser = 'Mozilla Firefox';
+    shortBrowser = 'Firefox';
+    version = m ? m[1] : '';
+    icon = '🦊';
+    badgeClass = 'badge-firefox';
+  } else if (/Version\/.*Safari\//i.test(ua) || /Safari\//i.test(ua)) {
+    const m = ua.match(/Version\/([0-9\.]+)/i);
+    browser = 'Apple Safari';
+    shortBrowser = 'Safari';
+    version = m ? m[1] : '';
+    icon = '🧭';
+    badgeClass = 'badge-safari';
+  }
+
+  const shortLabel = shortOs ? `${shortBrowser} (${shortOs})` : shortBrowser;
+
+  return {
+    browser,
+    shortBrowser,
+    shortLabel,
+    os,
+    shortOs,
+    deviceType,
+    version,
+    icon,
+    badgeClass,
+    raw: ua
+  };
+};
+
 const formatThaiTime = (utcString) => {
   if (!utcString) return '-';
   try {
-    const date = new Date(utcString.replace(' ', 'T') + 'Z');
+    const dateStr = utcString.includes(' ') && !utcString.includes('T') ? utcString.replace(' ', 'T') : utcString;
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return utcString;
     return date.toLocaleString('th-TH', { 
       year: 'numeric', month: '2-digit', day: '2-digit', 
       hour: '2-digit', minute: '2-digit', second: '2-digit',
@@ -143,13 +379,20 @@ const formatThaiTime = (utcString) => {
 const filteredSystemLogs = computed(() => {
   if (!searchQuery.value.trim()) return systemLogs.value;
   const q = searchQuery.value.trim().toLowerCase();
-  return systemLogs.value.filter(l => 
-    (l.username && l.username.toLowerCase().includes(q)) ||
-    (l.path && l.path.toLowerCase().includes(q)) ||
-    (l.type && l.type.toLowerCase().includes(q)) ||
-    (l.log_detail && l.log_detail.toLowerCase().includes(q)) ||
-    (l.ip && l.ip.toLowerCase().includes(q))
-  );
+  return systemLogs.value.filter(l => {
+    const devInfo = parseDeviceInfo(l.device);
+    return (
+      (l.username && l.username.toLowerCase().includes(q)) ||
+      (l.path && l.path.toLowerCase().includes(q)) ||
+      (l.type && l.type.toLowerCase().includes(q)) ||
+      (l.log_detail && l.log_detail.toLowerCase().includes(q)) ||
+      (l.ip && l.ip.toLowerCase().includes(q)) ||
+      (l.device && l.device.toLowerCase().includes(q)) ||
+      (devInfo.shortLabel && devInfo.shortLabel.toLowerCase().includes(q)) ||
+      (devInfo.browser && devInfo.browser.toLowerCase().includes(q)) ||
+      (devInfo.os && devInfo.os.toLowerCase().includes(q))
+    );
+  });
 });
 
 const filteredApiLogs = computed(() => {
@@ -402,7 +645,7 @@ onMounted(() => {
                 <th style="width: 120px;">ประเภท</th>
                 <th>รายละเอียดกิจกรรม</th>
                 <th style="width: 130px;">IP Address</th>
-                <th style="width: 100px;">อุปกรณ์</th>
+                <th style="width: 150px;">อุปกรณ์</th>
               </tr>
             </thead>
             <tbody>
@@ -423,7 +666,59 @@ onMounted(() => {
                 </td>
                 <td class="detail-cell">{{ log.log_detail }}</td>
                 <td class="ip-cell font-mono">{{ log.ip }}</td>
-                <td class="device-cell">{{ log.device || '-' }}</td>
+                <td class="device-cell">
+                  <div 
+                    class="device-badge-wrapper" 
+                    :class="{ 'open-up': index >= 5 }"
+                    :title="log.device"
+                  >
+                    <span 
+                      v-if="log.device && log.device !== 'Unknown' && log.device !== '-'"
+                      :class="['device-chip', parseDeviceInfo(log.device).badgeClass]"
+                    >
+                      <span class="device-chip-icon">{{ parseDeviceInfo(log.device).icon }}</span>
+                      <span class="device-chip-label">{{ parseDeviceInfo(log.device).shortLabel }}</span>
+                    </span>
+                    <span v-else class="text-muted" style="font-size: 0.8rem;">-</span>
+
+                    <!-- Hover Tooltip Card (กรอบข้อความแสดงรายละเอียดอุปกรณ์ครบถ้วน) -->
+                    <div v-if="log.device && log.device !== 'Unknown' && log.device !== '-'" class="device-popover">
+                      <div class="popover-header">
+                        <span class="popover-icon">{{ parseDeviceInfo(log.device).icon }}</span>
+                        <div class="popover-title-group">
+                          <strong class="popover-title">{{ parseDeviceInfo(log.device).browser }}</strong>
+                          <span v-if="parseDeviceInfo(log.device).version" class="popover-version">v{{ parseDeviceInfo(log.device).version }}</span>
+                        </div>
+                      </div>
+                      <div class="popover-content">
+                        <div class="popover-row">
+                          <span class="popover-label">ระบบปฏิบัติการ:</span>
+                          <span class="popover-val">{{ parseDeviceInfo(log.device).os }}</span>
+                        </div>
+                        <div class="popover-row">
+                          <span class="popover-label">ประเภทอุปกรณ์:</span>
+                          <span class="popover-val">{{ parseDeviceInfo(log.device).deviceType }}</span>
+                        </div>
+                        <div class="popover-divider"></div>
+                        <div class="popover-ua-box">
+                          <div class="popover-ua-header">
+                            <span class="popover-label">User-Agent เต็ม:</span>
+                            <button 
+                              type="button"
+                              class="btn-copy-ua" 
+                              @click.stop="copyUserAgent(log.device, log.log_id)"
+                              title="คลิกเพื่อคัดลอก User-Agent ทั้งหมด"
+                            >
+                              <span v-if="copiedLogId === log.log_id">✅ คัดลอกแล้ว</span>
+                              <span v-else>📋 คัดลอก</span>
+                            </button>
+                          </div>
+                          <div class="popover-ua-code">{{ log.device }}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </td>
               </tr>
               <tr v-if="filteredSystemLogs.length === 0 && !isLoading">
                 <td colspan="8" class="no-data-table">
@@ -691,7 +986,205 @@ onMounted(() => {
 .detail-cell { max-width: 320px; word-break: break-word; font-size: 0.85rem; color: #475569; }
 .ip-cell { font-size: 0.8125rem; color: #64748b; }
 .country-cell { font-weight: 600; color: #0f172a; font-size: 0.8125rem; }
-.device-cell { font-size: 0.78rem; color: #64748b; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.device-cell { 
+  font-size: 0.8125rem; 
+  position: relative; 
+  overflow: visible !important; 
+}
+
+.device-badge-wrapper {
+  position: relative;
+  display: inline-block;
+  cursor: help;
+}
+
+.device-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.device-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+}
+
+.device-chip-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.device-chip-label {
+  letter-spacing: -0.01em;
+}
+
+/* Badge themes */
+.badge-chrome { background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; }
+.badge-safari { background: #e0f7fa; color: #00838f; border: 1px solid #b2ebf2; }
+.badge-edge { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+.badge-firefox { background: #fff7ed; color: #ea580c; border: 1px solid #fed7aa; }
+.badge-opera { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.badge-samsung { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+.badge-line { background: #f0fdf4; color: #059669; border: 1px solid #a7f3d0; }
+.badge-python { background: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; }
+.badge-cli { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+.badge-postman { background: #fff1f2; color: #e11d48; border: 1px solid #fecdd3; }
+.badge-generic { background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; }
+.badge-unknown { background: #f8fafc; color: #94a3b8; border: 1px solid #e2e8f0; }
+
+/* Tooltip Popover (กรอบข้อความแสดงรายละเอียดอุปกรณ์ครบถ้วน) */
+.device-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  max-width: 90vw;
+  background: #0f172a;
+  color: #f8fafc;
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+  pointer-events: none;
+  text-align: left;
+  border: 1px solid #334155;
+}
+
+/* Open upwards for lower table rows */
+.device-badge-wrapper.open-up .device-popover {
+  top: auto;
+  bottom: calc(100% + 8px);
+  transform: translateY(-6px);
+}
+
+.device-badge-wrapper:hover .device-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.popover-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #334155;
+  margin-bottom: 10px;
+}
+
+.popover-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.popover-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.popover-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.popover-version {
+  display: inline-block;
+  background: #1e293b;
+  color: #38bdf8;
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  border: 1px solid #334155;
+  width: fit-content;
+}
+
+.popover-content {
+  font-size: 0.8125rem;
+}
+
+.popover-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 12px;
+}
+
+.popover-label {
+  color: #94a3b8;
+  font-weight: 500;
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+
+.popover-val {
+  color: #f1f5f9;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  text-align: right;
+  word-break: break-word;
+}
+
+.popover-divider {
+  height: 1px;
+  background: #334155;
+  margin: 10px 0;
+}
+
+.popover-ua-box {
+  background: #020617;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #1e293b;
+}
+
+.popover-ua-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.btn-copy-ua {
+  background: #1e293b;
+  border: 1px solid #475569;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-copy-ua:hover {
+  background: #334155;
+  color: #f8fafc;
+}
+
+.popover-ua-code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  color: #cbd5e1;
+  word-break: break-all;
+  max-height: 80px;
+  overflow-y: auto;
+  line-height: 1.4;
+  user-select: all;
+}
 
 /* Numbered Pagination Styles */
 .pagination-container {

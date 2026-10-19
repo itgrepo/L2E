@@ -203,7 +203,9 @@ watch(searchQuery, () => {
 const formatThaiDateTime = (str) => {
   if (!str || str === '-') return '-';
   try {
-    const d = new Date(str.replace(' ', 'T') + 'Z');
+    const dateStr = str.includes(' ') && !str.includes('T') ? str.replace(' ', 'T') : str;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return str;
     return d.toLocaleString('th-TH', {
       year: 'numeric', month: 'short', day: 'numeric',
       hour: '2-digit', minute: '2-digit'
