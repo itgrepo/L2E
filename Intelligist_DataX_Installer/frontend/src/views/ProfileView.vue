@@ -548,8 +548,8 @@ const saveChanges = async () => {
               </select>
             </div>
             <div class="form-group">
-              <label>Usage Objective</label>
-              <input type="text" v-model="user.usage_objective">
+              <label>วัตถุประสงค์ขอเข้าใช้งาน</label>
+              <input type="text" v-model="user.usage_objective" placeholder="วัตถุประสงค์ขอเข้าใช้งาน">
             </div>
             <div class="form-group full">
               <label>Other Details</label>

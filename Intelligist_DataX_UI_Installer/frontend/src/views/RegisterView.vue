@@ -311,8 +311,8 @@ const goToVerify = () => {
             </div>
 
             <div class="form-group">
-              <label for="reg-org">หน่วยงาน / องค์กร</label>
-              <input id="reg-org" v-model="organization" type="text" placeholder="ชื่อหน่วยงาน / สังกัด *" required :disabled="isLoading">
+              <label for="reg-org">วัตถุประสงค์ขอเข้าใช้งาน</label>
+              <input id="reg-org" v-model="organization" type="text" placeholder="วัตถุประสงค์ขอเข้าใช้งาน *" required :disabled="isLoading">
             </div>
 
             <div class="terms-group" style="padding: 16px; background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; margin-top: 8px;">
