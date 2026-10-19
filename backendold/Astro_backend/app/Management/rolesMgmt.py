@@ -12,10 +12,14 @@ def addUser():
 
         conn = mysql.connect()
         cursor = conn.cursor()
-        sql = """SELECT user.status_id, user.user_id, user.national_id, user.national_id_book, user.email, cp.previlage_name, cp.previlage_id, user.username, user.create_at, user.org_id, org.org_name, (user.apikey IS NOT NULL AND user.apikey != '') AS has_api_key FROM `user`
-                        LEFT JOIN codename_previlage as cp ON cp.previlage_id = user.previlage_id
-                        LEFT JOIN organization org ON user.org_id = org.org_id
-                            WHERE user.status_id != '7'"""
+        sql = """SELECT user.status_id, user.user_id, user.national_id, user.national_id_book, user.email, 
+                        user.firstname, user.lastname, user.usage_objective,
+                        cp.previlage_name, cp.previlage_id, user.username, user.create_at, user.org_id, 
+                        org.org_name, (user.apikey IS NOT NULL AND user.apikey != '') AS has_api_key 
+                 FROM `user`
+                 LEFT JOIN codename_previlage as cp ON cp.previlage_id = user.previlage_id
+                 LEFT JOIN organization org ON user.org_id = org.org_id
+                 WHERE user.status_id != '7'"""
         cursor.execute(sql,)
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]

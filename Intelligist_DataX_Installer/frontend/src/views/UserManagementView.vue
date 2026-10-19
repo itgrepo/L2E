@@ -179,7 +179,15 @@ const handleSaveUser = async () => {
 
 const isLoading = ref(true);
 const searchQuery = ref('');
+const selectedOrgFilter = ref('');
+const selectedRoleFilter = ref('');
 const alertMessage = ref({ text: '', type: '' });
+
+const clearAllFilters = () => {
+    searchQuery.value = '';
+    selectedOrgFilter.value = '';
+    selectedRoleFilter.value = '';
+};
 
 const fetchUsers = async () => {
     isLoading.value = true;
@@ -209,9 +217,9 @@ const fetchRoles = async () => {
 };
 
 const getOrgName = (orgId) => {
-    if (!orgId) return 'เลือกหน่วยงาน';
+    if (!orgId) return '-';
     const org = organizations.value.find(o => String(o.org_id) === String(orgId));
-    return org ? org.org_name : 'เลือกหน่วยงาน';
+    return org ? org.org_name : '-';
 };
 
 const getRoleName = (roleId) => {
@@ -364,12 +372,51 @@ const showAlert = (text, type) => {
 };
 
 const filteredUsers = computed(() => {
-    if (!searchQuery.value) return users.value;
-    const q = searchQuery.value.toLowerCase();
-    return users.value.filter(u => 
-        u.username?.toLowerCase().includes(q) || 
-        u.email?.toLowerCase().includes(q)
-    );
+    let result = users.value;
+
+    // Filter by Organization
+    if (selectedOrgFilter.value) {
+        if (selectedOrgFilter.value === 'none') {
+            result = result.filter(u => !u.org_id);
+        } else {
+            result = result.filter(u => String(u.org_id) === String(selectedOrgFilter.value));
+        }
+    }
+
+    // Filter by Role / Status
+    if (selectedRoleFilter.value) {
+        if (selectedRoleFilter.value === 'pending') {
+            result = result.filter(u => String(u.status_id) === '8');
+        } else {
+            result = result.filter(u => String(u.previlage_id) === String(selectedRoleFilter.value));
+        }
+    }
+
+    // Text search (search by firstname, lastname, fullname, username, email, org name, usage_objective)
+    if (searchQuery.value && searchQuery.value.trim()) {
+        const q = searchQuery.value.trim().toLowerCase();
+        result = result.filter(u => {
+            const username = (u.username || '').toLowerCase();
+            const firstname = (u.firstname || '').toLowerCase();
+            const lastname = (u.lastname || '').toLowerCase();
+            const fullname = `${firstname} ${lastname}`.trim().toLowerCase();
+            const email = (u.email || '').toLowerCase();
+            const orgName = (u.org_name || getOrgName(u.org_id) || '').toLowerCase();
+            const usageObj = (u.usage_objective || '').toLowerCase();
+
+            return (
+                username.includes(q) ||
+                firstname.includes(q) ||
+                lastname.includes(q) ||
+                fullname.includes(q) ||
+                email.includes(q) ||
+                orgName.includes(q) ||
+                usageObj.includes(q)
+            );
+        });
+    }
+
+    return result;
 });
 
 const formatDate = (dateStr) => {
@@ -409,14 +456,61 @@ onMounted(() => {
                 </svg>
                 Add User
             </button>
-            <div class="search-container">
-                <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                <input type="text" v-model="searchQuery" placeholder="ค้นหาด้วย Username หรือ Email...">
-            </div>
         </div>
       </header>
+
+      <!-- Search & Filters Toolbar -->
+      <div class="filter-toolbar card">
+        <div class="search-container">
+            <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input 
+              type="text" 
+              v-model="searchQuery" 
+              placeholder="ค้นหาชื่อ-นามสกุล, username, อีเมล, หน่วยงาน..."
+            >
+            <button v-if="searchQuery" type="button" @click="searchQuery = ''" class="clear-search-btn" title="ล้างการค้นหา">&times;</button>
+        </div>
+
+        <div class="filter-dropdown-container">
+            <select v-model="selectedOrgFilter" class="filter-select" title="กรองตามหน่วยงาน">
+                <option value="">🏢 ทุกหน่วยงาน</option>
+                <option v-for="org in organizations" :key="org.org_id" :value="org.org_id">
+                    {{ org.org_name }}
+                </option>
+                <option value="none">-- ยังไม่ระบุหน่วยงาน --</option>
+            </select>
+        </div>
+
+        <div class="filter-dropdown-container">
+            <select v-model="selectedRoleFilter" class="filter-select" title="กรองตามบทบาท/สิทธิ์">
+                <option value="">👤 ทุกบทบาท</option>
+                <option v-for="role in roles" :key="role.previlage_id" :value="role.previlage_id">
+                    {{ role.previlage_name }}
+                </option>
+                <option value="pending">⏳ รออนุมัติ R2 / รอระบุข้อมูล</option>
+            </select>
+        </div>
+
+        <button 
+          v-if="searchQuery || selectedOrgFilter || selectedRoleFilter" 
+          type="button"
+          @click="clearAllFilters" 
+          class="btn-clear-filters"
+          title="ล้างตัวกรองทั้งหมด"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+          ล้างตัวกรอง
+        </button>
+
+        <div class="filter-stats">
+          <span>พบ <strong>{{ filteredUsers.length }}</strong> คน (จากทั้งหมด {{ users.length }} คน)</span>
+        </div>
+      </div>
 
       <!-- Alert Message -->
       <transition name="fade">
@@ -437,10 +531,11 @@ onMounted(() => {
             <div v-for="(u, idx) in filteredUsers" :key="u.user_id" class="mobile-card">
               <div class="mc-header">
                 <div class="user-info">
-                  <div class="user-avatar">{{ u.username.charAt(0).toUpperCase() }}</div>
+                  <div class="user-avatar">{{ ((u.firstname || u.username) || '?').charAt(0).toUpperCase() }}</div>
                   <div>
                       <div class="username-text">
-                        {{ u.username }}
+                        <span v-if="u.firstname || u.lastname">{{ `${u.firstname || ''} ${u.lastname || ''}`.trim() }}</span>
+                        <span v-else>{{ u.username }}</span>
                         <span v-if="isPendingUser(u)" style="margin-left: 6px; background-color: #fef3c7; color: #b45309; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #fde68a; font-weight: 600;">
                           ⏳ รออนุมัติ R2
                         </span>
@@ -448,7 +543,13 @@ onMounted(() => {
                           ⏳ รอระบุข้อมูล
                         </span>
                       </div>
-                      <div class="user-id-text">ID: #{{ u.user_id }}</div>
+                      <div class="user-id-text">
+                        <span v-if="u.firstname || u.lastname" style="margin-right: 6px; font-weight: 500; color: #64748b;">@{{ u.username }}</span>
+                        <span>ID: #{{ u.user_id }}</span>
+                        <span v-if="u.usage_objective" class="user-objective-tag" :title="'วัตถุประสงค์: ' + u.usage_objective" style="margin-left: 6px;">
+                          🎯 {{ u.usage_objective }}
+                        </span>
+                      </div>
                   </div>
                 </div>
                 <div class="actions-group">
@@ -529,6 +630,9 @@ onMounted(() => {
                         </option>
                     </select>
                   </div>
+                  <span class="mc-value" v-else-if="u.org_id && getOrgName(u.org_id) !== '-'">
+                    <span class="org-badge" :title="getOrgName(u.org_id)">🏢 {{ getOrgName(u.org_id) }}</span>
+                  </span>
                   <span class="mc-value text-muted" v-else>-</span>
                 </div>
               </div>
@@ -543,7 +647,7 @@ onMounted(() => {
                 <th>วันที่เข้าร่วม</th>
                 <th>บทบาทปัจจุบัน</th>
                 <th>สถานะ</th>
-                <th>หน่วยงาน (สำหรับเจ้าของข้อมูล)</th>
+                <th>หน่วยงาน / องค์กร</th>
                 <th>ดำเนินการ</th>
               </tr>
             </thead>
@@ -552,10 +656,11 @@ onMounted(() => {
                 <td>{{ idx + 1 }}</td>
                 <td>
                   <div class="user-info">
-                    <div class="user-avatar">{{ u.username.charAt(0).toUpperCase() }}</div>
+                    <div class="user-avatar">{{ ((u.firstname || u.username) || '?').charAt(0).toUpperCase() }}</div>
                     <div>
                         <div class="username-text">
-                            {{ u.username }}
+                            <span v-if="u.firstname || u.lastname">{{ `${u.firstname || ''} ${u.lastname || ''}`.trim() }}</span>
+                            <span v-else>{{ u.username }}</span>
                             <span v-if="isPendingUser(u)" style="margin-left: 6px; background-color: #fef3c7; color: #b45309; font-size: 0.7rem; padding: 2px 8px; border-radius: 9999px; border: 1px solid #fde68a; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
                                 ⏳ รออนุมัติ R2
                             </span>
@@ -567,7 +672,13 @@ onMounted(() => {
                                 Locked
                             </span>
                         </div>
-                        <div class="user-id-text">ID: #{{ u.user_id }}</div>
+                        <div class="user-id-text">
+                          <span v-if="u.firstname || u.lastname" style="margin-right: 6px; font-weight: 500; color: #64748b;">@{{ u.username }}</span>
+                          <span>ID: #{{ u.user_id }}</span>
+                          <span v-if="u.usage_objective" class="user-objective-tag" :title="'วัตถุประสงค์: ' + u.usage_objective" style="margin-left: 6px;">
+                            🎯 {{ u.usage_objective }}
+                          </span>
+                        </div>
                     </div>
                   </div>
                 </td>
@@ -602,21 +713,23 @@ onMounted(() => {
                   </div>
                 </td>
                 <td class="org-cell">
-                    <div class="role-selector-box">
+                    <div class="role-selector-box" v-if="u.previlage_id == 3">
                       <select 
                           :value="u.org_id" 
                           @change="handleOrgChange(u, $event.target.value)"
                           class="role-select org-select"
                           :title="getOrgName(u.org_id)"
-                          v-if="u.previlage_id == 3"
                       >
                           <option value="" disabled>เลือกหน่วยงาน</option>
                           <option v-for="org in organizations" :key="org.org_id" :value="org.org_id" :title="org.org_name">
                               {{ org.org_name }}
                           </option>
                       </select>
-                      <span class="text-muted" v-else>-</span>
                     </div>
+                    <span v-else-if="u.org_id && getOrgName(u.org_id) !== '-'" class="org-badge" :title="getOrgName(u.org_id)">
+                      🏢 {{ getOrgName(u.org_id) }}
+                    </span>
+                    <span class="text-muted" v-else>-</span>
                 </td>
                 <td class="actions-cell">
                   <div class="actions-group">
@@ -809,10 +922,25 @@ h1 {
   font-size: 1rem;
 }
 
-/* Search Box */
-.search-container {
+/* Search & Filters Toolbar */
+.filter-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    background: #ffffff;
+    border-radius: 14px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+}
+
+.filter-toolbar .search-container {
     position: relative;
-    width: 350px;
+    flex: 1 1 280px;
+    min-width: 240px;
+    width: auto;
 }
 
 .search-icon {
@@ -820,25 +948,158 @@ h1 {
     left: 14px;
     top: 50%;
     transform: translateY(-50%);
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     color: #94a3b8;
+    pointer-events: none;
 }
 
 .search-container input {
     width: 100%;
-    padding: 12px 14px 12px 42px;
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
+    padding: 10px 38px 10px 40px;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
     outline: none;
     transition: all 0.2s;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
+    color: #1e293b;
 }
 
 .search-container input:focus {
+    background: #ffffff;
     border-color: #3b82f6;
-    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.clear-search-btn {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #e2e8f0;
+    border: none;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #64748b;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    transition: all 0.15s ease;
+}
+
+.clear-search-btn:hover {
+    background: #cbd5e1;
+    color: #0f172a;
+}
+
+.filter-dropdown-container {
+    position: relative;
+    min-width: 180px;
+    max-width: 260px;
+    flex: 0 1 auto;
+}
+
+.filter-select {
+    width: 100%;
+    padding: 10px 32px 10px 14px;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    color: #1e293b;
+    cursor: pointer;
+    outline: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 16px;
+    transition: all 0.2s;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.filter-select:hover {
+    border-color: #94a3b8;
+}
+
+.filter-select:focus {
+    background-color: #ffffff;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.btn-clear-filters {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 14px;
+    background: #fee2e2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.btn-clear-filters:hover {
+    background: #fecaca;
+    color: #b91c1c;
+}
+
+.filter-stats {
+    margin-left: auto;
+    font-size: 0.85rem;
+    color: #64748b;
+    white-space: nowrap;
+}
+
+.filter-stats strong {
+    color: #0284c7;
+    font-weight: 700;
+}
+
+.org-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.user-objective-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    background: #f0fdf4;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    max-width: 180px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* Alert Banner */
@@ -1361,9 +1622,9 @@ h1 {
   gap: 16px;
   align-items: center;
 }
-.search-container {
+.filter-toolbar .search-container {
   width: auto;
-  min-width: 350px;
+  min-width: 220px;
 }
 .mobile-cards-view {
   display: none;
@@ -1375,6 +1636,23 @@ h1 {
     align-items: stretch;
     width: 100%;
     margin-top: 16px;
+  }
+  .filter-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px;
+  }
+  .filter-toolbar .search-container,
+  .filter-dropdown-container {
+    max-width: 100%;
+    width: 100%;
+    min-width: 0;
+  }
+  .filter-stats {
+    margin-left: 0;
+    text-align: center;
+    padding-top: 4px;
   }
   .search-container {
     min-width: 0;
