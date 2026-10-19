@@ -172,7 +172,9 @@ const approveAll = async () => {
 const formatDate = (dateStr) => {
   if (!dateStr) return '-';
   try {
-    const d = new Date(dateStr);
+    const safeStr = typeof dateStr === 'string' && dateStr.includes(' ') && !dateStr.includes('T') ? dateStr.replace(' ', 'T') : dateStr;
+    const d = new Date(safeStr);
+    if (isNaN(d.getTime())) return dateStr;
     return d.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   } catch {
     return dateStr;
@@ -281,6 +283,7 @@ onMounted(() => {
                 <th>ชื่อ-นามสกุล</th>
                 <th>Username</th>
                 <th>อีเมล</th>
+                <th>องค์กรที่สังกัด</th>
                 <th>วัตถุประสงค์ขอเข้าใช้งาน</th>
                 <th>สมัครเมื่อ</th>
                 <th>การดำเนินการ</th>
@@ -299,6 +302,12 @@ onMounted(() => {
                 </td>
                 <td><code>{{ user.username }}</code></td>
                 <td>{{ user.email || '-' }}</td>
+                <td>
+                  <span v-if="user.org_name" style="background: #e0f2fe; color: #0369a1; padding: 4px 8px; border-radius: 6px; font-weight: 500; font-size: 0.85rem;">
+                    {{ user.org_name }}
+                  </span>
+                  <span v-else style="color: #94a3b8;">-</span>
+                </td>
                 <td>{{ user.usage_objective || '-' }}</td>
                 <td>{{ formatDate(user.create_at) }}</td>
                 <td>

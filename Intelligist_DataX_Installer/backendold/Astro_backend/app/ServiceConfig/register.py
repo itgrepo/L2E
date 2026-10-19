@@ -975,9 +975,12 @@ def getPendingUsers():
         cursor = conn.cursor()
         sql = """SELECT u.user_id, u.username, u.email, u.firstname, u.lastname,
                         u.national_id, u.national_id_book, u.usage_objective,
-                        u.create_at, u.status_id
+                        u.create_at, u.status_id, u.org_id, o.org_name
                  FROM user u
+                 LEFT JOIN organization o ON u.org_id = o.org_id
                  WHERE u.status_id = 8 AND u.status_account = 'active'
+                   AND u.org_id IS NOT NULL AND u.org_id != ''
+                   AND u.apikey IS NOT NULL AND u.apikey != ''
                  ORDER BY u.create_at DESC"""
         cursor.execute(sql)
         data = cursor.fetchall()
@@ -1000,7 +1003,7 @@ def getPendingUsers():
 
 @app.route('/approveUser', methods=['POST'])
 def approveUser():
-    """Approve a pending user (change status_id from 8 to 1) and send welcome email."""
+    """Approve a pending user (change status_id from 8 to 1, role to R2) and send welcome email."""
     conn = None
     try:
         dataInput = request.json
@@ -1031,11 +1034,11 @@ def approveUser():
             
         username, email, firstname, lastname = user_row
 
-        # 2. Update status to Active (1)
+        # 2. Update status to Active (1) and previlage_id to R2 (2)
         # We also force status_account = 'active' just in case it was something else
         sql_update = """
             UPDATE user 
-            SET status_id = 1, status_account = 'active'
+            SET previlage_id = 2, status_id = 1, status_account = 'active'
             WHERE user_id = %s AND status_id = 8
         """
         cursor.execute(sql_update, (target_user_id,))
@@ -1308,6 +1311,10 @@ def submitOnboardingRequest():
         user_id = dataInput.get('user_id') or user_data.get('user_id')
         org_id = dataInput.get('org_id')
         apikey = dataInput.get('apikey')
+        firstname = dataInput.get('firstname')
+        lastname = dataInput.get('lastname')
+        usage_objective = dataInput.get('usage_objective')
+        other_object = dataInput.get('other_object')
         
         if not user_id:
             return jsonify({'status': 'error', 'message': 'User ID is required'}), 400
@@ -1332,13 +1339,17 @@ def submitOnboardingRequest():
             conn.close()
             return jsonify({'status': 'error', 'message': 'กรุณาสร้าง API Key ก่อนส่งคำขอ'}), 400
             
-        # Update user with org_id, apikey, and set status_id = 8 (Pending Admin Approval)
+        # Update user with org_id, apikey, profile fields, and set status_id = 8 (Pending Admin Approval)
         sql_update = """
             UPDATE user 
-            SET org_id = %s, apikey = %s, status_id = 8, status_account = 'active'
+            SET org_id = %s, apikey = %s, status_id = 8, status_account = 'active',
+                firstname = COALESCE(%s, firstname),
+                lastname = COALESCE(%s, lastname),
+                usage_objective = COALESCE(%s, usage_objective),
+                other_object = COALESCE(%s, other_object)
             WHERE user_id = %s
         """
-        cursor.execute(sql_update, (org_id, final_apikey, user_id))
+        cursor.execute(sql_update, (org_id, final_apikey, firstname, lastname, usage_objective, other_object, user_id))
         conn.commit()
         
         # Notify admins

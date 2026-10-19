@@ -305,7 +305,11 @@ const handleUnlockUser = async (user) => {
 const isApproving = ref(null);
 
 const isPendingUser = (user) => {
-    return String(user.status_id) === '8' || (String(user.previlage_id) === '1' && user.has_api_key);
+    return String(user.status_id) === '8' && Boolean(user.org_id) && Boolean(user.has_api_key);
+};
+
+const isIncompleteUser = (user) => {
+    return String(user.status_id) === '8' && (!user.org_id || !user.has_api_key);
 };
 
 const handleApproveUser = async (user) => {
@@ -370,8 +374,14 @@ const filteredUsers = computed(() => {
 
 const formatDate = (dateStr) => {
     if (!dateStr) return '-';
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' });
+    try {
+        const safeStr = typeof dateStr === 'string' && dateStr.includes(' ') && !dateStr.includes('T') ? dateStr.replace(' ', 'T') : dateStr;
+        const d = new Date(safeStr);
+        if (isNaN(d.getTime())) return dateStr;
+        return d.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' });
+    } catch {
+        return dateStr;
+    }
 };
 
 onMounted(() => {
@@ -433,6 +443,9 @@ onMounted(() => {
                         {{ u.username }}
                         <span v-if="isPendingUser(u)" style="margin-left: 6px; background-color: #fef3c7; color: #b45309; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #fde68a; font-weight: 600;">
                           ⏳ รออนุมัติ R2
+                        </span>
+                        <span v-else-if="isIncompleteUser(u)" style="margin-left: 6px; background-color: #f1f5f9; color: #64748b; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #cbd5e1; font-weight: 600;">
+                          ⏳ รอระบุข้อมูล
                         </span>
                       </div>
                       <div class="user-id-text">ID: #{{ u.user_id }}</div>
@@ -546,6 +559,9 @@ onMounted(() => {
                             <span v-if="isPendingUser(u)" style="margin-left: 6px; background-color: #fef3c7; color: #b45309; font-size: 0.7rem; padding: 2px 8px; border-radius: 9999px; border: 1px solid #fde68a; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
                                 ⏳ รออนุมัติ R2
                             </span>
+                            <span v-else-if="isIncompleteUser(u)" style="margin-left: 6px; background-color: #f1f5f9; color: #64748b; font-size: 0.7rem; padding: 2px 8px; border-radius: 9999px; border: 1px solid #cbd5e1; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                                ⏳ รอระบุข้อมูล
+                            </span>
                             <span v-if="u.status_id == 6" style="margin-left: 6px; background-color: #fee2e2; color: #ef4444; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #fca5a5; display: inline-flex; align-items: center; gap: 2px;">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                                 Locked
@@ -560,6 +576,9 @@ onMounted(() => {
                 <td>
                   <span v-if="isPendingUser(u)" class="role-badge" style="background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a;">
                     ⏳ รออนุมัติ R2
+                  </span>
+                  <span v-else-if="isIncompleteUser(u)" class="role-badge" style="background-color: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1;">
+                    ⏳ รอระบุข้อมูล
                   </span>
                   <span v-else class="role-badge" :class="'role-' + u.previlage_id">
                     {{ u.previlage_name || 'No Role' }}
@@ -577,7 +596,8 @@ onMounted(() => {
                         <option :value="4">🟡 Pending Verification</option>
                         <option :value="3">🔴 Suspend</option>
                         <option v-if="u.status_id == 6" :value="6" disabled>🔒 Locked</option>
-                        <option v-if="u.status_id == 8" :value="8" disabled>⏳ รออนุมัติ R2</option>
+                        <option v-if="u.status_id == 8 && isPendingUser(u)" :value="8" disabled>⏳ รออนุมัติ R2</option>
+                        <option v-if="u.status_id == 8 && isIncompleteUser(u)" :value="8" disabled>⏳ รอระบุข้อมูล</option>
                     </select>
                   </div>
                 </td>

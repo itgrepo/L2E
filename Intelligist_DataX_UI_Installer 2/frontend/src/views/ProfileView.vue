@@ -72,7 +72,11 @@ const submitOnboarding = async () => {
       user: userData ? encodeUserData(JSON.parse(userData)) : '',
       user_id: user.value.user_id,
       org_id: user.value.org_id,
-      apikey: user.value.apikey
+      apikey: user.value.apikey,
+      firstname: user.value.firstname,
+      lastname: user.value.lastname,
+      usage_objective: user.value.usage_objective,
+      other_object: user.value.other_object
     });
     if (res.data?.status === 'success') {
       isOnboardingSubmitted.value = true;
@@ -81,6 +85,10 @@ const submitOnboarding = async () => {
       savedUser.org_id = user.value.org_id;
       savedUser.status_id = 8;
       savedUser.apikey = user.value.apikey;
+      savedUser.firstname = user.value.firstname;
+      savedUser.lastname = user.value.lastname;
+      savedUser.usage_objective = user.value.usage_objective;
+      savedUser.other_object = user.value.other_object;
       savedUser.is_approved = false;
       localStorage.setItem('user', JSON.stringify(savedUser));
       message.value = { text: 'ส่งคำขอให้ผู้ดูแลระบบพิจารณาอนุมัติเรียบร้อยแล้ว', type: 'success' };
@@ -93,6 +101,11 @@ const submitOnboarding = async () => {
   } finally {
     isSubmittingOnboarding.value = false;
   }
+};
+
+const resetForm = () => {
+  const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+  user.value = { ...user.value, ...savedUser };
 };
 
 // Password Change states & methods
@@ -465,45 +478,13 @@ const saveChanges = async () => {
           </div>
         </div>
 
-        <div v-else class="onboarding-action-box">
-          <div class="onboarding-form-row">
-            <div class="onboarding-field">
-              <label style="display: block; font-weight: 600; color: #1e293b; margin-bottom: 6px; font-size: 0.9rem;">
-                1. เลือกองค์กรที่สังกัด <span style="color: #ef4444;">*</span>
-              </label>
-              <select v-model="user.org_id" class="onboarding-select">
-                <option value="" disabled>-- กรุณาเลือกองค์กรที่ท่านสังกัด --</option>
-                <option v-for="org in activeOrganizations" :key="org.org_id" :value="org.org_id">
-                  {{ org.org_name }}
-                </option>
-              </select>
-            </div>
-            <div class="onboarding-field">
-              <label style="display: block; font-weight: 600; color: #1e293b; margin-bottom: 6px; font-size: 0.9rem;">
-                2. สร้าง API Key ประจำตัว <span style="color: #ef4444;">*</span>
-              </label>
-              <div style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" :value="user.apikey ? '?apikey=' + user.apikey : 'ยังไม่ได้สร้าง Key'" disabled class="onboarding-input-mono" />
-                <button type="button" @click="generateApiKey" :disabled="isGeneratingKey" class="btn-primary" style="white-space: nowrap; height: 42px;">
-                  {{ user.apikey ? 'สร้างใหม่' : 'สร้าง API Key' }}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div class="onboarding-submit-row">
-            <button 
-              type="button" 
-              @click="submitOnboarding" 
-              :disabled="!user.org_id || !user.apikey || isSubmittingOnboarding" 
-              class="btn-submit-onboarding"
-            >
-              <span v-if="isSubmittingOnboarding">กำลังส่งคำขอ...</span>
-              <span v-else>🚀 ส่งคำขอให้ผู้ดูแลระบบพิจารณาอนุมัติ</span>
-            </button>
-            <small v-if="!user.org_id || !user.apikey" style="color: #64748b; font-size: 0.8rem; margin-top: 6px; display: block;">
-              * ต้องเลือกองค์กรที่สังกัดและสร้าง API Key ก่อนจึงจะสามารถส่งคำขอได้
-            </small>
+        <div v-else class="onboarding-status-box" style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 16px 20px; display: flex; gap: 14px; align-items: center; margin-top: 16px;">
+          <div class="status-icon" style="font-size: 1.8rem;">💡</div>
+          <div>
+            <h4 style="margin: 0 0 4px 0; color: #1e40af; font-size: 1rem; font-weight: 700;">คำแนะนำการขอเปิดใช้งานบัญชี</h4>
+            <p style="margin: 0; color: #1d4ed8; font-size: 0.88rem; line-height: 1.5;">
+              โปรดเลือก <strong>"องค์กร / หน่วยงานที่สังกัด"</strong> และกดปุ่ม <strong>"สร้าง API Key"</strong> ในแบบฟอร์มด้านล่างให้ครบถ้วน จากนั้นกดปุ่ม <strong>"ส่งคำขอเข้าใช้งาน"</strong> เพื่อส่งข้อมูลให้ผู้ดูแลระบบพิจารณาอนุมัติ
+            </p>
           </div>
         </div>
       </div>
@@ -539,8 +520,11 @@ const saveChanges = async () => {
               <input type="email" v-model="user.email" disabled>
             </div>
             <div class="form-group">
-              <label>องค์กร / หน่วยงานที่สังกัด (Organization)</label>
-              <select v-model="user.org_id" class="form-control" style="width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; background: #fff; font-size: 0.95rem;">
+              <label>
+                องค์กร / หน่วยงานที่สังกัด (Organization)
+                <span v-if="isPendingApproval" style="color: #ef4444; font-weight: 700;">*</span>
+              </label>
+              <select v-model="user.org_id" :disabled="isPendingApproval && isOnboardingSubmitted" class="form-control" style="width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; background: #fff; font-size: 0.95rem;">
                 <option value="" disabled>-- เลือกองค์กรที่สังกัด --</option>
                 <option v-for="org in activeOrganizations" :key="org.org_id" :value="org.org_id">
                   {{ org.org_name }}
@@ -549,11 +533,11 @@ const saveChanges = async () => {
             </div>
             <div class="form-group">
               <label>วัตถุประสงค์ขอเข้าใช้งาน</label>
-              <input type="text" v-model="user.usage_objective" placeholder="วัตถุประสงค์ขอเข้าใช้งาน">
+              <input type="text" v-model="user.usage_objective" :disabled="isPendingApproval && isOnboardingSubmitted" placeholder="วัตถุประสงค์ขอเข้าใช้งาน">
             </div>
             <div class="form-group full">
               <label>Other Details</label>
-              <input type="text" v-model="user.other_object">
+              <input type="text" v-model="user.other_object" :disabled="isPendingApproval && isOnboardingSubmitted">
             </div>
             
             <div class="form-group full" style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0;">
@@ -562,6 +546,7 @@ const saveChanges = async () => {
                   <path fill-rule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 2 2 0 012 2 1 1 0 102 0 4 4 0 00-4-4z" clip-rule="evenodd" />
                 </svg>
                 API Key (สำหรับเชื่อมต่อข้อมูล)
+                <span v-if="isPendingApproval" style="color: #ef4444; font-weight: 700;">*</span>
               </label>
               <div style="display: flex; align-items: center; gap: 12px; margin-top: 8px;">
                 <input 
@@ -576,7 +561,7 @@ const saveChanges = async () => {
                   </svg>
                   คัดลอก
                 </button>
-                <button type="button" @click="generateApiKey" class="btn-primary" :disabled="isGeneratingKey" style="white-space: nowrap; height: 100%;">
+                <button type="button" @click="generateApiKey" class="btn-primary" :disabled="isGeneratingKey || (isPendingApproval && isOnboardingSubmitted)" style="white-space: nowrap; height: 100%;">
                   {{ user.apikey ? 'สร้าง Key ใหม่ (Refresh)' : 'สร้าง API Key' }}
                 </button>
               </div>
@@ -585,13 +570,58 @@ const saveChanges = async () => {
               </p>
             </div>
             
-            <div class="form-actions">
-              <button 
-                class="btn-primary" 
-                @click="saveChanges" 
-                :disabled="isLoading"
-              >{{ isLoading ? 'Saving...' : 'Save Changes' }}</button>
-              <button class="btn-ghost">Cancel</button>
+            <div class="form-actions" style="margin-top: 24px;">
+              <!-- กรณีผู้ใช้ใหม่ยังไม่ส่งคำขอ: บังคับเลือก 2 จุดก่อนจึงจะส่งคำขอได้ -->
+              <template v-if="isPendingApproval && !isOnboardingSubmitted">
+                <div style="display: flex; flex-direction: column; gap: 8px; width: 100%;">
+                  <div style="display: flex; gap: 12px; align-items: center;">
+                    <button 
+                      type="button"
+                      class="btn-primary" 
+                      @click="submitOnboarding" 
+                      :disabled="!user.org_id || !user.apikey || isSubmittingOnboarding"
+                      style="padding: 12px 28px; font-size: 1rem; font-weight: 600; min-width: 220px;"
+                    >
+                      <span v-if="isSubmittingOnboarding">กำลังส่งคำขอ...</span>
+                      <span v-else>🚀 ส่งคำขอเข้าใช้งาน</span>
+                    </button>
+                    <button type="button" class="btn-ghost" @click="resetForm">Cancel</button>
+                  </div>
+                  <small v-if="!user.org_id || !user.apikey" style="color: #ef4444; font-size: 0.85rem; font-weight: 500;">
+                    * ต้องเลือกองค์กรที่สังกัด และสร้าง API Key ก่อน จึงจะสามารถส่งคำขอเข้าใช้งานได้
+                  </small>
+                </div>
+              </template>
+
+              <!-- กรณีผู้ใช้ใหม่ส่งคำขอแล้ว อยู่ระหว่างรออนุมัติ -->
+              <template v-else-if="isPendingApproval && isOnboardingSubmitted">
+                <div style="display: flex; flex-direction: column; gap: 8px; width: 100%;">
+                  <div style="display: flex; gap: 12px; align-items: center;">
+                    <button 
+                      type="button"
+                      class="btn-primary" 
+                      disabled
+                      style="background-color: #f59e0b; border-color: #f59e0b; cursor: not-allowed; opacity: 0.95; padding: 12px 28px; font-size: 1rem; font-weight: 600;"
+                    >
+                      ⏳ อยู่ระหว่างรอผู้ดูแลระบบพิจารณาอนุมัติ
+                    </button>
+                  </div>
+                  <small style="color: #b45309; font-size: 0.85rem; font-weight: 500;">
+                    * ส่งคำขอเปิดใช้งานบัญชีเรียบร้อยแล้ว กรุณารอผู้ดูแลระบบตรวจสอบและอนุมัติสิทธิ์ (R2)
+                  </small>
+                </div>
+              </template>
+
+              <!-- กรณีผู้ใช้ทั่วไปที่ได้รับการอนุมัติแล้ว (R2, R3, R4, R5, Super Admin): เป็น Save Changes ตามปกติ -->
+              <template v-else>
+                <button 
+                  type="button"
+                  class="btn-primary" 
+                  @click="saveChanges" 
+                  :disabled="isLoading"
+                >{{ isLoading ? 'Saving...' : 'Save Changes' }}</button>
+                <button type="button" class="btn-ghost" @click="resetForm">Cancel</button>
+              </template>
             </div>
           </div>
           

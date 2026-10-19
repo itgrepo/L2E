@@ -29,7 +29,8 @@ def mgmtgetUser():
     sql = '''SELECT user.user_id, user.username, user.firstname, 
     user.lastname, user.email,user.usage_objective,user.other_object, 
     ua.login_respond, user.previlage_id,user.two_factor_authen, 
-    cs.status_name, cs.status_id ,user.email_news,user.create_at,"" AS send_QR 
+    cs.status_name, cs.status_id ,user.email_news,user.create_at,"" AS send_QR,
+    user.org_id, (user.apikey IS NOT NULL AND user.apikey != '') AS has_api_key
         FROM user 
     JOIN codename_status as cs 
         ON user.status_id = cs.status_id 
