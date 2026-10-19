@@ -229,6 +229,10 @@ const getRoleName = (roleId) => {
 };
 
 const handleRoleChange = async (user, newRoleId) => {
+    if (String(user.status_id) === '8') {
+        alert('ผู้ใช้อยู่ในสถานะรออนุมัติ กรุณากดปุ่ม "อนุมัติ R2" ก่อนกำหนดบทบาท');
+        return;
+    }
     try {
         const userStored = JSON.parse(localStorage.getItem('user') || '{}');
         const response = await postWithUser('/mgmt/updateUserById', userStored, {
@@ -268,7 +272,26 @@ const getStatusBadgeClass = (statusId) => {
     return 'status-active';
 };
 
+const getStatusSelectTitle = (u) => {
+    if (String(u.status_id) === '8') {
+        if (isPendingUser(u)) return 'ผู้ใช้อยู่ระหว่างรออนุมัติ กรุณากดปุ่ม "อนุมัติ R2" เพื่อเปิดใช้งานบัญชี (ไม่สามารถเปลี่ยนสถานะได้โดยตรง)';
+        return 'ผู้ใช้ยังระบุข้อมูลไม่ครบถ้วน (ไม่สามารถเปลี่ยนสถานะได้โดยตรง)';
+    }
+    if (String(u.status_id) === '6') {
+        return 'บัญชีถูกล็อค กรุณากดปุ่ม Unlock เพื่อปลดล็อคบัญชี';
+    }
+    return '';
+};
+
 const handleStatusChange = async (user, newStatusId) => {
+    if (String(user.status_id) === '8') {
+        alert('ผู้ใช้อยู่ในสถานะรออนุมัติ กรุณาใช้ปุ่ม "อนุมัติ R2" เพื่อเปิดใช้งานบัญชี');
+        return;
+    }
+    if (String(user.status_id) === '6') {
+        alert('บัญชีถูกล็อค กรุณาใช้ปุ่ม "Unlock" เพื่อปลดล็อคบัญชี');
+        return;
+    }
     try {
         const userStored = JSON.parse(localStorage.getItem('user') || '{}');
         const response = await postWithUser('/mgmt/updateUserById', userStored, {
@@ -590,7 +613,9 @@ onMounted(() => {
                         :value="u.previlage_id" 
                         @change="handleRoleChange(u, $event.target.value)"
                         class="role-select"
-                        :title="getRoleName(u.previlage_id)"
+                        :class="{ 'disabled-select': u.status_id == 8 }"
+                        :title="u.status_id == 8 ? 'ไม่สามารถเปลี่ยนบทบาทได้ขณะรออนุมัติ กรุณากดปุ่มอนุมัติ R2' : getRoleName(u.previlage_id)"
+                        :disabled="u.status_id == 8"
                     >
                         <option v-for="role in roles" :key="role.previlage_id" :value="role.previlage_id" :title="role.previlage_name">
                             {{ role.previlage_name }}
@@ -605,13 +630,16 @@ onMounted(() => {
                         :value="getUserStatusValue(u.status_id)" 
                         @change="handleStatusChange(u, $event.target.value)"
                         class="role-select status-select"
-                        :class="getStatusBadgeClass(u.status_id)"
+                        :class="[getStatusBadgeClass(u.status_id), { 'disabled-select': u.status_id == 8 || u.status_id == 6 }]"
+                        :disabled="u.status_id == 8 || u.status_id == 6"
+                        :title="getStatusSelectTitle(u)"
                     >
                         <option :value="1">🟢 Active</option>
                         <option :value="4">🟡 Pending Verification</option>
                         <option :value="3">🔴 Suspend</option>
                         <option v-if="u.status_id == 6" :value="6" disabled>🔒 Locked</option>
-                        <option v-if="u.status_id == 8" :value="8" disabled>⏳ รออนุมัติ R2</option>
+                        <option v-if="u.status_id == 8 && isPendingUser(u)" :value="8" disabled>⏳ รออนุมัติ R2</option>
+                        <option v-if="u.status_id == 8 && isIncompleteUser(u)" :value="8" disabled>⏳ รอระบุข้อมูล</option>
                     </select>
                   </div>
                 </div>
@@ -701,7 +729,9 @@ onMounted(() => {
                         :value="getUserStatusValue(u.status_id)" 
                         @change="handleStatusChange(u, $event.target.value)"
                         class="role-select status-select"
-                        :class="getStatusBadgeClass(u.status_id)"
+                        :class="[getStatusBadgeClass(u.status_id), { 'disabled-select': u.status_id == 8 || u.status_id == 6 }]"
+                        :disabled="u.status_id == 8 || u.status_id == 6"
+                        :title="getStatusSelectTitle(u)"
                     >
                         <option :value="1">🟢 Active</option>
                         <option :value="4">🟡 Pending Verification</option>
@@ -750,7 +780,9 @@ onMounted(() => {
                           :value="u.previlage_id" 
                           @change="handleRoleChange(u, $event.target.value)"
                           class="role-select action-role-select"
-                          :title="getRoleName(u.previlage_id)"
+                          :class="{ 'disabled-select': u.status_id == 8 }"
+                          :title="u.status_id == 8 ? 'ไม่สามารถเปลี่ยนบทบาทได้ขณะรออนุมัติ กรุณากดปุ่มอนุมัติ R2' : getRoleName(u.previlage_id)"
+                          :disabled="u.status_id == 8"
                       >
                           <option v-for="role in roles" :key="role.previlage_id" :value="role.previlage_id" :title="role.previlage_name">
                               {{ role.previlage_name }}
@@ -1374,6 +1406,33 @@ h1 {
 
 .role-select:focus {
     border-color: #3b82f6;
+}
+
+.role-select:disabled,
+.role-select.disabled-select {
+    cursor: not-allowed !important;
+    opacity: 0.75 !important;
+    background-color: #f1f5f9 !important;
+    border-color: #cbd5e1 !important;
+    color: #64748b !important;
+}
+
+.status-select.status-approval:disabled,
+.status-select.status-approval.disabled-select {
+    background-color: #fef3c7 !important;
+    color: #b45309 !important;
+    border-color: #fde68a !important;
+    cursor: not-allowed !important;
+    opacity: 0.95 !important;
+}
+
+.status-select.status-locked:disabled,
+.status-select.status-locked.disabled-select {
+    background-color: #f8fafc !important;
+    color: #ef4444 !important;
+    border-color: #fca5a5 !important;
+    cursor: not-allowed !important;
+    opacity: 0.95 !important;
 }
 
 /* Loading & Empty states */

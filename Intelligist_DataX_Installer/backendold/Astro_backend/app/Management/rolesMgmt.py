@@ -101,6 +101,20 @@ def updateUserById():
             cursor = conn.cursor()
             
             if target_user_id:
+                # Check target user's current status
+                cursor.execute("SELECT status_id FROM user WHERE user_id = %s", (target_user_id,))
+                curr_user = cursor.fetchone()
+                if curr_user:
+                    curr_status = str(curr_user[0])
+                    if curr_status == '8' and status_id is not None and str(status_id) != '8':
+                        cursor.close()
+                        conn.close()
+                        return jsonify({"status": "error", "message": "ผู้ใช้อยู่ในสถานะรออนุมัติ กรุณากดปุ่มอนุมัติ R2 เพื่อเปิดใช้งานบัญชี"}), 400
+                    if curr_status == '6' and status_id is not None and str(status_id) != '6':
+                        cursor.close()
+                        conn.close()
+                        return jsonify({"status": "error", "message": "บัญชีถูกล็อค กรุณาใช้ปุ่ม Unlock เพื่อปลดล็อคบัญชี"}), 400
+
                 updates = []
                 params = []
                 if previlage_id is not None:
