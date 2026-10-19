@@ -229,6 +229,10 @@ const getRoleName = (roleId) => {
 };
 
 const handleRoleChange = async (user, newRoleId) => {
+    if (String(user.status_id) === '4') {
+        alert('ผู้ใช้ยังไม่ได้ยืนยันอีเมล ไม่สามารถกำหนดบทบาทได้จนกว่าผู้ใช้จะยืนยันอีเมลสำเร็จ');
+        return;
+    }
     if (String(user.status_id) === '8') {
         alert('ผู้ใช้อยู่ในสถานะรออนุมัติ กรุณากดปุ่ม "อนุมัติ R2" ก่อนกำหนดบทบาท');
         return;
@@ -273,6 +277,9 @@ const getStatusBadgeClass = (statusId) => {
 };
 
 const getStatusSelectTitle = (u) => {
+    if (String(u.status_id) === '4') {
+        return 'ผู้ใช้อยู่ระหว่างรอการยืนยันอีเมล (Pending Verification) ไม่สามารถเปลี่ยนสถานะได้จนกว่าผู้ใช้จะกดยืนยันในอีเมล';
+    }
     if (String(u.status_id) === '8') {
         if (isPendingUser(u)) return 'ผู้ใช้อยู่ระหว่างรออนุมัติ กรุณากดปุ่ม "อนุมัติ R2" เพื่อเปิดใช้งานบัญชี (ไม่สามารถเปลี่ยนสถานะได้โดยตรง)';
         return 'ผู้ใช้ยังระบุข้อมูลไม่ครบถ้วน (ไม่สามารถเปลี่ยนสถานะได้โดยตรง)';
@@ -284,6 +291,10 @@ const getStatusSelectTitle = (u) => {
 };
 
 const handleStatusChange = async (user, newStatusId) => {
+    if (String(user.status_id) === '4') {
+        alert('ผู้ใช้ยังไม่ได้ยืนยันอีเมล ไม่สามารถเปลี่ยนสถานะได้จนกว่าผู้ใช้จะยืนยันอีเมลสำเร็จ');
+        return;
+    }
     if (String(user.status_id) === '8') {
         alert('ผู้ใช้อยู่ในสถานะรออนุมัติ กรุณาใช้ปุ่ม "อนุมัติ R2" เพื่อเปิดใช้งานบัญชี');
         return;
@@ -310,6 +321,36 @@ const handleStatusChange = async (user, newStatusId) => {
     } catch (error) {
         console.error('Error updating status:', error);
         alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
+    }
+};
+
+const isResending = ref(null);
+const handleResendEmail = async (user) => {
+    if (!confirm(`ต้องการส่งอีเมลยืนยันตัวตนให้ "${user.username}" (${user.email}) อีกครั้งหรือไม่?`)) {
+        return;
+    }
+    isResending.value = user.user_id;
+    try {
+        const response = await postWithUser('/resendEmailConfirmation', {}, {
+            dataresend: {
+                email: user.email,
+                user_id: user.user_id,
+                username: user.username,
+                firstname: user.firstname || '',
+                lastname: user.lastname || ''
+            },
+            link: window.location.origin
+        });
+        if (response.data === 'success' || response.data?.status === 'success') {
+            showAlert(`ส่งอีเมลยืนยันตัวตนไปยัง ${user.email} สำเร็จแล้ว`, 'success');
+        } else {
+            alert('เกิดข้อผิดพลาดในการส่งอีเมล: ' + (response.data?.message || JSON.stringify(response.data)));
+        }
+    } catch (error) {
+        console.error('Error resending confirmation email:', error);
+        alert('เกิดข้อผิดพลาด: ไม่สามารถส่งอีเมลได้ กรุณาลองใหม่อีกครั้ง');
+    } finally {
+        isResending.value = null;
     }
 };
 
@@ -577,6 +618,16 @@ onMounted(() => {
                 </div>
                 <div class="actions-group">
                   <button 
+                    v-if="u.status_id == 4" 
+                    class="resend-btn" 
+                    @click="handleResendEmail(u)" 
+                    :disabled="isResending === u.user_id"
+                    title="ส่งอีเมลยืนยันตัวตนให้อีกครั้ง"
+                    style="background: #f59e0b; color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.75rem; font-weight: 600; margin-right: 8px;"
+                  >
+                    ✉️ {{ isResending === u.user_id ? 'กำลังส่ง...' : 'ส่งเมลซ้ำ' }}
+                  </button>
+                  <button 
                     v-if="isPendingUser(u)" 
                     class="approve-btn" 
                     @click="handleApproveUser(u)" 
@@ -613,9 +664,9 @@ onMounted(() => {
                         :value="u.previlage_id" 
                         @change="handleRoleChange(u, $event.target.value)"
                         class="role-select"
-                        :class="{ 'disabled-select': u.status_id == 8 }"
-                        :title="u.status_id == 8 ? 'ไม่สามารถเปลี่ยนบทบาทได้ขณะรออนุมัติ กรุณากดปุ่มอนุมัติ R2' : getRoleName(u.previlage_id)"
-                        :disabled="u.status_id == 8"
+                        :class="{ 'disabled-select': u.status_id == 4 || u.status_id == 8 }"
+                        :title="u.status_id == 4 ? 'ไม่สามารถเปลี่ยนบทบาทได้จนกว่าผู้ใช้จะยืนยันอีเมล' : (u.status_id == 8 ? 'ไม่สามารถเปลี่ยนบทบาทได้ขณะรออนุมัติ กรุณากดปุ่มอนุมัติ R2' : getRoleName(u.previlage_id))"
+                        :disabled="u.status_id == 4 || u.status_id == 8"
                     >
                         <option v-for="role in roles" :key="role.previlage_id" :value="role.previlage_id" :title="role.previlage_name">
                             {{ role.previlage_name }}
@@ -630,8 +681,8 @@ onMounted(() => {
                         :value="getUserStatusValue(u.status_id)" 
                         @change="handleStatusChange(u, $event.target.value)"
                         class="role-select status-select"
-                        :class="[getStatusBadgeClass(u.status_id), { 'disabled-select': u.status_id == 8 || u.status_id == 6 }]"
-                        :disabled="u.status_id == 8 || u.status_id == 6"
+                        :class="[getStatusBadgeClass(u.status_id), { 'disabled-select': u.status_id == 4 || u.status_id == 8 || u.status_id == 6 }]"
+                        :disabled="u.status_id == 4 || u.status_id == 8 || u.status_id == 6"
                         :title="getStatusSelectTitle(u)"
                     >
                         <option :value="1">🟢 Active</option>
@@ -729,8 +780,8 @@ onMounted(() => {
                         :value="getUserStatusValue(u.status_id)" 
                         @change="handleStatusChange(u, $event.target.value)"
                         class="role-select status-select"
-                        :class="[getStatusBadgeClass(u.status_id), { 'disabled-select': u.status_id == 8 || u.status_id == 6 }]"
-                        :disabled="u.status_id == 8 || u.status_id == 6"
+                        :class="[getStatusBadgeClass(u.status_id), { 'disabled-select': u.status_id == 4 || u.status_id == 8 || u.status_id == 6 }]"
+                        :disabled="u.status_id == 4 || u.status_id == 8 || u.status_id == 6"
                         :title="getStatusSelectTitle(u)"
                     >
                         <option :value="1">🟢 Active</option>
@@ -764,6 +815,18 @@ onMounted(() => {
                 <td class="actions-cell">
                   <div class="actions-group">
                     <button 
+                      v-if="u.status_id == 4" 
+                      class="resend-btn" 
+                      @click="handleResendEmail(u)" 
+                      :disabled="isResending === u.user_id"
+                      title="ส่งอีเมลยืนยันตัวตนให้อีกครั้ง"
+                      style="background-color: #f59e0b; color: white; border: none; padding: 7px 12px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.85rem; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 4px rgba(245, 158, 11, 0.2);"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                      <span>{{ isResending === u.user_id ? 'กำลังส่ง...' : 'ส่งเมลยืนยันซ้ำ' }}</span>
+                    </button>
+
+                    <button 
                       v-if="isPendingUser(u)" 
                       class="approve-btn" 
                       @click="handleApproveUser(u)" 
@@ -780,9 +843,9 @@ onMounted(() => {
                           :value="u.previlage_id" 
                           @change="handleRoleChange(u, $event.target.value)"
                           class="role-select action-role-select"
-                          :class="{ 'disabled-select': u.status_id == 8 }"
-                          :title="u.status_id == 8 ? 'ไม่สามารถเปลี่ยนบทบาทได้ขณะรออนุมัติ กรุณากดปุ่มอนุมัติ R2' : getRoleName(u.previlage_id)"
-                          :disabled="u.status_id == 8"
+                          :class="{ 'disabled-select': u.status_id == 4 || u.status_id == 8 }"
+                          :title="u.status_id == 4 ? 'ไม่สามารถเปลี่ยนบทบาทได้จนกว่าผู้ใช้จะยืนยันอีเมล' : (u.status_id == 8 ? 'ไม่สามารถเปลี่ยนบทบาทได้ขณะรออนุมัติ กรุณากดปุ่มอนุมัติ R2' : getRoleName(u.previlage_id))"
+                          :disabled="u.status_id == 4 || u.status_id == 8"
                       >
                           <option v-for="role in roles" :key="role.previlage_id" :value="role.previlage_id" :title="role.previlage_name">
                               {{ role.previlage_name }}
@@ -1415,6 +1478,15 @@ h1 {
     background-color: #f1f5f9 !important;
     border-color: #cbd5e1 !important;
     color: #64748b !important;
+}
+
+.status-select.status-pending:disabled,
+.status-select.status-pending.disabled-select {
+    background-color: #fffbeb !important;
+    color: #92400e !important;
+    border-color: #fde68a !important;
+    cursor: not-allowed !important;
+    opacity: 0.95 !important;
 }
 
 .status-select.status-approval:disabled,

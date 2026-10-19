@@ -106,6 +106,10 @@ def updateUserById():
                 curr_user = cursor.fetchone()
                 if curr_user:
                     curr_status = str(curr_user[0])
+                    if curr_status == '4' and status_id is not None and str(status_id) != '4':
+                        cursor.close()
+                        conn.close()
+                        return jsonify({"status": "error", "message": "ผู้ใช้ยังไม่ได้ยืนยันอีเมล ไม่สามารถเปลี่ยนสถานะได้จนกว่าจะยืนยันอีเมลสำเร็จ"}), 400
                     if curr_status == '8' and status_id is not None and str(status_id) != '8':
                         cursor.close()
                         conn.close()
