@@ -52,7 +52,7 @@ app.config['MYSQL_DATABASE_DB'] = os.environ.get('DB_NAME', 'psu_backend')
 app.config['MYSQL_DATABASE_HOST'] = os.environ.get('DB_HOST', '110.78.210.129')
 app.config['MYSQL_DATABASE_PORT'] = int(os.environ.get('DB_PORT', 3306))
 
-mysql = MySQL()
+mysql = MySQL(init_command="SET time_zone = '+07:00'")
 mysql.init_app(app)
 
 

@@ -293,7 +293,7 @@ onMounted(async () => {
                   <span v-if="!req.mou_file_path && !(req.request_type === 'api' || (req.fields && req.fields.length > 0))" style="color: #94a3b8; font-size: 0.85rem;">-</span>
                 </div>
               </td>
-              <td>{{ req.created_at }}</td>
+              <td>{{ req.created_at || '-' }}</td>
               <td>
                 <div v-if="req.status === 'Pending'" class="action-buttons">
                   <button class="btn-approve" @click="openApprovalModal(req)">อนุมัติ</button>
@@ -414,6 +414,10 @@ onMounted(async () => {
             <div class="meta-item">
               <span class="meta-label">หน่วยงาน</span>
               <span class="meta-value">{{ selectedRequest?.organization || '-' }}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">วันที่ส่งคำขอ</span>
+              <span class="meta-value">{{ selectedRequest?.created_at || '-' }}</span>
             </div>
           </div>
 

@@ -9,6 +9,8 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-datax_db}
       MYSQL_USER: ${MYSQL_USER:-astro}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-password123}
+      TZ: Asia/Bangkok
+    command: --default-time-zone='+07:00'
     ports:
       - "3309:3306"
     volumes:
@@ -28,6 +30,7 @@ services:
       - ./backendold/Astro_backend/app:/app
       - ./backendold/Astro_backend/uploads:/app/uploads
     environment:
+      - TZ=Asia/Bangkok
       - DB_HOST=db
       - DB_USER=${MYSQL_USER:-astro}
       - DB_PASS=${MYSQL_PASSWORD:-password123}

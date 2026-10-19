@@ -205,8 +205,13 @@ const handleCredentialAction = async (endpoint, cred) => {
 
 const formatDateTime = (dateStr) => {
   if (!dateStr) return '-';
-  const d = new Date(dateStr);
-  return d.toLocaleString('en-GB'); // DD/MM/YYYY, HH:MM:SS
+  try {
+    const safeStr = typeof dateStr === 'string' && dateStr.includes(' ') && !dateStr.includes('T') ? dateStr.replace(' ', 'T') : dateStr;
+    const d = new Date(safeStr);
+    return isNaN(d.getTime()) ? dateStr : d.toLocaleString('en-GB'); // DD/MM/YYYY, HH:MM:SS
+  } catch {
+    return dateStr;
+  }
 };
 
 onMounted(() => {

@@ -70,8 +70,13 @@ const markAllAsRead = async () => {
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '';
-  const d = new Date(dateStr);
-  return d.toLocaleString('th-TH');
+  try {
+    const safeStr = typeof dateStr === 'string' && dateStr.includes(' ') && !dateStr.includes('T') ? dateStr.replace(' ', 'T') : dateStr;
+    const d = new Date(safeStr);
+    return isNaN(d.getTime()) ? dateStr : d.toLocaleString('th-TH');
+  } catch {
+    return dateStr;
+  }
 };
 
 const authChangeHandler = () => {

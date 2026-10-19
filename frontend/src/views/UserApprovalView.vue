@@ -172,7 +172,9 @@ const approveAll = async () => {
 const formatDate = (dateStr) => {
   if (!dateStr) return '-';
   try {
-    const d = new Date(dateStr);
+    const safeStr = typeof dateStr === 'string' && dateStr.includes(' ') && !dateStr.includes('T') ? dateStr.replace(' ', 'T') : dateStr;
+    const d = new Date(safeStr);
+    if (isNaN(d.getTime())) return dateStr;
     return d.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   } catch {
     return dateStr;
