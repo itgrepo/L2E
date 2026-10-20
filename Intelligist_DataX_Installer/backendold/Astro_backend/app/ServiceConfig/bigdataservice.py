@@ -1353,6 +1353,46 @@ def retrieveService():
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         service_result = toJson(data, columns)
+
+        # Aggregate view and click statistics from dataset_views
+        try:
+            service_ids = [s.get('service_id') for s in service_result if s.get('service_id')]
+            if service_ids:
+                format_strings = ','.join(['%s'] * len(service_ids))
+                # 1. Unique views across all users/guests (repeat clicks by same user not counted)
+                cursor.execute(f"""
+                    SELECT service_id, COUNT(DISTINCT COALESCE(user_id, ip_address)) as unique_views
+                    FROM dataset_views
+                    WHERE service_id IN ({format_strings})
+                    GROUP BY service_id
+                """, tuple(service_ids))
+                unique_map = {row[0]: row[1] for row in cursor.fetchall()}
+
+                # 2. Clicks by the specific requesting user
+                user_click_map = {}
+                if current_u_id:
+                    cursor.execute(f"""
+                        SELECT service_id, COUNT(*) as user_clicks
+                        FROM dataset_views
+                        WHERE service_id IN ({format_strings}) AND user_id = %s
+                        GROUP BY service_id
+                    """, tuple(service_ids) + (current_u_id,))
+                    user_click_map = {row[0]: row[1] for row in cursor.fetchall()}
+
+                for s in service_result:
+                    sid = s.get('service_id')
+                    s['unique_view_count'] = unique_map.get(sid, 0)
+                    s['user_click_count'] = user_click_map.get(sid, 0)
+            else:
+                for s in service_result:
+                    s['unique_view_count'] = 0
+                    s['user_click_count'] = 0
+        except Exception as stat_err:
+            current_app.logger.warning(f"Could not calculate dataset_views stats: {stat_err}")
+            for s in service_result:
+                s['unique_view_count'] = s.get('unique_view_count', 0)
+                s['user_click_count'] = s.get('user_click_count', 0)
+
         conn.commit()
         cursor.close()
         conn.close()
@@ -1362,6 +1402,41 @@ def retrieveService():
         line_number = exception_traceback.tb_lineno
         print("Error in retrieveService: ", str(e), " at line ", line_number)
         return jsonify({"status": "Error: " + str(e), "Line number": line_number})
+
+@app.route('/recordDatasetView', methods=['POST'])
+def recordDatasetView():
+    try:
+        data = request.json or {}
+        service_id = data.get('service_id')
+        user_str = data.get('user') or request.headers.get('x-user')
+        user_id = None
+        if user_str:
+            decoded_user = platform_decode(user_str)
+            user_data = safe_json_loads(decoded_user)
+            if user_data:
+                user_id = user_data.get('user_id')
+        if not user_id and data.get('user_id'):
+            user_id = data.get('user_id')
+
+        ip = request.headers.get('X-FORWARDED-FOR', request.remote_addr)
+        if ip and ',' in ip:
+            ip = ip.split(',')[0].strip()
+
+        if service_id:
+            conn = mysql.connect()
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO dataset_views (service_id, user_id, ip_address, created_at) VALUES (%s, %s, %s, CURRENT_TIMESTAMP)",
+                (service_id, user_id, ip)
+            )
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'success'})
+        return jsonify({'status': 'error', 'message': 'service_id is required'}), 400
+    except Exception as e:
+        current_app.logger.error(f"Error in recordDatasetView: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 import pandas as pd
 from flask import Response

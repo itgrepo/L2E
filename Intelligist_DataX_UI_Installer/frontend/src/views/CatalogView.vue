@@ -402,12 +402,31 @@ const filteredDatasets = computed(() => {
   }
 
   // 5. Sorting
-  if (sortOption.value === 'newest') {
-    result = result.sort((a, b) => b.id - a.id);
+  if (sortOption.value === 'relevant') {
+    // เกี่ยวข้องมากที่สุด: user คนนั้นกด การ์ดข้อมูลบ่อยสุดเยอะสุด ถ้ามันเท่ากันให้เอาใหม่ล่าสุดมาก่อน
+    result = result.sort((a, b) => {
+      const clickDiff = (b.user_click_count || 0) - (a.user_click_count || 0);
+      if (clickDiff !== 0) return clickDiff;
+      const dateDiff = (b.latestTimestamp || 0) - (a.latestTimestamp || 0);
+      if (dateDiff !== 0) return dateDiff;
+      return Number(b.id) - Number(a.id);
+    });
+  } else if (sortOption.value === 'newest') {
+    // ใหม่ล่าสุด: วันที่สร้างล่าสุด วันที่แก้ไขล่าสุด
+    result = result.sort((a, b) => {
+      const dateDiff = (b.latestTimestamp || 0) - (a.latestTimestamp || 0);
+      if (dateDiff !== 0) return dateDiff;
+      return Number(b.id) - Number(a.id);
+    });
   } else if (sortOption.value === 'popular') {
-    result = result.sort((a, b) => (b.title || '').localeCompare(a.title || ''));
-  } else if (sortOption.value === 'relevant') {
-    result = result.sort((a, b) => b.id - a.id);
+    // ยอดนิยม: วิว จากทุก user ดูมากสุด แต่ถ้า คนหนึ่งกดย้ำๆ อันนี้ไม่นับ (Unique user views)
+    result = result.sort((a, b) => {
+      const viewDiff = (b.unique_view_count || 0) - (a.unique_view_count || 0);
+      if (viewDiff !== 0) return viewDiff;
+      const dateDiff = (b.latestTimestamp || 0) - (a.latestTimestamp || 0);
+      if (dateDiff !== 0) return dateDiff;
+      return Number(b.id) - Number(a.id);
+    });
   }
 
   return result;
@@ -456,6 +475,30 @@ const toggleFormat = (format) => {
 };
 
 const handleDatasetCardClick = (ds) => {
+  // 1. Record click in local state & localStorage immediately
+  try {
+    const localClicks = JSON.parse(localStorage.getItem('user_dataset_clicks') || '{}');
+    const sid = Number(ds.id);
+    localClicks[sid] = (localClicks[sid] || 0) + 1;
+    localStorage.setItem('user_dataset_clicks', JSON.stringify(localClicks));
+    ds.user_click_count = (ds.user_click_count || 0) + 1;
+  } catch (err) {
+    console.warn('Error saving local click:', err);
+  }
+
+  // 2. Send tracking event to backend asynchronously
+  try {
+    const userDataStr = localStorage.getItem('user');
+    let userPayload = '';
+    if (userDataStr) {
+      userPayload = encodeUserData(JSON.parse(userDataStr));
+    }
+    apiClient.post('/recordDatasetView', {
+      service_id: ds.id,
+      user: userPayload
+    }).catch(e => {});
+  } catch (err) {}
+
   router.push('/dataset/' + ds.id);
 };
 const openDatasetDetail = (ds) => {
@@ -566,6 +609,34 @@ const fetchDatasets = async () => {
       console.log('Catalog Raw Data (first 3):', response.data.data.slice(0, 3).map(i => ({ name: i.service_name, api: i.api_enabled })));
       datasets.value = response.data.data.map(item => {
         const accessInfo = getAccessInfo(item);
+
+        // Parse dates: create_at and date_updated for sorting & display
+        const parseDateTs = (d) => {
+          if (!d) return 0;
+          const ts = new Date(d).getTime();
+          return isNaN(ts) ? 0 : ts;
+        };
+        const createTs = parseDateTs(item.create_at);
+        const updateTs = parseDateTs(item.date_updated);
+        const latestTimestamp = Math.max(createTs, updateTs);
+
+        // Format updated date nicely in Thai format
+        let updatedText = 'เพิ่งอัปเดต';
+        if (latestTimestamp > 0) {
+          const dt = new Date(latestTimestamp);
+          const day = dt.getDate();
+          const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+          const month = months[dt.getMonth()];
+          const year = dt.getFullYear() + 543;
+          updatedText = `อัปเดต ${day} ${month} ${year}`;
+        }
+
+        // Get local clicks for this user/browser as supplementary
+        const localClicksMap = JSON.parse(localStorage.getItem('user_dataset_clicks') || '{}');
+        const sid = Number(item.service_id);
+        const userClicks = Number(item.user_click_count || 0) + Number(localClicksMap[sid] || 0);
+        const uniqueViews = Number(item.unique_view_count || 0);
+
         return {
           id: item.service_id,
           dataset_id: item.dataset_id,
@@ -603,8 +674,13 @@ const fetchDatasets = async () => {
           api_type: item.api_type || 'public',
           formats: item.data_format ? item.data_format.split(',') : ['CSV', 'API', 'JSON'],
           file_path: item.file_path,
-          updated: 'อัปเดต ' + (Math.floor(Math.random() * 5) + 1) + ' วันก่อน',
-          isNew: Math.random() > 0.7
+          create_at: item.create_at,
+          date_updated: item.date_updated,
+          latestTimestamp: latestTimestamp,
+          updated: updatedText,
+          user_click_count: userClicks,
+          unique_view_count: uniqueViews,
+          isNew: latestTimestamp > Date.now() - (30 * 24 * 60 * 60 * 1000)
         };
       });
       
@@ -786,8 +862,19 @@ onMounted(async () => {
                   </div>
                   <div class="ds-meta">
                     <span class="agency">{{ ds.agency }}</span>
-                    
-                    
+                    <span class="separator">•</span>
+                    <span class="date">{{ ds.updated }}</span>
+                    <span class="separator">•</span>
+                    <span class="views" title="ยอดผู้เข้าชมทั้งหมด (ไม่นับการกดซ้ำ)">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="display: inline-block; vertical-align: -1px; margin-right: 2px;">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                      {{ ds.unique_view_count || 0 }} ผู้เข้าชม
+                    </span>
+                    <span v-if="ds.user_click_count > 0" class="user-clicks-badge" style="background: #ecfdf5; color: #047857; padding: 2px 7px; border-radius: 6px; font-size: 0.75rem; font-weight: 600;" title="จำนวนครั้งที่คุณเปิดดูการ์ดชุดข้อมูลนี้">
+                      คุณเปิดดู {{ ds.user_click_count }} ครั้ง
+                    </span>
                   </div>
                 </div>
               </div>

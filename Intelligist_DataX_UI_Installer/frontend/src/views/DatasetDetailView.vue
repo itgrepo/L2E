@@ -547,13 +547,35 @@ const openPreview = (format) => {
   }
 };
 
+const recordDatasetView = (sid) => {
+  if (!sid) return;
+  try {
+    const localClicks = JSON.parse(localStorage.getItem('user_dataset_clicks') || '{}');
+    const numericId = Number(sid);
+    localClicks[numericId] = (localClicks[numericId] || 0) + 1;
+    localStorage.setItem('user_dataset_clicks', JSON.stringify(localClicks));
+
+    const userStr = localStorage.getItem('user');
+    let userPayload = '';
+    if (userStr) {
+      userPayload = encodeUserData(JSON.parse(userStr));
+    }
+    apiClient.post('/recordDatasetView', {
+      service_id: sid,
+      user: userPayload
+    }).catch(() => {});
+  } catch (e) {}
+};
+
 onMounted(() => {
+  recordDatasetView(route.params.id);
   fetchDatasetDetail();
   syncServerFavorites();
 });
 
 watch(() => route.params.id, (newId) => {
   if (newId) {
+    recordDatasetView(newId);
     fetchDatasetDetail();
   }
 });
