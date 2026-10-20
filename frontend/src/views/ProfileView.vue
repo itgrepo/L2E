@@ -52,6 +52,20 @@ const isPendingApproval = computed(() => {
   return priv === '1' || status === '8' || user.value.is_approved === false;
 });
 
+const isOrgAndObjectiveLocked = computed(() => {
+  // Super Admin (previlage_id == 4) can always edit org and objective
+  if (String(user.value.previlage_id) === '4') {
+    return false;
+  }
+  // New users during initial onboarding (pending approval and not yet submitted) can select org and objective
+  if (isPendingApproval.value && !isOnboardingSubmitted.value) {
+    return false;
+  }
+  // All approved users (R2 General User, R3 Dataset Owner/Org Admin, R5 Internal User, etc.)
+  // and pending users who have already submitted are locked
+  return true;
+});
+
 const hasApiKey = computed(() => Boolean(user.value.apikey));
 const hasSelectedOrg = computed(() => Boolean(user.value.org_id));
 
@@ -524,20 +538,57 @@ const saveChanges = async () => {
                 องค์กร / หน่วยงานที่สังกัด (Organization)
                 <span v-if="isPendingApproval" style="color: #ef4444; font-weight: 700;">*</span>
               </label>
-              <select v-model="user.org_id" :disabled="isPendingApproval && isOnboardingSubmitted" class="form-control" style="width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; background: #fff; font-size: 0.95rem;">
+              <select 
+                v-model="user.org_id" 
+                :disabled="isOrgAndObjectiveLocked" 
+                class="form-control" 
+                :style="{
+                  width: '100%',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '8px',
+                  padding: '10px 14px',
+                  fontSize: '0.95rem',
+                  background: isOrgAndObjectiveLocked ? '#f8fafc' : '#fff',
+                  cursor: isOrgAndObjectiveLocked ? 'not-allowed' : 'default',
+                  color: isOrgAndObjectiveLocked ? '#64748b' : '#1e293b'
+                }"
+              >
                 <option value="" disabled>-- เลือกองค์กรที่สังกัด --</option>
                 <option v-for="org in activeOrganizations" :key="org.org_id" :value="org.org_id">
                   {{ org.org_name }}
                 </option>
               </select>
+              <small v-if="isOrgAndObjectiveLocked && !isPendingApproval" style="display: flex; align-items: center; gap: 4px; color: #64748b; font-size: 0.8rem; margin-top: 6px;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+                สามารถเปลี่ยนแปลงได้โดยผู้ดูแลระบบสูงสุด (Super Admin) เท่านั้น
+              </small>
             </div>
             <div class="form-group">
               <label>วัตถุประสงค์ขอเข้าใช้งาน</label>
-              <input type="text" v-model="user.usage_objective" :disabled="isPendingApproval && isOnboardingSubmitted" placeholder="วัตถุประสงค์ขอเข้าใช้งาน">
+              <input 
+                type="text" 
+                v-model="user.usage_objective" 
+                :disabled="isOrgAndObjectiveLocked" 
+                placeholder="วัตถุประสงค์ขอเข้าใช้งาน"
+              >
+              <small v-if="isOrgAndObjectiveLocked && !isPendingApproval" style="display: flex; align-items: center; gap: 4px; color: #64748b; font-size: 0.8rem; margin-top: 6px;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+                สามารถเปลี่ยนแปลงได้โดยผู้ดูแลระบบสูงสุด (Super Admin) เท่านั้น
+              </small>
             </div>
             <div class="form-group full">
               <label>Other Details</label>
-              <input type="text" v-model="user.other_object" :disabled="isPendingApproval && isOnboardingSubmitted">
+              <input 
+                type="text" 
+                v-model="user.other_object" 
+                :disabled="isOrgAndObjectiveLocked"
+              >
             </div>
             
             <div class="form-group full" style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0;">
@@ -948,7 +999,7 @@ input {
   font-size: 1rem;
 }
 
-input:disabled {
+input:disabled, select:disabled {
   background: #f8fafc;
   color: #94a3b8;
   cursor: not-allowed;

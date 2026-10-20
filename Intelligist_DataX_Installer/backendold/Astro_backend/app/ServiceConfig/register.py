@@ -665,13 +665,19 @@ def editProfileUser():
                     # M&M ��� editProfileUser (1)
                     conn = mysql.connect()
                     cursor = conn.cursor()
-                    org_id = dataInput.get('org_id')
-                    if org_id is not None:
-                        sql = "UPDATE user SET firstname = %s, lastname = %s, usage_objective = %s, other_object = %s, org_id = %s WHERE user_id = %s"
-                        cursor.execute(sql, (firstname, lastname, usage_objective, other_object, org_id, user_id))
+                    is_super_admin = str(result_email[0].get('previlage_id')) == '4'
+                    if is_super_admin:
+                        org_id = dataInput.get('org_id')
+                        if org_id is not None:
+                            sql = "UPDATE user SET firstname = %s, lastname = %s, usage_objective = %s, other_object = %s, org_id = %s WHERE user_id = %s"
+                            cursor.execute(sql, (firstname, lastname, usage_objective, other_object, org_id, user_id))
+                        else:
+                            sql = "UPDATE user SET firstname = %s, lastname = %s, usage_objective = %s, other_object = %s WHERE user_id = %s"
+                            cursor.execute(sql, (firstname, lastname, usage_objective, other_object, user_id))
                     else:
-                        sql = "UPDATE user SET firstname = %s, lastname = %s, usage_objective = %s, other_object = %s WHERE user_id = %s"
-                        cursor.execute(sql, (firstname, lastname, usage_objective, other_object, user_id))
+                        # Non-super admin cannot change org_id, usage_objective, or other_object after verification
+                        sql = "UPDATE user SET firstname = %s, lastname = %s WHERE user_id = %s"
+                        cursor.execute(sql, (firstname, lastname, user_id))
                     conn.commit()
                     cursor.close()
                     conn.close()
@@ -742,8 +748,13 @@ def editProfileUser():
                 else :
                     conn = mysql.connect()
                     cursor = conn.cursor()
-                    sql = "UPDATE user SET firstname = %s , lastname = %s ,usage_objective = %s , other_object = %s WHERE user_id = %s"
-                    cursor.execute(sql, (firstname, lastname, usage_objective, other_object, user_id))
+                    is_super_admin = str(result_email[0].get('previlage_id')) == '4'
+                    if is_super_admin:
+                        sql = "UPDATE user SET firstname = %s , lastname = %s ,usage_objective = %s , other_object = %s WHERE user_id = %s"
+                        cursor.execute(sql, (firstname, lastname, usage_objective, other_object, user_id))
+                    else:
+                        sql = "UPDATE user SET firstname = %s , lastname = %s WHERE user_id = %s"
+                        cursor.execute(sql, (firstname, lastname, user_id))
                     conn.commit()
                     cursor.close()
                     conn.close()
