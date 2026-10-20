@@ -1,10 +1,9 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
 import AppSidebar from '../components/AppSidebar.vue';
-import apiClient, { postWithUser } from '../utils/api';
+import { postWithUser } from '../utils/api';
 
 const isLoading = ref(true);
-const isLogsLoading = ref(false);
 const stats = ref({
   total_requests: 0,
   success_count: 0,
@@ -13,15 +12,23 @@ const stats = ref({
 });
 const trend = ref([]);
 const recentLogs = ref([]);
+const systemLogs = ref([]);
+const activeTab = ref('system'); // Default to 'system' (ประวัติกิจกรรมการใช้งานระบบ)
+
 const message = ref({ text: '', type: '' });
+const searchQuery = ref('');
 
 // Filter & Pagination State
-const filterRange = ref('7d'); // 'today', '7d', '30d', 'custom'
+const filterRange = ref('7d'); // 'today', '7d', '30d', '2y', 'custom'
 const startDate = ref('');
 const endDate = ref('');
-const logsOffset = ref(0);
-const hasMoreLogs = ref(true);
-const PAGE_SIZE = 50;
+const FETCH_LIMIT = 1000;
+
+// Numbered Pagination
+const itemsPerPage = ref(10);
+const itemsPerPageOptions = [10, 20, 50, 100];
+const currentSystemPage = ref(1);
+const currentApiPage = ref(1);
 
 const setRange = (range) => {
   filterRange.value = range;
@@ -37,7 +44,7 @@ const setRange = (range) => {
   } else if (range === '2y') {
     start.setFullYear(today.getFullYear() - 2);
   } else {
-    return; // Custom range handled by watchers
+    return; // Custom range handled by Apply button
   }
 
   startDate.value = start.toISOString().split('T')[0];
@@ -46,70 +53,47 @@ const setRange = (range) => {
 };
 
 const handleFilterChange = () => {
-  logsOffset.value = 0;
-  recentLogs.value = [];
-  hasMoreLogs.value = true;
+  currentSystemPage.value = 1;
+  currentApiPage.value = 1;
   fetchMonitorData();
 };
 
 const fetchMonitorData = async () => {
-    isLoading.value = true;
-    try {
-        const userData = JSON.parse(localStorage.getItem('user') || '{}');
-        const payload = {
-            start_date: startDate.value,
-            end_date: endDate.value
-        };
-        
-        // Fetch Summary & Trend
-        const statsRes = await postWithUser('/getApiMonitorStats', userData, payload);
-        if (statsRes.data.status === 'success') {
-            stats.value = statsRes.data.summary;
-            trend.value = statsRes.data.trend;
-        }
-
-        // Fetch initial Logs
-        await fetchMoreLogs(true);
-    } catch (error) {
-        console.error('Error fetching monitor data:', error);
-        message.value = { text: 'ไม่สามารถโหลดข้อมูล Monitor ได้', type: 'error' };
-    } finally {
-        isLoading.value = false;
+  isLoading.value = true;
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const payload = {
+      start_date: startDate.value,
+      end_date: endDate.value,
+      limit: FETCH_LIMIT,
+      offset: 0
+    };
+    
+    // Fetch Summary & Trend
+    const statsRes = await postWithUser('/getApiMonitorStats', userData, payload);
+    if (statsRes.data.status === 'success') {
+      stats.value = statsRes.data.summary;
+      trend.value = statsRes.data.trend || [];
     }
-};
 
-const fetchMoreLogs = async (reset = false) => {
-    if (isLogsLoading.value) return;
-    isLogsLoading.value = true;
-    try {
-        const userData = JSON.parse(localStorage.getItem('user') || '{}');
-        const payload = {
-            start_date: startDate.value,
-            end_date: endDate.value,
-            limit: PAGE_SIZE,
-            offset: logsOffset.value
-        };
+    // Fetch Logs
+    const [apiLogsRes, sysLogsRes] = await Promise.all([
+      postWithUser('/getApiMonitorLogs', userData, payload),
+      postWithUser('/getSystemActivityLogs', userData, payload)
+    ]);
 
-        const logsRes = await postWithUser('/getApiMonitorLogs', userData, payload);
-        if (logsRes.data.status === 'success') {
-            const newLogs = logsRes.data.data;
-            if (reset) {
-                recentLogs.value = newLogs;
-            } else {
-                recentLogs.value = [...recentLogs.value, ...newLogs];
-            }
-            
-            if (newLogs.length < PAGE_SIZE) {
-                hasMoreLogs.value = false;
-            } else {
-                logsOffset.value += PAGE_SIZE;
-            }
-        }
-    } catch (error) {
-        console.error('Error fetching logs:', error);
-    } finally {
-        isLogsLoading.value = false;
+    if (apiLogsRes.data.status === 'success') {
+      recentLogs.value = apiLogsRes.data.data || [];
     }
+    if (sysLogsRes.data.status === 'success') {
+      systemLogs.value = sysLogsRes.data.data || [];
+    }
+  } catch (error) {
+    console.error('Error fetching monitor data:', error);
+    message.value = { text: 'ไม่สามารถโหลดข้อมูล Monitor ได้', type: 'error' };
+  } finally {
+    isLoading.value = false;
+  }
 };
 
 const successRate = computed(() => {
@@ -122,24 +106,372 @@ const maxTrend = computed(() => {
   return Math.max(...trend.value.map(t => t.count)) || 1;
 });
 
-const getStatusClass = (detail) => {
-  if (detail.includes('[200]')) return 'status-success';
-  if (detail.includes('[403]') || detail.includes('[401]')) return 'status-warning';
-  return 'status-error';
+const parseApiDetail = (detail) => {
+  if (!detail) return { result: 'Success', message: 'OK', isSuccess: true };
+  try {
+    if (detail.startsWith('{') && detail.endsWith('}')) {
+      const obj = JSON.parse(detail);
+      const isSuccess = obj.result === 'Allowed' || obj.status === 'success' || (obj.message && !obj.message.toLowerCase().includes('fail'));
+      return {
+        result: obj.result || (isSuccess ? 'Allowed' : 'Denied'),
+        message: obj.message || obj.action || detail,
+        isSuccess
+      };
+    }
+  } catch (e) {}
+  
+  if (detail.includes('[200]')) return { result: '200 OK', message: detail, isSuccess: true };
+  if (detail.includes('[403]') || detail.includes('[401]')) return { result: 'Unauthorized', message: detail, isSuccess: false };
+  return { result: detail.includes('error') ? 'Error' : 'Info', message: detail, isSuccess: !detail.includes('error') };
+};
+
+const copiedLogId = ref(null);
+const copyUserAgent = (uaText, logId) => {
+  if (!uaText) return;
+  navigator.clipboard.writeText(uaText).then(() => {
+    copiedLogId.value = logId;
+    setTimeout(() => {
+      if (copiedLogId.value === logId) copiedLogId.value = null;
+    }, 2000);
+  });
+};
+
+const parseDeviceInfo = (ua) => {
+  if (!ua || ua === 'Unknown' || ua === '-') {
+    return {
+      browser: 'ไม่ระบุอุปกรณ์',
+      shortBrowser: 'ไม่ระบุ',
+      shortLabel: 'ไม่ระบุ',
+      os: 'ไม่ระบุ',
+      deviceType: 'ไม่ระบุ',
+      version: '',
+      icon: '❓',
+      badgeClass: 'badge-unknown',
+      raw: ua || '-'
+    };
+  }
+
+  // 1. API Clients / Scripts / Bots
+  if (/python-requests/i.test(ua)) {
+    const m = ua.match(/python-requests\/([0-9\.]+)/i);
+    return {
+      browser: 'Python Requests',
+      shortBrowser: 'Python',
+      shortLabel: 'Python Requests',
+      os: 'API / Script',
+      deviceType: 'สคริปต์/API (Script)',
+      version: m ? m[1] : '',
+      icon: '🐍',
+      badgeClass: 'badge-python',
+      raw: ua
+    };
+  }
+  if (/python-urllib/i.test(ua)) {
+    const m = ua.match(/python-urllib\/([0-9\.]+)/i);
+    return {
+      browser: 'Python urllib',
+      shortBrowser: 'Python',
+      shortLabel: 'Python urllib',
+      os: 'API / Script',
+      deviceType: 'สคริปต์/API (Script)',
+      version: m ? m[1] : '',
+      icon: '🐍',
+      badgeClass: 'badge-python',
+      raw: ua
+    };
+  }
+  if (/aiohttp/i.test(ua)) {
+    const m = ua.match(/aiohttp\/([0-9\.]+)/i);
+    return {
+      browser: 'aiohttp Client',
+      shortBrowser: 'aiohttp',
+      shortLabel: 'aiohttp',
+      os: 'API / Script',
+      deviceType: 'สคริปต์/API (Script)',
+      version: m ? m[1] : '',
+      icon: '🐍',
+      badgeClass: 'badge-python',
+      raw: ua
+    };
+  }
+  if (/curl\//i.test(ua)) {
+    const m = ua.match(/curl\/([0-9\.]+)/i);
+    return {
+      browser: 'cURL Command-Line Tool',
+      shortBrowser: 'cURL',
+      shortLabel: 'cURL CLI',
+      os: 'Terminal / CLI',
+      deviceType: 'คำสั่งเทอร์มินัล (CLI)',
+      version: m ? m[1] : '',
+      icon: '💻',
+      badgeClass: 'badge-cli',
+      raw: ua
+    };
+  }
+  if (/wget\//i.test(ua)) {
+    const m = ua.match(/wget\/([0-9\.]+)/i);
+    return {
+      browser: 'Wget Download Tool',
+      shortBrowser: 'Wget',
+      shortLabel: 'Wget CLI',
+      os: 'Terminal / CLI',
+      deviceType: 'คำสั่งเทอร์มินัล (CLI)',
+      version: m ? m[1] : '',
+      icon: '💻',
+      badgeClass: 'badge-cli',
+      raw: ua
+    };
+  }
+  if (/postman/i.test(ua)) {
+    const m = ua.match(/PostmanRuntime\/([0-9\.]+)/i);
+    return {
+      browser: 'Postman API Client',
+      shortBrowser: 'Postman',
+      shortLabel: 'Postman',
+      os: 'Developer Tool',
+      deviceType: 'เครื่องมือทดสอบ API (Tool)',
+      version: m ? m[1] : '',
+      icon: '🚀',
+      badgeClass: 'badge-postman',
+      raw: ua
+    };
+  }
+
+  // 2. OS & Device Type Detection
+  let os = 'ทั่วไป';
+  let shortOs = '';
+  let deviceType = 'เดสก์ท็อป (Desktop)';
+
+  if (/iPhone/i.test(ua)) {
+    deviceType = 'สมาร์ตโฟน (Mobile)';
+    shortOs = 'iOS';
+    const m = ua.match(/iPhone OS ([0-9_]+)/i);
+    os = m ? `iOS ${m[1].replace(/_/g, '.')}` : 'iOS (iPhone)';
+  } else if (/iPad/i.test(ua)) {
+    deviceType = 'แท็บเล็ต (Tablet)';
+    shortOs = 'iPad';
+    const m = ua.match(/CPU OS ([0-9_]+)/i);
+    os = m ? `iPadOS ${m[1].replace(/_/g, '.')}` : 'iPadOS';
+  } else if (/Android/i.test(ua)) {
+    deviceType = /Mobile/i.test(ua) ? 'สมาร์ตโฟน (Mobile)' : 'แท็บเล็ต (Tablet)';
+    shortOs = 'Android';
+    const m = ua.match(/Android ([0-9\.]+)/i);
+    os = m ? `Android ${m[1]}` : 'Android';
+  } else if (/Windows NT 10.0/i.test(ua)) {
+    shortOs = 'Win';
+    const arch = /Win64; x64|WOW64|x86_64/i.test(ua) ? '64-bit' : '32-bit';
+    os = `Windows 10/11 (${arch})`;
+  } else if (/Windows NT 6.3/i.test(ua)) {
+    shortOs = 'Win';
+    os = 'Windows 8.1';
+  } else if (/Windows NT 6.2/i.test(ua)) {
+    shortOs = 'Win';
+    os = 'Windows 8';
+  } else if (/Windows NT 6.1/i.test(ua)) {
+    shortOs = 'Win';
+    os = 'Windows 7';
+  } else if (/Windows/i.test(ua)) {
+    shortOs = 'Win';
+    os = 'Windows';
+  } else if (/Macintosh|Mac OS X/i.test(ua)) {
+    shortOs = 'Mac';
+    const m = ua.match(/Mac OS X ([0-9_]+)/i);
+    os = m ? `macOS (${m[1].replace(/_/g, '.')})` : 'macOS';
+  } else if (/Ubuntu/i.test(ua)) {
+    shortOs = 'Linux';
+    os = 'Ubuntu Linux';
+  } else if (/Linux/i.test(ua)) {
+    shortOs = 'Linux';
+    os = 'Linux';
+  }
+
+  // 3. Browser Detection (Ordered by specificity)
+  let browser = 'Web Browser';
+  let shortBrowser = 'Browser';
+  let version = '';
+  let icon = '🌐';
+  let badgeClass = 'badge-generic';
+
+  if (/Edg\/|Edge\//i.test(ua)) {
+    const m = ua.match(/Edg(?:e)?\/([0-9\.]+)/i);
+    browser = 'Microsoft Edge';
+    shortBrowser = 'Edge';
+    version = m ? m[1] : '';
+    icon = '🌊';
+    badgeClass = 'badge-edge';
+  } else if (/OPR\/|Opera\//i.test(ua)) {
+    const m = ua.match(/(?:OPR|Opera)\/([0-9\.]+)/i);
+    browser = 'Opera';
+    shortBrowser = 'Opera';
+    version = m ? m[1] : '';
+    icon = '🔴';
+    badgeClass = 'badge-opera';
+  } else if (/SamsungBrowser\//i.test(ua)) {
+    const m = ua.match(/SamsungBrowser\/([0-9\.]+)/i);
+    browser = 'Samsung Internet';
+    shortBrowser = 'Samsung';
+    version = m ? m[1] : '';
+    icon = '📱';
+    badgeClass = 'badge-samsung';
+  } else if (/Line\//i.test(ua)) {
+    const m = ua.match(/Line\/([0-9\.]+)/i);
+    browser = 'LINE In-App Browser';
+    shortBrowser = 'LINE';
+    version = m ? m[1] : '';
+    icon = '💬';
+    badgeClass = 'badge-line';
+  } else if (/Chrome\/|CriOS\//i.test(ua)) {
+    const m = ua.match(/(?:Chrome|CriOS)\/([0-9\.]+)/i);
+    browser = 'Google Chrome';
+    shortBrowser = 'Chrome';
+    version = m ? m[1] : '';
+    icon = '🌐';
+    badgeClass = 'badge-chrome';
+  } else if (/Firefox\/|FxiOS\//i.test(ua)) {
+    const m = ua.match(/(?:Firefox|FxiOS)\/([0-9\.]+)/i);
+    browser = 'Mozilla Firefox';
+    shortBrowser = 'Firefox';
+    version = m ? m[1] : '';
+    icon = '🦊';
+    badgeClass = 'badge-firefox';
+  } else if (/Version\/.*Safari\//i.test(ua) || /Safari\//i.test(ua)) {
+    const m = ua.match(/Version\/([0-9\.]+)/i);
+    browser = 'Apple Safari';
+    shortBrowser = 'Safari';
+    version = m ? m[1] : '';
+    icon = '🧭';
+    badgeClass = 'badge-safari';
+  }
+
+  const shortLabel = shortOs ? `${shortBrowser} (${shortOs})` : shortBrowser;
+
+  return {
+    browser,
+    shortBrowser,
+    shortLabel,
+    os,
+    shortOs,
+    deviceType,
+    version,
+    icon,
+    badgeClass,
+    raw: ua
+  };
 };
 
 const formatThaiTime = (utcString) => {
   if (!utcString) return '-';
   try {
-    const date = new Date(utcString.replace(' ', 'T') + 'Z');
+    const dateStr = utcString.includes(' ') && !utcString.includes('T') ? utcString.replace(' ', 'T') : utcString;
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return utcString;
     return date.toLocaleString('th-TH', { 
-        year: 'numeric', month: '2-digit', day: '2-digit', 
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
-        hour12: false
+      year: 'numeric', month: '2-digit', day: '2-digit', 
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false
     }).replace(/\//g, '-');
   } catch (e) {
     return utcString;
   }
+};
+
+// Filtered Lists
+const filteredSystemLogs = computed(() => {
+  if (!searchQuery.value.trim()) return systemLogs.value;
+  const q = searchQuery.value.trim().toLowerCase();
+  return systemLogs.value.filter(l => {
+    const devInfo = parseDeviceInfo(l.device);
+    return (
+      (l.username && l.username.toLowerCase().includes(q)) ||
+      (l.path && l.path.toLowerCase().includes(q)) ||
+      (l.type && l.type.toLowerCase().includes(q)) ||
+      (l.log_detail && l.log_detail.toLowerCase().includes(q)) ||
+      (l.ip && l.ip.toLowerCase().includes(q)) ||
+      (l.device && l.device.toLowerCase().includes(q)) ||
+      (devInfo.shortLabel && devInfo.shortLabel.toLowerCase().includes(q)) ||
+      (devInfo.browser && devInfo.browser.toLowerCase().includes(q)) ||
+      (devInfo.os && devInfo.os.toLowerCase().includes(q))
+    );
+  });
+});
+
+const filteredApiLogs = computed(() => {
+  if (!searchQuery.value.trim()) return recentLogs.value;
+  const q = searchQuery.value.trim().toLowerCase();
+  return recentLogs.value.filter(l => 
+    (l.username && l.username.toLowerCase().includes(q)) ||
+    (l.firstname && l.firstname.toLowerCase().includes(q)) ||
+    (l.lastname && l.lastname.toLowerCase().includes(q)) ||
+    (l.email && l.email.toLowerCase().includes(q)) ||
+    (l.path && l.path.toLowerCase().includes(q)) ||
+    (l.log_detail && l.log_detail.toLowerCase().includes(q)) ||
+    (l.ip && l.ip.toLowerCase().includes(q))
+  );
+});
+
+// Watch search query to reset pagination
+watch(searchQuery, () => {
+  currentSystemPage.value = 1;
+  currentApiPage.value = 1;
+});
+
+// Pagination Computeds
+const totalSystemPages = computed(() => {
+  return Math.ceil(filteredSystemLogs.value.length / itemsPerPage.value) || 1;
+});
+
+const totalApiPages = computed(() => {
+  return Math.ceil(filteredApiLogs.value.length / itemsPerPage.value) || 1;
+});
+
+const paginatedSystemLogs = computed(() => {
+  const start = (currentSystemPage.value - 1) * itemsPerPage.value;
+  return filteredSystemLogs.value.slice(start, start + itemsPerPage.value);
+});
+
+const paginatedApiLogs = computed(() => {
+  const start = (currentApiPage.value - 1) * itemsPerPage.value;
+  return filteredApiLogs.value.slice(start, start + itemsPerPage.value);
+});
+
+const goToSystemPage = (page) => {
+  if (page < 1 || page > totalSystemPages.value) return;
+  currentSystemPage.value = page;
+};
+
+const goToApiPage = (page) => {
+  if (page < 1 || page > totalApiPages.value) return;
+  currentApiPage.value = page;
+};
+
+const getPaginationRange = (currentPage, totalPages) => {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const delta = 2;
+  const range = [];
+  const rangeWithDots = [];
+  let l;
+
+  for (let i = 1; i <= totalPages; i++) {
+    if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+      range.push(i);
+    }
+  }
+
+  for (let i of range) {
+    if (l) {
+      if (i - l === 2) {
+        rangeWithDots.push(l + 1);
+      } else if (i - l !== 1) {
+        rangeWithDots.push('...');
+      }
+    }
+    rangeWithDots.push(i);
+    l = i;
+  }
+
+  return rangeWithDots;
 };
 
 onMounted(() => {
@@ -154,8 +486,8 @@ onMounted(() => {
     <main class="monitor-content scrollbar-custom">
       <header class="content-header">
         <div class="header-titles">
-          <h1>API Monitor</h1>
-          <p>ตรวจสอบสถิติและการเรียกใช้งาน API ย้อนหลังได้สูงสุด 2 ปี</p>
+          <h1>Monitor & Activity Logs</h1>
+          <p>ตรวจสอบประวัติกิจกรรมการใช้งานระบบ และสถิติการเรียกใช้งาน API ย้อนหลัง</p>
         </div>
         
         <div class="header-filters">
@@ -174,7 +506,7 @@ onMounted(() => {
             <button class="btn-apply" @click="handleFilterChange">Apply</button>
           </div>
 
-          <button @click="fetchMonitorData" class="btn-refresh" :disabled="isLoading">
+          <button @click="fetchMonitorData" class="btn-refresh" :disabled="isLoading" title="รีเฟรชข้อมูล">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" :class="{ 'spinning': isLoading }">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
@@ -275,54 +607,292 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- Real-time / Historical Logs -->
+      <!-- Logs Section -->
       <div class="card table-card shadow-premium">
-        <div class="card-header">
-          <h3>Detailed Activity Logs</h3>
-          <div class="header-actions">
-            <span v-if="filterRange === 'today'" class="live-indicator">
-              <span class="pulse"></span> LIVE
-            </span>
-            <span v-else class="text-muted text-xs">Viewing Historical Data</span>
+        <div class="card-header" style="display: flex; flex-direction: column; align-items: flex-start; gap: 16px;">
+          <div class="table-toolbar">
+            <div class="tabs-container">
+              <button :class="['tab-button', { active: activeTab === 'system' }]" @click="activeTab = 'system'">
+                📋 ประวัติกิจกรรมการใช้งานระบบ (System Activity Logs)
+                <span class="tab-badge" v-if="filteredSystemLogs.length > 0">{{ filteredSystemLogs.length }}</span>
+              </button>
+              <button :class="['tab-button', { active: activeTab === 'api' }]" @click="activeTab = 'api'">
+                ⚡ บันทึกการเรียกใช้งาน API (API Logs)
+                <span class="tab-badge" v-if="filteredApiLogs.length > 0">{{ filteredApiLogs.length }}</span>
+              </button>
+            </div>
+            
+            <div class="search-input-box">
+              <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input 
+                type="text" 
+                v-model="searchQuery" 
+                placeholder="ค้นหาชื่อผู้ใช้, กิจกรรม, เมนู หรือ IP..." 
+              />
+              <button v-if="searchQuery" class="clear-search" @click="searchQuery = ''">✕</button>
+            </div>
           </div>
         </div>
-        
-        <div class="table-responsive">
+
+        <!-- System Activity Logs Table (Default) -->
+        <div class="table-responsive" v-if="activeTab === 'system'">
           <table class="monitor-table">
             <thead>
               <tr>
-                <th>Timestamp (Local)</th>
-                <th>Result Detail</th>
-                <th>Endpoint Path</th>
-                <th>Client IP</th>
-                <th>Region</th>
+                <th style="width: 60px;">ลำดับ</th>
+                <th style="width: 170px;">วันเวลา (Timestamp)</th>
+                <th style="width: 180px;">ผู้กระทำ (User)</th>
+                <th style="width: 180px;">เมนู/โมดูล</th>
+                <th style="width: 120px;">ประเภท</th>
+                <th>รายละเอียดกิจกรรม</th>
+                <th style="width: 130px;">IP Address</th>
+                <th style="width: 150px;">อุปกรณ์</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="log in recentLogs" :key="log.log_id">
+              <tr v-for="(log, index) in paginatedSystemLogs" :key="log.log_id">
+                <td class="text-center font-mono text-muted">{{ (currentSystemPage - 1) * itemsPerPage + index + 1 }}</td>
                 <td class="time-cell">{{ formatThaiTime(log.create_at) }}</td>
                 <td>
-                  <span :class="['status-chip', getStatusClass(log.log_detail)]">
-                    {{ log.log_detail }}
+                  <div class="user-badge">
+                    <span class="user-avatar">👤</span>
+                    <span class="username-text">{{ log.username || 'System' }}</span>
+                  </div>
+                </td>
+                <td class="path-cell"><code>{{ log.path || '-' }}</code></td>
+                <td>
+                  <span :class="['status-chip', log.type === 'alert' || log.type === 'error' ? 'status-error' : log.type === 'warning' ? 'status-warning' : 'status-success']">
+                    {{ log.type || 'info' }}
                   </span>
                 </td>
-                <td class="path-cell"><code>{{ log.path }}</code></td>
-                <td>{{ log.ip }}</td>
-                <td><span class="country-cell">{{ log.country === 'None' ? 'Thailand' : log.country }}</span></td>
+                <td class="detail-cell">{{ log.log_detail }}</td>
+                <td class="ip-cell font-mono">{{ log.ip }}</td>
+                <td class="device-cell">
+                  <div 
+                    class="device-badge-wrapper" 
+                    :class="{ 'open-up': index >= 5 }"
+                    :title="log.device"
+                  >
+                    <span 
+                      v-if="log.device && log.device !== 'Unknown' && log.device !== '-'"
+                      :class="['device-chip', parseDeviceInfo(log.device).badgeClass]"
+                    >
+                      <span class="device-chip-icon">{{ parseDeviceInfo(log.device).icon }}</span>
+                      <span class="device-chip-label">{{ parseDeviceInfo(log.device).shortLabel }}</span>
+                    </span>
+                    <span v-else class="text-muted" style="font-size: 0.8rem;">-</span>
+
+                    <!-- Hover Tooltip Card (กรอบข้อความแสดงรายละเอียดอุปกรณ์ครบถ้วน) -->
+                    <div v-if="log.device && log.device !== 'Unknown' && log.device !== '-'" class="device-popover">
+                      <div class="popover-header">
+                        <span class="popover-icon">{{ parseDeviceInfo(log.device).icon }}</span>
+                        <div class="popover-title-group">
+                          <strong class="popover-title">{{ parseDeviceInfo(log.device).browser }}</strong>
+                          <span v-if="parseDeviceInfo(log.device).version" class="popover-version">v{{ parseDeviceInfo(log.device).version }}</span>
+                        </div>
+                      </div>
+                      <div class="popover-content">
+                        <div class="popover-row">
+                          <span class="popover-label">ระบบปฏิบัติการ:</span>
+                          <span class="popover-val">{{ parseDeviceInfo(log.device).os }}</span>
+                        </div>
+                        <div class="popover-row">
+                          <span class="popover-label">ประเภทอุปกรณ์:</span>
+                          <span class="popover-val">{{ parseDeviceInfo(log.device).deviceType }}</span>
+                        </div>
+                        <div class="popover-divider"></div>
+                        <div class="popover-ua-box">
+                          <div class="popover-ua-header">
+                            <span class="popover-label">User-Agent เต็ม:</span>
+                            <button 
+                              type="button"
+                              class="btn-copy-ua" 
+                              @click.stop="copyUserAgent(log.device, log.log_id)"
+                              title="คลิกเพื่อคัดลอก User-Agent ทั้งหมด"
+                            >
+                              <span v-if="copiedLogId === log.log_id">✅ คัดลอกแล้ว</span>
+                              <span v-else>📋 คัดลอก</span>
+                            </button>
+                          </div>
+                          <div class="popover-ua-code">{{ log.device }}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </td>
               </tr>
-              <tr v-if="recentLogs.length === 0 && !isLoading && !isLogsLoading">
-                <td colspan="5" class="no-data-table">
-                  ไม่พบข้อมูลการเรียกใช้งานในช่วงเวลานี้
+              <tr v-if="filteredSystemLogs.length === 0 && !isLoading">
+                <td colspan="8" class="no-data-table">
+                  {{ searchQuery ? 'ไม่พบข้อมูลที่ตรงกับการค้นหา' : 'ไม่พบข้อมูลประวัติการใช้งานในช่วงเวลานี้' }}
                 </td>
               </tr>
             </tbody>
           </table>
           
-          <div v-if="hasMoreLogs" class="load-more">
-            <button @click="fetchMoreLogs(false)" :disabled="isLogsLoading" class="btn-load-more">
-              <span v-if="isLogsLoading" class="spinner-small"></span>
-              {{ isLogsLoading ? 'Loading Logs...' : 'Show More Logs' }}
-            </button>
+          <!-- Numbered Pagination Footer for System Logs -->
+          <div class="pagination-container" v-if="filteredSystemLogs.length > 0">
+            <div class="pagination-info">
+              <span>แสดง {{ (currentSystemPage - 1) * itemsPerPage + 1 }} - {{ Math.min(currentSystemPage * itemsPerPage, filteredSystemLogs.length) }} จากทั้งหมด {{ filteredSystemLogs.length }} รายการ</span>
+              <div class="per-page-selector">
+                <label>แสดง:</label>
+                <select v-model="itemsPerPage" @change="currentSystemPage = 1; currentApiPage = 1;">
+                  <option v-for="opt in itemsPerPageOptions" :key="opt" :value="opt">{{ opt }} / หน้า</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="pagination-controls" v-if="totalSystemPages > 1">
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentSystemPage === 1" 
+                @click="goToSystemPage(1)"
+                title="หน้าแรก"
+              >
+                «
+              </button>
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentSystemPage === 1" 
+                @click="goToSystemPage(currentSystemPage - 1)"
+                title="ก่อนหน้า"
+              >
+                ‹
+              </button>
+
+              <template v-for="(p, idx) in getPaginationRange(currentSystemPage, totalSystemPages)" :key="idx">
+                <span v-if="p === '...'" class="page-dots">...</span>
+                <button 
+                  v-else 
+                  :class="['page-number-btn', { active: currentSystemPage === p }]"
+                  @click="goToSystemPage(p)"
+                >
+                  {{ p }}
+                </button>
+              </template>
+
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentSystemPage === totalSystemPages" 
+                @click="goToSystemPage(currentSystemPage + 1)"
+                title="ถัดไป"
+              >
+                ›
+              </button>
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentSystemPage === totalSystemPages" 
+                @click="goToSystemPage(totalSystemPages)"
+                title="หน้าสุดท้าย"
+              >
+                »
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- API Logs Table -->
+        <div class="table-responsive" v-if="activeTab === 'api'">
+          <table class="monitor-table">
+            <thead>
+              <tr>
+                <th style="width: 60px;">ลำดับ</th>
+                <th style="width: 170px;">วันเวลา (Timestamp)</th>
+                <th style="width: 160px;">ผู้เรียกใช้</th>
+                <th>Endpoint Path</th>
+                <th style="width: 130px;">สถานะ</th>
+                <th>ผลลัพธ์ / รายละเอียด</th>
+                <th style="width: 130px;">Client IP</th>
+                <th style="width: 100px;">ภูมิภาค</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(log, index) in paginatedApiLogs" :key="log.log_id">
+                <td class="text-center font-mono text-muted">{{ (currentApiPage - 1) * itemsPerPage + index + 1 }}</td>
+                <td class="time-cell">{{ formatThaiTime(log.create_at) }}</td>
+                <td>
+                  <div class="user-badge" :title="log.firstname ? ((log.firstname + ' ' + (log.lastname || '')).trim() + (log.email ? ' • ' + log.email : '')) : (log.username || '')">
+                    <span class="user-avatar">🔑</span>
+                    <span class="username-text">{{ log.username || (log.user_id ? 'User #' + log.user_id : 'API Key') }}</span>
+                  </div>
+                </td>
+                <td class="path-cell"><code>{{ log.path }}</code></td>
+                <td>
+                  <span :class="['status-chip', parseApiDetail(log.log_detail).isSuccess ? 'status-success' : 'status-error']">
+                    {{ parseApiDetail(log.log_detail).result }}
+                  </span>
+                </td>
+                <td class="detail-cell">{{ parseApiDetail(log.log_detail).message }}</td>
+                <td class="ip-cell font-mono">{{ log.ip }}</td>
+                <td><span class="country-cell">{{ log.country === 'None' || !log.country ? 'Thailand' : log.country }}</span></td>
+              </tr>
+              <tr v-if="filteredApiLogs.length === 0 && !isLoading">
+                <td colspan="8" class="no-data-table">
+                  {{ searchQuery ? 'ไม่พบข้อมูลที่ตรงกับการค้นหา' : 'ไม่พบข้อมูลการเรียกใช้งานในช่วงเวลานี้' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Numbered Pagination Footer for API Logs -->
+          <div class="pagination-container" v-if="filteredApiLogs.length > 0">
+            <div class="pagination-info">
+              <span>แสดง {{ (currentApiPage - 1) * itemsPerPage + 1 }} - {{ Math.min(currentApiPage * itemsPerPage, filteredApiLogs.length) }} จากทั้งหมด {{ filteredApiLogs.length }} รายการ</span>
+              <div class="per-page-selector">
+                <label>แสดง:</label>
+                <select v-model="itemsPerPage" @change="currentSystemPage = 1; currentApiPage = 1;">
+                  <option v-for="opt in itemsPerPageOptions" :key="opt" :value="opt">{{ opt }} / หน้า</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="pagination-controls" v-if="totalApiPages > 1">
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentApiPage === 1" 
+                @click="goToApiPage(1)"
+                title="หน้าแรก"
+              >
+                «
+              </button>
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentApiPage === 1" 
+                @click="goToApiPage(currentApiPage - 1)"
+                title="ก่อนหน้า"
+              >
+                ‹
+              </button>
+
+              <template v-for="(p, idx) in getPaginationRange(currentApiPage, totalApiPages)" :key="idx">
+                <span v-if="p === '...'" class="page-dots">...</span>
+                <button 
+                  v-else 
+                  :class="['page-number-btn', { active: currentApiPage === p }]"
+                  @click="goToApiPage(p)"
+                >
+                  {{ p }}
+                </button>
+              </template>
+
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentApiPage === totalApiPages" 
+                @click="goToApiPage(currentApiPage + 1)"
+                title="ถัดไป"
+              >
+                ›
+              </button>
+              <button 
+                class="page-nav-btn" 
+                :disabled="currentApiPage === totalApiPages" 
+                @click="goToApiPage(totalApiPages)"
+                title="หน้าสุดท้าย"
+              >
+                »
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -331,14 +901,14 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.monitor-layout { display: flex; background-color: #f1f5f9; min-height: 100vh; }
-.monitor-content { flex: 1; padding: 40px; max-width: 1400px; margin: 0 auto; overflow-y: auto; height: 100vh; }
+.monitor-layout { display: flex; background-color: #f1f5f9; min-height: 100vh; width: 100%; box-sizing: border-box; }
+.monitor-content { flex: 1; padding: 32px 40px; max-width: 1440px; margin: 0 auto; width: 100%; box-sizing: border-box; min-width: 0; }
 
-.content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; gap: 20px; }
+.content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; gap: 20px; flex-wrap: wrap; }
 .header-titles h1 { font-size: 1.875rem; font-weight: 800; color: #0f172a; margin-bottom: 4px; letter-spacing: -0.025em; }
 .header-titles p { color: #64748b; font-size: 0.9375rem; }
 
-.header-filters { display: flex; align-items: center; gap: 16px; }
+.header-filters { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 
 .range-presets { display: flex; background: white; padding: 4px; border-radius: 12px; border: 1px solid #e2e8f0; }
 .range-presets button { padding: 6px 14px; border: none; background: none; border-radius: 8px; font-size: 0.8125rem; font-weight: 600; color: #64748b; cursor: pointer; transition: all 0.2s; }
@@ -348,77 +918,385 @@ onMounted(() => {
 .date-inputs { display: flex; align-items: center; gap: 8px; background: white; padding: 6px 12px; border-radius: 12px; border: 1px solid #e2e8f0; }
 .date-inputs input { border: none; font-size: 0.8125rem; color: #0f172a; outline: none; }
 .date-inputs span { color: #94a3b8; font-size: 0.75rem; font-weight: 600; }
-.btn-apply { background: #0f172a; color: white; border: none; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; }
+.btn-apply { background: #0f172a; color: white; border: none; padding: 5px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; }
 
 .btn-refresh { padding: 8px; background: white; border: 1px solid #e2e8f0; border-radius: 10px; color: #64748b; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
-.btn-refresh:hover { color: var(--mso-accent); border-color: var(--mso-accent); }
+.btn-refresh:hover { color: var(--primary); border-color: var(--primary); }
 
 .alert-message { padding: 14px 20px; border-radius: 12px; margin-bottom: 24px; font-weight: 600; }
 .alert-message.error { background: #fee2e2; color: #b91c1c; }
 
-.metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin-bottom: 32px; }
-.metric-card { background: white; padding: 24px; border-radius: 20px; display: flex; gap: 16px; align-items: flex-start; }
+.metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 28px; }
+.metric-card { background: white; padding: 20px; border-radius: 18px; display: flex; gap: 16px; align-items: flex-start; border: 1px solid #e2e8f0; }
 .shadow-premium { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03); }
 
 .metric-icon-small { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .metric-icon-small svg { width: 22px; height: 22px; }
 .metric-icon-small.total { background: #eff6ff; color: #3b82f6; }
-.metric-icon-small.success { background: #fdf2f8; color: var(--mso-accent); }
+.metric-icon-small.success { background: #dcfce7; color: #15803d; }
 .metric-icon-small.error { background: #fef2f2; color: #ef4444; }
 .metric-icon-small.user { background: #faf5ff; color: #a855f7; }
 
-.metric-label { font-size: 0.8125rem; font-weight: 600; color: #64748b; margin-bottom: 6px; }
+.metric-label { font-size: 0.8125rem; font-weight: 600; color: #64748b; margin-bottom: 4px; }
 .metric-value { font-size: 1.5rem; font-weight: 800; color: #0f172a; margin: 0; }
+.text-error { color: #ef4444; }
 
 .simple-progress { width: 100%; height: 6px; background: #f1f5f9; border-radius: 3px; overflow: hidden; }
-.progress-bar { height: 100%; background: var(--mso-accent); border-radius: 3px; }
+.progress-bar { height: 100%; background: var(--primary); border-radius: 3px; }
 
-.charts-row { margin-bottom: 32px; }
-.card { background: white; border-radius: 24px; padding: 32px; }
-.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-.card h3 { font-size: 1.125rem; font-weight: 800; color: #0f172a; }
+.charts-row { margin-bottom: 28px; }
+.card { background: white; border-radius: 20px; padding: 24px 28px; border: 1px solid #e2e8f0; }
+.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.card h3 { font-size: 1.125rem; font-weight: 800; color: #0f172a; margin: 0; }
 
-.bar-chart-container { height: 240px; display: flex; align-items: flex-end; padding-top: 20px; }
-.bar-chart { display: flex; width: 100%; height: 100%; gap: 8px; align-items: flex-end; }
-.bar-group { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 12px; height: 100%; justify-content: flex-end; min-width: 0; }
-.bar-outer { width: 100%; max-width: 40px; height: 180px; background: #f8fafc; border-radius: 6px; display: flex; align-items: flex-end; position: relative; }
-.bar-inner { width: 100%; background: linear-gradient(180deg, #f472b6 0%, var(--mso-accent) 100%); border-radius: 6px; transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1); position: relative; }
+.bar-chart-container { height: 220px; display: flex; align-items: flex-end; padding-top: 16px; overflow-x: auto; }
+.bar-chart { display: flex; width: 100%; height: 100%; gap: 8px; align-items: flex-end; min-width: 600px; }
+.bar-group { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 10px; height: 100%; justify-content: flex-end; min-width: 0; }
+.bar-outer { width: 100%; max-width: 40px; height: 160px; background: #f8fafc; border-radius: 6px; display: flex; align-items: flex-end; position: relative; }
+.bar-inner { width: 100%; background: linear-gradient(180deg, #6ee7b7 0%, var(--primary) 100%); border-radius: 6px; transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1); position: relative; }
 .bar-inner:hover { filter: brightness(1.1); }
 .bar-tooltip { position: absolute; top: -34px; left: 50%; transform: translateX(-50%); background: #0f172a; color: white; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; opacity: 0; pointer-events: none; transition: opacity 0.2s; white-space: nowrap; z-index: 10; }
 .bar-inner:hover .bar-tooltip { opacity: 1; }
 .bar-label { font-size: 0.6875rem; color: #94a3b8; font-weight: 700; }
 
-.live-indicator { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; font-weight: 800; color: #ef4444; background: #fef2f2; padding: 4px 10px; border-radius: 20px; }
-.pulse { width: 8px; height: 8px; background: #ef4444; border-radius: 50%; animation: pulse 1.5s infinite; }
-@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+.table-toolbar { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 16px; flex-wrap: wrap; }
+.tabs-container { display: flex; gap: 6px; background: #f1f5f9; padding: 4px; border-radius: 12px; flex-wrap: wrap; }
+.tab-button { padding: 8px 16px; border: none; background: transparent; border-radius: 8px; font-weight: 700; font-size: 0.875rem; color: #64748b; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 8px; }
+.tab-button:hover { color: #0f172a; }
+.tab-button.active { background: white; color: #0f172a; box-shadow: 0 2px 4px rgba(0,0,0,0.06); }
+.tab-badge { background: #e2e8f0; color: #475569; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 700; }
+.tab-button.active .tab-badge { background: var(--primary); color: white; }
 
-.monitor-table { width: 100%; border-collapse: collapse; }
-.monitor-table th { text-align: left; padding: 16px; font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; border-bottom: 2px solid #f1f5f9; letter-spacing: 0.05em; }
-.monitor-table td { padding: 16px; border-bottom: 1px solid #f1f5f9; font-size: 0.875rem; color: #475569; }
-.time-cell { font-family: 'JetBrains Mono', monospace; font-size: 0.8125rem; color: #64748b; }
-.path-cell code { background: #f1f5f9; padding: 4px 8px; border-radius: 6px; font-size: 0.8125rem; color: #0f172a; font-weight: 500; }
-.status-chip { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; }
-.status-success { background: #fdf2f8; color: #db2777; }
+.search-input-box { position: relative; display: flex; align-items: center; min-width: 280px; }
+.search-icon { position: absolute; left: 12px; width: 16px; height: 16px; color: #94a3b8; pointer-events: none; }
+.search-input-box input { width: 100%; padding: 8px 32px 8px 36px; border: 1.5px solid #e2e8f0; border-radius: 10px; font-size: 0.875rem; background: #f8fafc; outline: none; transition: all 0.2s; }
+.search-input-box input:focus { background: white; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12); }
+.clear-search { position: absolute; right: 10px; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 0.8rem; padding: 2px 6px; }
+
+.monitor-table { width: 100%; border-collapse: collapse; min-width: 850px; }
+.table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 12px; }
+.monitor-table th { text-align: left; padding: 14px 16px; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; background-color: #f8fafc; border-bottom: 2px solid #e2e8f0; letter-spacing: 0.05em; }
+.monitor-table td { padding: 14px 16px; border-bottom: 1px solid #f1f5f9; font-size: 0.875rem; color: #334155; vertical-align: middle; }
+.time-cell { font-family: 'JetBrains Mono', monospace; font-size: 0.8125rem; color: #64748b; white-space: nowrap; }
+.path-cell code { background: #f1f5f9; padding: 4px 8px; border-radius: 6px; font-size: 0.8125rem; color: #0f172a; font-weight: 600; }
+.user-badge { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: #0f172a; }
+.user-avatar { font-size: 0.9rem; }
+.username-text { font-size: 0.875rem; }
+.status-chip { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; text-transform: capitalize; }
+.status-success { background: #dcfce7; color: #15803d; }
 .status-warning { background: #fffbeb; color: #d97706; }
-.status-error { background: #fef2f2; color: #ef4444; }
-.country-cell { font-weight: 600; color: #0f172a; }
+.status-error { background: #fee2e2; color: #b91c1c; }
+.detail-cell { max-width: 320px; word-break: break-word; font-size: 0.85rem; color: #475569; }
+.ip-cell { font-size: 0.8125rem; color: #64748b; }
+.country-cell { font-weight: 600; color: #0f172a; font-size: 0.8125rem; }
+.device-cell { 
+  font-size: 0.8125rem; 
+  position: relative; 
+  overflow: visible !important; 
+}
 
-.load-more { padding: 32px; text-align: center; }
-.btn-load-more { background: white; border: 1.5px solid #e2e8f0; padding: 10px 24px; border-radius: 12px; color: #0f172a; font-weight: 600; font-size: 0.875rem; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 8px; }
-.btn-load-more:hover:not(:disabled) { border-color: #0f172a; background: #f8fafc; }
-.btn-load-more:disabled { opacity: 0.5; cursor: not-allowed; }
+.device-badge-wrapper {
+  position: relative;
+  display: inline-block;
+  cursor: help;
+}
+
+.device-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.device-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+}
+
+.device-chip-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.device-chip-label {
+  letter-spacing: -0.01em;
+}
+
+/* Badge themes */
+.badge-chrome { background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; }
+.badge-safari { background: #e0f7fa; color: #00838f; border: 1px solid #b2ebf2; }
+.badge-edge { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+.badge-firefox { background: #fff7ed; color: #ea580c; border: 1px solid #fed7aa; }
+.badge-opera { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.badge-samsung { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+.badge-line { background: #f0fdf4; color: #059669; border: 1px solid #a7f3d0; }
+.badge-python { background: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; }
+.badge-cli { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+.badge-postman { background: #fff1f2; color: #e11d48; border: 1px solid #fecdd3; }
+.badge-generic { background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; }
+.badge-unknown { background: #f8fafc; color: #94a3b8; border: 1px solid #e2e8f0; }
+
+/* Tooltip Popover (กรอบข้อความแสดงรายละเอียดอุปกรณ์ครบถ้วน) */
+.device-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  max-width: 90vw;
+  background: #0f172a;
+  color: #f8fafc;
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+  pointer-events: none;
+  text-align: left;
+  border: 1px solid #334155;
+}
+
+/* Open upwards for lower table rows */
+.device-badge-wrapper.open-up .device-popover {
+  top: auto;
+  bottom: calc(100% + 8px);
+  transform: translateY(-6px);
+}
+
+.device-badge-wrapper:hover .device-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.popover-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #334155;
+  margin-bottom: 10px;
+}
+
+.popover-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.popover-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.popover-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.popover-version {
+  display: inline-block;
+  background: #1e293b;
+  color: #38bdf8;
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  border: 1px solid #334155;
+  width: fit-content;
+}
+
+.popover-content {
+  font-size: 0.8125rem;
+}
+
+.popover-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 12px;
+}
+
+.popover-label {
+  color: #94a3b8;
+  font-weight: 500;
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+
+.popover-val {
+  color: #f1f5f9;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  text-align: right;
+  word-break: break-word;
+}
+
+.popover-divider {
+  height: 1px;
+  background: #334155;
+  margin: 10px 0;
+}
+
+.popover-ua-box {
+  background: #020617;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #1e293b;
+}
+
+.popover-ua-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.btn-copy-ua {
+  background: #1e293b;
+  border: 1px solid #475569;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-copy-ua:hover {
+  background: #334155;
+  color: #f8fafc;
+}
+
+.popover-ua-code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  color: #cbd5e1;
+  word-break: break-all;
+  max-height: 80px;
+  overflow-y: auto;
+  line-height: 1.4;
+  user-select: all;
+}
+
+/* Numbered Pagination Styles */
+.pagination-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 8px 8px;
+  margin-top: 16px;
+  border-top: 1px solid #f1f5f9;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.pagination-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 0.875rem;
+  color: #64748b;
+  flex-wrap: wrap;
+}
+
+.per-page-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.per-page-selector select {
+  padding: 4px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background-color: white;
+  font-size: 0.8125rem;
+  color: #334155;
+  outline: none;
+  cursor: pointer;
+}
+
+.per-page-selector select:focus {
+  border-color: var(--primary);
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.page-nav-btn, .page-number-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: white;
+  color: #334155;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.page-nav-btn:hover:not(:disabled), .page-number-btn:hover:not(.active) {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.page-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: #f1f5f9;
+}
+
+.page-number-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+}
+
+.page-dots {
+  padding: 0 6px;
+  color: #94a3b8;
+  font-weight: bold;
+}
 
 .spinning { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.spinner-small { width: 16px; height: 16px; border: 2px solid #e2e8f0; border-top-color: #0f172a; border-radius: 50%; animation: spin 1s linear infinite; }
+.no-data-table { text-align: center; padding: 48px !important; color: #94a3b8; font-style: italic; }
 
-.transition-fade { animation: fadeIn 0.3s ease; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 1023px) {
+  .monitor-content { padding: 24px; max-width: 100%; }
+  .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+  .content-header { flex-direction: column; align-items: flex-start; }
+}
 
-.scrollbar-custom::-webkit-scrollbar { width: 6px; }
-.scrollbar-custom::-webkit-scrollbar-track { background: transparent; }
-.scrollbar-custom::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-
-.no-data-table { text-align: center; padding: 60px !important; color: #94a3b8; font-style: italic; }
+@media (max-width: 767px) {
+  .monitor-content { padding: 16px; margin-bottom: 60px; }
+  .metrics-grid { grid-template-columns: 1fr; }
+  .header-filters { flex-direction: column; width: 100%; align-items: stretch; }
+  .table-toolbar { flex-direction: column; align-items: stretch; }
+  .search-input-box { width: 100%; min-width: 0; }
+  .pagination-container { flex-direction: column; align-items: stretch; }
+  .pagination-controls { justify-content: center; }
+}
 </style>

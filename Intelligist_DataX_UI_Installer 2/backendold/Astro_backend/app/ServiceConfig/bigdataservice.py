@@ -3056,20 +3056,27 @@ def getApiMonitorLogs():
         start_date = dataInput.get('start_date')
         end_date = dataInput.get('end_date')
         
-        where_clause = "WHERE type='API'"
+        where_clause = "WHERE l.type='API'"
         params = []
         if start_date:
-            where_clause += " AND create_at >= %s"
+            where_clause += " AND l.create_at >= %s"
             params.append(start_date)
         if end_date:
             if len(end_date) == 10: end_date += " 23:59:59"
-            where_clause += " AND create_at <= %s"
+            where_clause += " AND l.create_at <= %s"
             params.append(end_date)
         
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        sql = f"SELECT log_id, user_id, log_detail, path, ip, country, create_at FROM log {where_clause} ORDER BY create_at DESC LIMIT %s OFFSET %s"
+        sql = f"""
+            SELECT l.log_id, l.user_id, u.username, u.firstname, u.lastname, u.email, l.log_detail, l.path, l.ip, l.country, l.create_at 
+            FROM log l 
+            LEFT JOIN user u ON l.user_id = u.user_id 
+            {where_clause} 
+            ORDER BY l.create_at DESC 
+            LIMIT %s OFFSET %s
+        """
         
         full_params = tuple(params) + (limit, offset)
         cursor.execute(sql, full_params)

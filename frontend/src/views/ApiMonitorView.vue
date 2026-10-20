@@ -400,6 +400,9 @@ const filteredApiLogs = computed(() => {
   const q = searchQuery.value.trim().toLowerCase();
   return recentLogs.value.filter(l => 
     (l.username && l.username.toLowerCase().includes(q)) ||
+    (l.firstname && l.firstname.toLowerCase().includes(q)) ||
+    (l.lastname && l.lastname.toLowerCase().includes(q)) ||
+    (l.email && l.email.toLowerCase().includes(q)) ||
     (l.path && l.path.toLowerCase().includes(q)) ||
     (l.log_detail && l.log_detail.toLowerCase().includes(q)) ||
     (l.ip && l.ip.toLowerCase().includes(q))
@@ -809,7 +812,7 @@ onMounted(() => {
                 <td class="text-center font-mono text-muted">{{ (currentApiPage - 1) * itemsPerPage + index + 1 }}</td>
                 <td class="time-cell">{{ formatThaiTime(log.create_at) }}</td>
                 <td>
-                  <div class="user-badge">
+                  <div class="user-badge" :title="log.firstname ? ((log.firstname + ' ' + (log.lastname || '')).trim() + (log.email ? ' • ' + log.email : '')) : (log.username || '')">
                     <span class="user-avatar">🔑</span>
                     <span class="username-text">{{ log.username || (log.user_id ? 'User #' + log.user_id : 'API Key') }}</span>
                   </div>
