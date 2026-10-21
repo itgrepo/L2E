@@ -9,6 +9,7 @@ import smtplib
 import hmac
 import hashlib
 import requests
+import pyotp
 # from email.MIMEMultipart import MIMEMultipart
 # from email.MIMEText import MIMEText
 
@@ -25,9 +26,10 @@ SERVER = os.environ.get('MAIL_SERVER', 'outgoing.workd.go.th')
 LINK = os.environ.get('FRONTEND_URL', 'http://10.20.11.91')  #PRODUCTION
 # LINK = ''  # PRODUCTION
 ### User And Password Mail ###
+MAIL_USE_SSL = os.environ.get('MAIL_USE_SSL', 'true').lower() == 'true'
 username_mail = os.environ.get('MAIL_USERNAME', 'learn2earn@bde.go.th')
 password_mail = os.environ.get('MAIL_PASSWORD', 'L2E@Start2026!')
-MAIL_FROM = os.environ.get('MAIL_FROM', 'DEX Data Exchange <learn2earn@bde.go.th>')
+MAIL_FROM = os.environ.get('MAIL_FROM', 'DEX Data Exchange <learn2earn@bde.go.th>').strip('"')
 MAIL_PORT = int(os.environ.get('MAIL_PORT', '465'))
 ###############################
 #socks.setdefaultproxy(TYPE, ADDR, PORT)
@@ -74,6 +76,7 @@ def triggerLoginFailureAlert(username, is_invalid_username=False, user_id=0):
         """
         msg.attach(MIMEText(body, 'html', "utf-8"))
         server = smtplib.SMTP_SSL(SERVER, 465, timeout=3)
+        server.login(username_mail, password_mail)
         text = msg.as_string()
         server.sendmail(fromaddr, toaddr, text)
         server.quit()
@@ -85,9 +88,9 @@ def login():
     try:
 
         dataInput = request.json
-        username = dataInput['username']
-        password = dataInput['password']
-        link = dataInput['link']
+        username = dataInput.get('username')
+        password = dataInput.get('password')
+        link = dataInput.get('link', LINK)
         conn = mysql.connect()
         cursor = conn.cursor()
         # sql = """SELECT user_id, username, email, firstname, lastname, national_id, national_id_book, national_id_mode, policy_id,
@@ -105,6 +108,8 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         result = toJson(data, columns)
+        if len(result) > 0 and "password" in result[0]:
+            del result[0]["password"]
         conn.commit()
         cursor.close()
         conn.close()
@@ -178,6 +183,19 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
                 logAction(result_username[0]['user_id'], '/login', msg, 'warning')
                 triggerLoginFailureAlert(username, is_invalid_username=False, user_id=result_username[0]['user_id'])
                 if count_login >= 5:
+                    try:
+                        if email and check_email_format(email):
+                            import uuid
+                            token = (str(uuid.uuid4()) + str(uuid.uuid1())).replace('-', '')
+                            conn2 = mysql.connect()
+                            cursor2 = conn2.cursor()
+                            cursor2.execute("INSERT INTO token_unlock_account VALUES (NULL, %s, %s, %s, %s, CURRENT_TIMESTAMP)", (token, username, email, 'active'))
+                            conn2.commit()
+                            cursor2.close()
+                            conn2.close()
+                            sendMailUnlockAccount(token, email, link, username, result_username[0]['user_id'])
+                    except Exception as e:
+                        print("Error sending unlock email:", e)
                     return jsonify({"status": 'Your account is locked'})
                 else:
                     return jsonify({"status": 'not found', "attempts": count_login})
@@ -210,10 +228,6 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
                 # logAction(result[0]['user_id'], '/login','Please contack Tel: +66', 'info')
                 return jsonify({"status": 'Please contact Administrator  Tel: +66'})
 
-            elif str(result[0]['status_id']) == '8':
-                logAction(result[0]['user_id'], '/login', 'Account pending admin approval', 'info')
-                return jsonify({"status": 'pending_approval'})
-
             # /////////////////////////////////////////////////////////////////////////////////
 
             conn = mysql.connect()
@@ -226,6 +240,18 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
             if len(result1) == 0:
                 return jsonify({"status": 'password is incorrect'})
             user_id = result1[0]['user_id']
+            
+            # Generate secure token
+            from ServiceConfig import auth_serializer
+            token_payload = {
+                "user_id": result[0]["user_id"],
+                "username": result[0]["username"],
+                "email": result[0].get("email", ""),
+                "previlage_id": result[0].get("previlage_id"),
+                "org_id": result[0].get("org_id")
+            }
+            result[0]['token'] = auth_serializer.dumps(token_payload)
+            
             # print(user_id)
             conn.commit()
             cursor.close()
@@ -257,6 +283,69 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
             cursor.close()
             conn.close()
             # /M&M ????1_1
+            # Check if user is approved
+            is_approved = False if str(result[0].get('status_id')) == '8' or str(result[0].get('previlage_id')) == '1' else True
+            
+            # If user is approved, enforce Google Authenticator 2FA
+            if is_approved:
+                conn_2fa = mysql.connect()
+                cursor_2fa = conn_2fa.cursor()
+                cursor_2fa.execute("SELECT secret_key, is_enabled FROM user_two_factor WHERE user_id = %s", (user_id,))
+                row_2fa = cursor_2fa.fetchone()
+                cursor_2fa.close()
+                conn_2fa.close()
+                
+                # Case 1: 2FA is already enabled -> Prompt for 6-digit OTP code
+                if row_2fa and row_2fa[1] == 1:
+                    temp_payload = {
+                        "user_id": user_id,
+                        "username": username,
+                        "action": "login_2fa"
+                    }
+                    temp_token = auth_serializer.dumps(temp_payload)
+                    return jsonify({
+                        "status": "require_2fa",
+                        "requires_2fa": True,
+                        "temp_token": temp_token,
+                        "username": username
+                    })
+                # Case 2: User is approved but hasn't configured 2FA yet -> Prompt to scan QR Code and setup
+                else:
+                    if row_2fa and row_2fa[0]:
+                        secret_key = row_2fa[0]
+                    else:
+                        secret_key = pyotp.random_base32()
+                        conn_init = mysql.connect()
+                        cursor_init = conn_init.cursor()
+                        cursor_init.execute("""
+                            INSERT INTO user_two_factor (user_id, secret_key, is_enabled) 
+                            VALUES (%s, %s, 0) 
+                            ON DUPLICATE KEY UPDATE secret_key = %s, is_enabled = 0
+                        """, (user_id, secret_key, secret_key))
+                        conn_init.commit()
+                        cursor_init.close()
+                        conn_init.close()
+                    
+                    otpauth_url = pyotp.totp.TOTP(secret_key).provisioning_uri(
+                        name=username,
+                        issuer_name="Learn2Earn DataX"
+                    )
+                    temp_payload = {
+                        "user_id": user_id,
+                        "username": username,
+                        "secret_key": secret_key,
+                        "action": "setup_2fa"
+                    }
+                    temp_token = auth_serializer.dumps(temp_payload)
+                    return jsonify({
+                        "status": "require_2fa_setup",
+                        "requires_2fa_setup": True,
+                        "temp_token": temp_token,
+                        "username": username,
+                        "secret_key": secret_key,
+                        "otpauth_url": otpauth_url
+                    })
+
             if str(result1[0]['login_status']) != '2':
                 # /////////////////////////////////////////////////////////////////////////////////
                 # print(check_policy)
@@ -264,11 +353,14 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
                 # print(user_id)
                 # print(result)
 
-                if str(result[0]['previlage_id']) == '3':  # User
+                if str(result[0]['previlage_id']) not in ['3', '4']:  # Normal Users
                     result[0]['isAdmin'] = 'false'
+                    is_approved = False if str(result[0].get('status_id')) == '8' or str(result[0].get('previlage_id')) == '1' else True
+                    result[0]['is_approved'] = is_approved
+                    result[0]['requires_onboarding'] = not is_approved
                     conn = mysql.connect()
                     cursor = conn.cursor()
-                    sql = """UPDATE user SET status_id = 2, count_login = 0, create_at = CURRENT_TIMESTAMP WHERE username = %s AND status_id != '7' AND status_account='active'"""  # Update Status is Online
+                    sql = """UPDATE user SET status_id = CASE WHEN status_id = 8 THEN 8 ELSE 2 END, count_login = 0, create_at = CURRENT_TIMESTAMP WHERE username = %s AND status_id != '7' AND status_account='active'"""  # Update Status is Online
                     cursor.execute(sql, username)
                     conn.commit()
                     cursor.close()
@@ -361,11 +453,12 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
                 conn.commit()
                 cursor.close()
                 conn.close()
-                if str(result[0]['previlage_id']) == '3':  # User
-                    # check_policy ????? check Ver. consent ??? user
-                    return jsonify({"status": "success", "data": result[0], "status2": check_policy})
-                else:
+                if str(result[0]['previlage_id']) in ['3', '4']:  # Admin or Department Admin
+                    result[0]['isAdmin'] = 'true'
                     return jsonify({"status": "user is admin", "data": result[0]})
+                else:  # Normal Users
+                    result[0]['isAdmin'] = 'false'
+                    return jsonify({"status": "success", "data": result[0], "status2": check_policy})
                 # return jsonify({"status": "User already to use", "data": result[0]['user_id']})
             # else:
             #     return jsonify({"status": "User already to use", "data": result[0]['user_id']})
@@ -544,11 +637,12 @@ def forgotPassword():
                 ##--Check Email--##
                 if check_email_format(result[0]['email']):
                     #-Have E-mail-#
-                    sendMailResetPassword(
+                    email_status = sendMailResetPassword(
                         token, result[0]['email'], link, result[0]['user_id'])
                     logAction(result[0]['user_id'],
                               '/forgotPassword', 'forgot password', 'info')
-                    # return 'success'
+                    if email_status == "error":
+                        return jsonify({"status": "error", "message": "Failed to send email. Please contact administrator."})
                     return jsonify({"status": "success"})
                 else:  # -Not have E-mail
                     updatePassword(randomStringDigits(), result[0]['user_id'])
@@ -585,21 +679,29 @@ def sendMailResetPassword(token, email, link, user_id):
     msg = MIMEMultipart()
     msg['From'] = fromaddr
     msg['To'] = toaddr
-    msg['Subject'] = "Data Exchange - Reset Password"
+    msg['Subject'] = "Data Exchange - ตั้งรหัสผ่านใหม่"
     reset_link = str(link) + "/resetpassword/" + str(token)
     footer = "<br><br><br>Data Exchange Team<br>Email: " + username_mail
-    body = """<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #1e293b;">Reset Password</h2>
-        <p>Hi {firstname} {lastname},</p>
-        <p>คุณได้ส่งคำขอรีเซ็ตรหัสผ่านเข้ามาในระบบ กรุณาคลิกปุ่มด้านล่างเพื่อตั้งรหัสผ่านใหม่:</p>
-        <a href="{link}" style="display: inline-block; padding: 14px 28px; margin: 20px 0; background-color: #db2777; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold;">ตั้งรหัสผ่านใหม่</a>
-        <p style="color: #64748b; font-size: 0.875rem;">หากคุณไม่ได้ร้องขอ สามารถเพิกเฉยอีเมลนี้ได้ ลิงก์จะหมดอายุโดยอัตโนมัติ</p>
-        {footer}
-    </div>""".format(firstname=firstname, lastname=lastname, link=reset_link, footer=footer)
+    fullname = f"{firstname} {lastname}".strip()
+    body = f"""<div style="font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
+        <h2 style="color: #008236; margin-top: 0; font-size: 20px; font-weight: 700;">ตั้งรหัสผ่านใหม่</h2>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 8px;">สวัสดีคุณ {fullname}</p>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 8px;">คุณได้ส่งคำขอรีเซ็ตรหัสผ่านเข้ามาในระบบ กรุณาคลิกปุ่มด้านล่างเพื่อตั้งรหัสผ่านใหม่:</p>
+        <div style="text-align: center; margin: 28px 0;">
+            <a href="{reset_link}" style="display: inline-block; padding: 12px 32px; background-color: #008236; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">ตั้งรหัสผ่านใหม่</a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 0;">หากคุณไม่ได้ร้องขอ สามารถเพิกเฉยต่ออีเมลนี้ได้ ลิงก์จะหมดอายุโดยอัตโนมัติ</p>
+    </div>"""
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
-        server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=10)
-        server.login(username_mail, password_mail)
+        if MAIL_USE_SSL:
+            server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=10)
+        else:
+            server = smtplib.SMTP(SERVER, MAIL_PORT, timeout=10)
+            server.starttls()
+        if username_mail and password_mail:
+            server.login(username_mail, password_mail)
         text = msg.as_string()
         server.sendmail(fromaddr, toaddr, text)
         server.quit()
@@ -634,6 +736,34 @@ def verifyResetToken():
         return jsonify({"status": "Error: " + str(e)})
 
 
+def decode_raw_password(pwd_str):
+    if not pwd_str:
+        return ""
+    if isinstance(pwd_str, str) and pwd_str.startswith('$e$'):
+        try:
+            import base64
+            b64_str = pwd_str[3:][::-1]
+            return base64.b64decode(b64_str.encode('utf-8')).decode('utf-8')
+        except Exception:
+            return pwd_str
+    return pwd_str
+
+
+def validate_password_rules(raw_pwd):
+    import re
+    if not raw_pwd or len(raw_pwd) < 8:
+        return False, "รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร"
+    if not re.search(r'[A-Z]', raw_pwd):
+        return False, "รหัสผ่านต้องมีตัวอักษรภาษาอังกฤษตัวพิมพ์ใหญ่ (A-Z) อย่างน้อย 1 ตัว"
+    if not re.search(r'[a-z]', raw_pwd):
+        return False, "รหัสผ่านต้องมีตัวอักษรภาษาอังกฤษตัวพิมพ์เล็ก (a-z) อย่างน้อย 1 ตัว"
+    if not re.search(r'[0-9]', raw_pwd):
+        return False, "รหัสผ่านต้องมีตัวเลขอารบิก (0-9) อย่างน้อย 1 ตัว"
+    if not re.search(r'[^A-Za-z0-9]', raw_pwd):
+        return False, "รหัสผ่านต้องมีอักขระพิเศษอย่างน้อย 1 ตัว (เช่น @, #, $, %, !, _)"
+    return True, ""
+
+
 @app.route('/resetPasswordByToken', methods=['POST'])
 def resetPasswordByToken():
     try:
@@ -642,7 +772,13 @@ def resetPasswordByToken():
         new_password = dataInput.get('password')
 
         if not token or not new_password:
-            return jsonify({"status": "Missing token or password"})
+            return jsonify({"status": "error", "message": "กรุณากรอกรหัสผ่านใหม่"})
+
+        # Validate password complexity
+        raw_pwd = decode_raw_password(new_password)
+        is_valid, err_msg = validate_password_rules(raw_pwd)
+        if not is_valid:
+            return jsonify({"status": "invalid_password", "message": err_msg})
 
         conn = mysql.connect()
         cursor = conn.cursor()
@@ -655,7 +791,7 @@ def resetPasswordByToken():
         if len(result) == 0:
             cursor.close()
             conn.close()
-            return jsonify({"status": "invalid_token"})
+            return jsonify({"status": "invalid_token", "message": "ลิงก์นี้หมดอายุหรือถูกใช้แล้ว กรุณาส่งคำขอรีเซ็ตรหัสผ่านใหม่"})
 
         username = result[0]['username']
 
@@ -669,7 +805,7 @@ def resetPasswordByToken():
         if len(user_result) == 0:
             cursor.close()
             conn.close()
-            return jsonify({"status": "user_not_found"})
+            return jsonify({"status": "user_not_found", "message": "ไม่พบบัญชีผู้ใช้ในระบบ"})
 
         user_id = user_result[0]['user_id']
 
@@ -698,7 +834,8 @@ def resetPasswordByToken():
         logAction(user_id, '/resetPasswordByToken', 'Password reset via token', 'info')
         return jsonify({"status": "success"})
     except Exception as e:
-        return jsonify({"status": "Error: " + str(e)})
+        return jsonify({"status": "error", "message": "Error: " + str(e)})
+
 
 
 def randomStringDigits(stringLength=8):
@@ -708,10 +845,8 @@ def randomStringDigits(stringLength=8):
 
 
 def updatePassword(password, user_id):
-    key = 'e9NHdT3GU6wBdWlw3RTqvrShGzyerRl4BaMhFeUI3v4j6U0opW5a19HQHDAHHCrhYXq8oG6D'.encode(
-        "utf-8")
-    msg = password.encode("utf-8")
-    passwordEncrypt = hmac.new(key, msg, hashlib.sha256).hexdigest()
+    import base64
+    passwordEncrypt = '$e$' + base64.b64encode(password.encode('utf-8')).decode('utf-8')[::-1]
     # conn = mysql.connect()
     # cursor = conn.cursor()
     # sql = "UPDATE user SET password = %s, create_at = CURRENT_TIMESTAMP WHERE user_id = %s"
@@ -754,12 +889,12 @@ def resetPassword():
         columns = [column[0] for column in cursor.description]
         result = toJson(data, columns)
         # M&M ????1_5
-        sql_pass = "SELECT password FROM (SELECT sequence_no , password FROM user_password_history WHERE user_id = %s ORDER BY sequence_no DESC LIMIT 3) AS new WHERE password = %s "
+        sql_pass = "SELECT password FROM (SELECT history_id , password FROM user_password_history WHERE user_id = %s ORDER BY history_id DESC LIMIT 3) AS new WHERE password = %s "
         cursor.execute(sql_pass, (user_id, password))
         data_pass = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         result_pass = toJson(data_pass, columns)
-        sql_max = "SELECT MAX(sequence_no) FROM user_password_history WHERE user_id = %s "
+        sql_max = "SELECT MAX(history_id) FROM user_password_history WHERE user_id = %s "
         cursor.execute(sql_max, user_id)
         data_max = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
@@ -791,9 +926,10 @@ def resetPassword():
                 # M&M ????1_6
                 conn = mysql.connect()
                 cursor = conn.cursor()
+                max_seq = int(result_max[0]['MAX(password_rank)']) if result_max[0]['MAX(password_rank)'] is not None else 0
                 sql = "INSERT INTO user_password_history VALUES(NULL, %s,%s,%s,UNIX_TIMESTAMP())"
                 cursor.execute(
-                    sql, (user_id, int(result_max[0]['MAX(sequence_no)']) + 1, password))
+                    sql, (user_id, max_seq + 1, password))
                 conn.commit()
                 cursor.close()
                 conn.close()
@@ -812,82 +948,101 @@ def resetPassword():
 @app.route('/changePassword', methods=['POST'])
 def changePassword():
     try:
-        dataInput = request.json
-        # username = dataInput['username']
-        password = dataInput['password']
-        currentPassword = dataInput['currentPassword']
-        #cpassword = dataInput['cpassword']
-        user_id = decode(dataInput['user_id'])
-        # conn = mysql.connect()
-        # cursor = conn.cursor()
-        # sql = "SELECT username, email FROM token_forgotpassword WHERE token = %s"
-        # cursor.execute(sql,(token))
-        # data = cursor.fetchall()
-        # columns = [column[0] for column in cursor.description]
-        # result = toJson(data,columns)
+        dataInput = request.json or {}
+        password = dataInput.get('password')
+        currentPassword = dataInput.get('currentPassword')
+
+        if not password or not currentPassword:
+            return jsonify({"status": "error", "message": "กรุณากรอกรหัสผ่านให้ครบถ้วน"}), 400
+
+        # Validate password complexity
+        raw_pwd = decode_raw_password(password)
+        is_valid, err_msg = validate_password_rules(raw_pwd)
+        if not is_valid:
+            return jsonify({"status": "invalid_password", "message": err_msg})
+        
+        user_id = None
+        user_data = getattr(request, 'current_user', {})
+        if user_data and user_data.get('user_id'):
+            user_id = user_data.get('user_id')
+        elif dataInput.get('user'):
+            user_dec = platform_decode(dataInput.get('user'))
+            user_obj = safe_json_loads(user_dec)
+            user_id = user_obj.get('user_id')
+            
+        if not user_id and dataInput.get('user_id'):
+            raw_id = dataInput.get('user_id')
+            try:
+                dec_id = decode(raw_id)
+                user_id = dec_id if dec_id else raw_id
+            except Exception:
+                user_id = raw_id
+                
+        if isinstance(user_id, bytes):
+            user_id = user_id.decode('utf-8', errors='ignore')
+        if isinstance(user_id, str) and user_id.isdigit():
+            user_id = int(user_id)
+            
+        if not user_id:
+            return jsonify({"status": "error", "message": "ไม่พบข้อมูลผู้ใช้งาน"}), 400
+
         conn = mysql.connect()
         cursor = conn.cursor()
         sql = "SELECT user.user_id, user_activity.password, email, firstname, lastname FROM user JOIN user_activity ON user.user_id = user_activity.user_id WHERE user.user_id = %s"
-        cursor.execute(sql, user_id)
+        cursor.execute(sql, (user_id,))
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         result = toJson(data, columns)
-        # M&M ????1_5
-        sql_pass = "SELECT password FROM (SELECT sequence_no , password FROM user_password_history WHERE user_id = %s ORDER BY sequence_no DESC LIMIT 3) AS new WHERE password = %s "
+        
+        if not result or len(result) == 0:
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "error", "message": "ไม่พบผู้ใช้งานในระบบ"}), 404
+            
+        db_password = result[0]['password']
+        if currentPassword != db_password:
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "password incorrect", "message": "รหัสผ่านปัจจุบันไม่ถูกต้อง"})
+
+        # Check password history (last 3 passwords)
+        sql_pass = "SELECT password FROM (SELECT history_id, password FROM user_password_history WHERE user_id = %s ORDER BY history_id DESC LIMIT 3) AS new WHERE password = %s"
         cursor.execute(sql_pass, (user_id, password))
         data_pass = cursor.fetchall()
-        columns = [column[0] for column in cursor.description]
-        result_pass = toJson(data_pass, columns)
-        sql_max = "SELECT MAX(sequence_no) FROM user_password_history WHERE user_id = %s "
-        cursor.execute(sql_max, user_id)
+        if len(data_pass) > 0 or password == db_password:
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "same password", "message": "ไม่สามารถใช้รหัสผ่านเดิมที่เคยใช้งานแล้วได้"})
+
+        sql_max = "SELECT MAX(password_rank) as max_rank FROM user_password_history WHERE user_id = %s"
+        cursor.execute(sql_max, (user_id,))
         data_max = cursor.fetchall()
         columns = [column[0] for column in cursor.description]
         result_max = toJson(data_max, columns)
-        # /M&M ????1_5
-        # return jsonify({"status": str(result_pass)})
+        max_seq = int(result_max[0]['max_rank']) if result_max and result_max[0]['max_rank'] is not None else 0
+
+        # Update user_activity password
+        sql_update = "UPDATE user_activity SET create_date = UNIX_TIMESTAMP(), password = %s, emailnews = %s WHERE user_id = %s"
+        cursor.execute(sql_update, (password, "-", user_id))
+
+        # Insert password history
+        sql_hist = "INSERT INTO user_password_history VALUES(NULL, %s, %s, %s, UNIX_TIMESTAMP())"
+        cursor.execute(sql_hist, (user_id, max_seq + 1, password))
+        conn.commit()
+
         cursor.close()
         conn.close()
-        if currentPassword == result[0]['password']:
-            # if str(result_pass) == '[]':
-            if len(result_pass) == 0:
-                # conn = mysql.connect()
-                # cursor = conn.cursor()
-                # sql = "UPDATE user SET password = %s, create_at = CURRENT_TIMESTAMP WHERE user_id = %s AND status_account = 'active'"
-                # cursor.execute(sql, (password, user_id))
-                # conn.commit()
-                # cursor.close()
 
-                conn = mysql.connect()
-                cursor = conn.cursor()
-                # DB_5 /
-                sql = "UPDATE user_activity SET create_date = UNIX_TIMESTAMP(), password = %s , emailnews = %s   WHERE user_id = %s"
-                cursor.execute(sql, (password, "-", user_id))
-                conn.commit()
-                cursor.close()
-                conn.close()
-                logAction(result[0]['user_id'], '/resetPassword',
-                          'resetPassword success', 'info')
-                sendMailEditPassword(
-                    result[0]['email'], result[0]['firstname'], result[0]['lastname'])
-                # M&M ????1_6
-                conn = mysql.connect()
-                cursor = conn.cursor()
-                sql = "INSERT INTO user_password_history VALUES(NULL, %s,%s,%s,UNIX_TIMESTAMP())"
-                cursor.execute(
-                    sql, (user_id, int(result_max[0]['MAX(sequence_no)']) + 1, password))
-                conn.commit()
-                cursor.close()
-                conn.close()
-                # /M&M ????1_6
-                return jsonify({"status": "success"})
-            else:
-                return jsonify({"status": "same password"})
-        else:
-            return jsonify({"status": str(currentPassword)})
+        logAction(result[0]['user_id'], '/changePassword', 'changePassword success', 'info')
+        try:
+            sendMailEditPassword(result[0]['email'], result[0]['firstname'], result[0]['lastname'])
+        except Exception as me:
+            current_app.logger.warning(f"Error sending password change email: {me}")
 
+        return jsonify({"status": "success", "message": "เปลี่ยนรหัสผ่านสำเร็จ"})
     except Exception as e:
-        current_app.logger.info(e)
-        return jsonify({"status": "Error"})
+        current_app.logger.error(f"Error in changePassword: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 def sendMailEditPassword(dataInput, firstname, lastname):
@@ -895,7 +1050,7 @@ def sendMailEditPassword(dataInput, firstname, lastname):
     link = LINK
     # token = 'klsakdfjlksdjflkj'
     # email = 'sirawit14@gmail.com'
-    fromaddr = "Department Operation Center <adminbd@customs.go.th>"
+    fromaddr = MAIL_FROM
     toaddr = dataInput
     msg = MIMEMultipart()
     msg['From'] = fromaddr
@@ -911,7 +1066,7 @@ def sendMailEditPassword(dataInput, firstname, lastname):
         server = smtplib.SMTP_SSL(SERVER, 465)
         text = msg.as_string()
         ##Login Mail server##
-        # server.login(username_mail, password_mail)
+        server.login(username_mail, password_mail)
         #-------------------#
         server.sendmail(fromaddr, toaddr, text)
         server.quit()
@@ -935,7 +1090,7 @@ def sendMailResetPasswordSuccess(email):
     cursor.close()
     conn.close()
     #print(email)
-    fromaddr = "Department Operation Center <adminbd@customs.go.th>"
+    fromaddr = MAIL_FROM
     toaddr = email
     msg = MIMEMultipart()
     msg['From'] = fromaddr
@@ -948,10 +1103,15 @@ def sendMailResetPasswordSuccess(email):
         "<br>You are successfully unlock your account at Department Operation Center. <br>You can log-in with your Username and Password to explore. " + footer
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
-        server = smtplib.SMTP_SSL(SERVER, 465)
+        if MAIL_USE_SSL:
+            server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=10)
+        else:
+            server = smtplib.SMTP(SERVER, MAIL_PORT, timeout=10)
+            server.starttls()
         text = msg.as_string()
         ##Login Mail server##
-        # server.login(username_mail, password_mail)
+        if username_mail and password_mail:
+            server.login(username_mail, password_mail)
         #-------------------#
         server.sendmail(fromaddr, toaddr, text)
         server.quit()
@@ -975,7 +1135,7 @@ def sendMailUnlockAccountSuccess(email):
     conn.commit()
     cursor.close()
     conn.close()
-    fromaddr = "Department Operation Center <adminbd@customs.go.th>"
+    fromaddr = MAIL_FROM
     toaddr = email
     msg = MIMEMultipart()
     msg['From'] = fromaddr
@@ -991,7 +1151,7 @@ def sendMailUnlockAccountSuccess(email):
         server = smtplib.SMTP_SSL(SERVER, 465)
         text = msg.as_string()
         ##Login Mail server##
-        # server.login(username_mail, password_mail)
+        server.login(username_mail, password_mail)
         #-------------------#
         server.sendmail(fromaddr, toaddr, text)
         server.quit()
@@ -1035,38 +1195,49 @@ def sendMailUnlockAccount(token, email, link, username, user_id):
     data = cursor.fetchall()
     columns = [column[0] for column in cursor.description]
     result = toJson(data, columns)
-    firstname = result[0]['firstname']
-    lastname = result[0]['lastname']
+    firstname = result[0]['firstname'] if result and result[0]['firstname'] else username
+    lastname = result[0]['lastname'] if result and result[0]['lastname'] else ''
     conn.commit()
     cursor.close()
     conn.close()
-    fromaddr = "Department Operation Center Team <adminbd@customs.go.th>"
+    fromaddr = MAIL_FROM
     toaddr = email
-    random = randomStringDigits()
     msg = MIMEMultipart()
     msg['From'] = fromaddr
     msg['To'] = toaddr
-    msg['Subject'] = "Unlock Account for Department Operation Center Team"
-    link = str(link) + "/unlock/" + str(token)
-    footer = "<br><br><br>Department Operation Center Team" + \
-      "<br>Call Center: +66" + "<br>Email: adminbd@customs.go.th"
-    # body = "<br/>Username: " + username + "<br/>Password: " + random + "<br/><p onClick='" + updatePassword(random, user_id) + "' style='text-indent:40px;padding-left:40px;padding-right:40px;font-size: 14px;width: 410px; margin-right: auto; margin-left: auto;'>You login fail more than five time on Department Operation Center Team<br> Before we get started, we just need to confirm that this is you.<br>Click below to unlock your account</p> <a href='" + str(link) + "' style='margin: 0 auto;display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #19b5fe;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Unlock Account</a>" + footer
-    body = "<p onClick='" + updatePassword(random, user_id) + "' style='font-size: 14px;'>Hi&nbsp;&nbsp;" + firstname + "&nbsp;" + lastname + "<br>Your account has been locked after five consecutive failed password attempts.<br>Please click \"" + "Unlock Account" + "\" button below and use the temporary password to access the Department Operation Center<br>Then we recommend you change the password right away to future security purpose.</p><br/><b>Password: </b>" + str(
-        random) + " <a href='" + str(link) + "' style='display: block;width: 160px;height: 60px;margin-top: 30px;background-color: #19b5fe;text-align: center;line-height: 60px;color: #ffffff;border-radius: 4px;text-decoration: none;'>Unlock Account</a>" + footer
+    msg['Subject'] = "ปลดล็อกบัญชีผู้ใช้ - Data Exchange"
+    unlock_link = str(link) + "/unlock/" + str(token)
+    fullname = f"{firstname} {lastname}".strip()
+    body = f"""<div style="font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
+        <h2 style="color: #008236; margin-top: 0; font-size: 20px; font-weight: 700;">ปลดล็อกบัญชีผู้ใช้</h2>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 8px;">สวัสดีคุณ {fullname}</p>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 8px;">บัญชีของคุณถูกระงับการใช้งานชั่วคราวเนื่องจากกรอกรหัสผ่านผิดเกิน 5 ครั้ง</p>
+        <p style="font-size: 15px; line-height: 1.6; margin-bottom: 24px;">กรุณาคลิกปุ่มด้านล่างเพื่อปลดล็อกบัญชีของคุณ หลังจากปลดล็อกแล้วจะสามารถเข้าสู่ระบบด้วยรหัสผ่านเดิมได้ทันที:</p>
+        <div style="text-align: center; margin: 28px 0;">
+            <a href="{unlock_link}" style="display: inline-block; padding: 12px 32px; background-color: #008236; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">ปลดล็อกบัญชี</a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 0;">หากคุณไม่ได้ดำเนินการนี้ โปรดติดต่อผู้ดูแลระบบ</p>
+    </div>"""
     msg.attach(MIMEText(body, 'html', "utf-8"))
     try:
-        server = smtplib.SMTP_SSL(SERVER, 465)
+        if MAIL_USE_SSL:
+            server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=10)
+        else:
+            server = smtplib.SMTP(SERVER, MAIL_PORT, timeout=10)
+            server.starttls()
+            
+        if username_mail and password_mail:
+            server.login(username_mail, password_mail)
         text = msg.as_string()
-        ##Login Mail server##
-        # server.login(username_mail, password_mail)
-        #-------------------#
         server.sendmail(fromaddr, toaddr, text)
         server.quit()
+        print(f"DEBUG: Unlock email sent successfully to {toaddr}")
         return "success"
     except Exception as e:
+        print(f"SMTP Error in sendMailUnlockAccount: {e}")
         current_app.logger.info(e)
         return "error"
-        # return jsonify({"status": "Error: " + str(e)})
 
 
 @app.route('/unlockAccount', methods=['POST'])
@@ -1179,3 +1350,73 @@ def confrimPassword():
         return jsonify({"status": 'password is wrong'})
     else:
         return jsonify({"status": 'password is correct'})
+
+@app.route('/submitContact', methods=['POST'])
+def submitContact():
+    try:
+        dataInput = request.json
+        name = dataInput.get('name', 'Unknown')
+        email = dataInput.get('email', 'No Email')
+        subject = dataInput.get('subject', 'No Subject')
+        message = dataInput.get('message', 'No Message')
+        
+        try:
+            fromaddr = MAIL_FROM
+            toaddr = "learn2earn@bde.go.th"
+            msg = MIMEMultipart()
+            msg['From'] = fromaddr
+            msg['To'] = toaddr
+            msg['Subject'] = f"Contact Us: {subject}"
+            
+            body = f"""
+            <h3>New Message from Contact Us Form</h3>
+            <ul>
+                <li><b>Name:</b> {name}</li>
+                <li><b>Email:</b> {email}</li>
+                <li><b>Subject:</b> {subject}</li>
+            </ul>
+            <p><b>Message:</b><br/>{message.replace(chr(10), '<br/>')}</p>
+            """
+            msg.attach(MIMEText(body, 'html', "utf-8"))
+            
+            if MAIL_USE_SSL:
+                server = smtplib.SMTP_SSL(SERVER, MAIL_PORT, timeout=10)
+            else:
+                server = smtplib.SMTP(SERVER, MAIL_PORT, timeout=10)
+                server.starttls()
+                
+            if username_mail and password_mail:
+                server.login(username_mail, password_mail)
+            
+            # Send to admin
+            text = msg.as_string()
+            server.sendmail(fromaddr, toaddr, text)
+            print(f"DEBUG: Contact email sent to admin ({toaddr}) successfully")
+
+            # Send confirmation to user
+            if email and email != 'No Email' and check_email_format(email):
+                msg_user = MIMEMultipart()
+                msg_user['From'] = fromaddr
+                msg_user['To'] = email
+                msg_user['Subject'] = f"ยืนยันการรับเรื่องติดต่อ: {subject}"
+                user_body = f"""
+                <div style="font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
+                    <h2 style="color: #008236; margin-top: 0;">เรียนคุณ {name}</h2>
+                    <p style="font-size: 15px; line-height: 1.6;">ทางเราได้รับข้อความติดต่อของคุณเรียบร้อยแล้ว ทีมงานจะดำเนินการตรวจสอบและติดต่อกลับโดยเร็วที่สุด</p>
+                    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 16px 0;">
+                    <p style="font-size: 14px; color: #475569;"><b>รายละเอียดข้อความ:</b><br/>{message.replace(chr(10), '<br/>')}</p>
+                </div>
+                """
+                msg_user.attach(MIMEText(user_body, 'html', "utf-8"))
+                server.sendmail(fromaddr, email, msg_user.as_string())
+                print(f"DEBUG: Contact confirmation email sent to user ({email}) successfully")
+
+            server.quit()
+        except Exception as email_err:
+            print(f"ERROR sending contact email: {email_err}")
+            current_app.logger.error(f"Could not send contact email: {email_err}")
+            # we'll still return success to the user so they don't get stuck if SMTP is down
+            
+        return jsonify({'status': 'success', 'message': 'Message received'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500

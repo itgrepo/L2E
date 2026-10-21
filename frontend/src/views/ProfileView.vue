@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { postWithUser, encodeUserData } from '../utils/api';
 import { encodePassword } from '../utils/crypto';
+import QRCode from 'qrcode';
 
 const router = useRouter();
 const activeTab = ref('personal');
@@ -321,8 +322,136 @@ const generateApiKey = async () => {
   }
 };
 
+// 2FA (Google Authenticator) States & Methods
+const is2FAEnabled = ref(false);
+const show2FASetupModal = ref(false);
+const show2FADisableModal = ref(false);
+const setupSecretKey = ref('');
+const setupQrCodeUrl = ref('');
+const setupOtpInput = ref('');
+const disablePasswordInput = ref('');
+const is2FALoading = ref(false);
+const twoFAMessage = ref({ text: '', type: '' });
+const copied2FASecret = ref(false);
+
+const copy2FASecret = () => {
+  if (setupSecretKey.value) {
+    navigator.clipboard.writeText(setupSecretKey.value);
+    copied2FASecret.value = true;
+    setTimeout(() => { copied2FASecret.value = false; }, 2000);
+  }
+};
+
+const fetch2FAStatus = async () => {
+  try {
+    const rawUser = localStorage.getItem('user');
+    if (!rawUser) return;
+    const userData = JSON.parse(rawUser);
+    const res = await postWithUser('/api/2fa/status', userData);
+    if (res.data && res.data.status === 'success') {
+      is2FAEnabled.value = res.data.is_enabled;
+    }
+  } catch (err) {
+    console.error('Failed to fetch 2FA status:', err);
+  }
+};
+
+const open2FASetupModal = async () => {
+  show2FASetupModal.value = true;
+  setupOtpInput.value = '';
+  twoFAMessage.value = { text: '', type: '' };
+  is2FALoading.value = true;
+  try {
+    const rawUser = localStorage.getItem('user');
+    const userData = JSON.parse(rawUser);
+    const res = await postWithUser('/api/2fa/setup', userData);
+    if (res.data && res.data.status === 'success') {
+      setupSecretKey.value = res.data.secret_key;
+      setupQrCodeUrl.value = await QRCode.toDataURL(res.data.otpauth_url, {
+        width: 200,
+        margin: 1,
+        color: { dark: '#0f172a', light: '#ffffff' }
+      });
+    } else {
+      twoFAMessage.value = { text: 'ไม่สามารถสร้าง Secret Key ได้', type: 'error' };
+    }
+  } catch (err) {
+    console.error('Error starting 2FA setup:', err);
+    twoFAMessage.value = { text: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์', type: 'error' };
+  } finally {
+    is2FALoading.value = false;
+  }
+};
+
+const confirm2FAEnable = async () => {
+  if (!setupOtpInput.value || setupOtpInput.value.trim().length < 6) {
+    twoFAMessage.value = { text: 'กรุณากรอกรหัส OTP 6 หลักให้ครบถ้วน', type: 'error' };
+    return;
+  }
+  is2FALoading.value = true;
+  twoFAMessage.value = { text: '', type: '' };
+  try {
+    const rawUser = localStorage.getItem('user');
+    const userData = JSON.parse(rawUser);
+    const res = await postWithUser('/api/2fa/verify-and-enable', userData, {
+      otp: setupOtpInput.value.trim()
+    });
+    if (res.data && res.data.status === 'success') {
+      is2FAEnabled.value = true;
+      show2FASetupModal.value = false;
+      message.value = { text: 'เปิดใช้งาน Google Authenticator สำเร็จแล้ว!', type: 'success' };
+      setTimeout(() => { message.value = { text: '', type: '' }; }, 4000);
+    } else {
+      twoFAMessage.value = { text: res.data?.message || 'รหัส OTP ไม่ถูกต้อง', type: 'error' };
+    }
+  } catch (err) {
+    console.error('Error enabling 2FA:', err);
+    const errMsg = err.response?.data?.message || 'รหัส OTP ไม่ถูกต้อง กรุณาลองใหม่';
+    twoFAMessage.value = { text: errMsg, type: 'error' };
+  } finally {
+    is2FALoading.value = false;
+  }
+};
+
+const open2FADisableModal = () => {
+  show2FADisableModal.value = true;
+  disablePasswordInput.value = '';
+  twoFAMessage.value = { text: '', type: '' };
+};
+
+const confirm2FADisable = async () => {
+  if (!disablePasswordInput.value) {
+    twoFAMessage.value = { text: 'กรุณากรอกรหัสผ่านเพื่อยืนยัน', type: 'error' };
+    return;
+  }
+  is2FALoading.value = true;
+  twoFAMessage.value = { text: '', type: '' };
+  try {
+    const rawUser = localStorage.getItem('user');
+    const userData = JSON.parse(rawUser);
+    const res = await postWithUser('/api/2fa/disable', userData, {
+      password: encodePassword(disablePasswordInput.value)
+    });
+    if (res.data && res.data.status === 'success') {
+      is2FAEnabled.value = false;
+      show2FADisableModal.value = false;
+      message.value = { text: 'ปิดการใช้งาน Google Authenticator เรียบร้อยแล้ว', type: 'success' };
+      setTimeout(() => { message.value = { text: '', type: '' }; }, 4000);
+    } else {
+      twoFAMessage.value = { text: res.data?.message || 'รหัสผ่านไม่ถูกต้อง', type: 'error' };
+    }
+  } catch (err) {
+    console.error('Error disabling 2FA:', err);
+    const errMsg = err.response?.data?.message || 'รหัสผ่านไม่ถูกต้อง';
+    twoFAMessage.value = { text: errMsg, type: 'error' };
+  } finally {
+    is2FALoading.value = false;
+  }
+};
+
 onMounted(async () => {
   await fetchOrganizations();
+  await fetch2FAStatus();
   let savedUser = JSON.parse(localStorage.getItem('user') || '{}');
   if (savedUser.username) {
     try {
@@ -786,12 +915,44 @@ const saveChanges = async () => {
               </div>
             </div>
 
-            <div class="security-item">
+            <div class="security-item" style="margin-top: 24px; padding: 24px; background: #f8fafc; border-radius: 16px; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; gap: 16px;">
               <div class="item-info">
-                <h4>Two-Factor Authentication</h4>
-                <p>Add an extra layer of security to your account.</p>
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                  <span style="font-size: 1.25rem;">🔐</span>
+                  <h4 style="margin: 0; font-weight: 700; color: #1e293b; font-size: 1.05rem;">Google Authenticator (2FA)</h4>
+                  <span 
+                    :style="is2FAEnabled 
+                      ? 'background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 2px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;' 
+                      : 'background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; padding: 2px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;'"
+                  >
+                    {{ is2FAEnabled ? '● เปิดใช้งานแล้ว' : '○ ยังไม่เปิดใช้งาน' }}
+                  </span>
+                </div>
+                <p style="margin: 0; font-size: 0.85rem; color: #64748b;">
+                  เพิ่มความปลอดภัยให้บัญชีของคุณด้วยรหัส OTP 6 หลักจากแอป Google Authenticator ทุกครั้งที่เข้าสู่ระบบ
+                </p>
               </div>
-              <button class="btn-outline">Enable</button>
+
+              <div>
+                <button 
+                  v-if="!is2FAEnabled" 
+                  type="button" 
+                  class="btn-primary" 
+                  @click="open2FASetupModal"
+                  style="white-space: nowrap; padding: 10px 20px; font-size: 0.875rem;"
+                >
+                  🚀 เปิดใช้งาน 2FA
+                </button>
+                <button 
+                  v-else 
+                  type="button" 
+                  class="btn-outline" 
+                  @click="open2FADisableModal"
+                  style="white-space: nowrap; padding: 10px 20px; font-size: 0.875rem; color: #ef4444; border-color: #fca5a5;"
+                >
+                  ปิดการใช้งาน
+                </button>
+              </div>
             </div>
           </div>
 
@@ -843,6 +1004,97 @@ const saveChanges = async () => {
         </div>
       </div>
     </main>
+    <!-- 2FA Setup Modal -->
+    <div v-if="show2FASetupModal" class="modal-overlay" @click.self="show2FASetupModal = false">
+      <div class="modal-card" style="max-width: 480px; text-align: center;">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: #1e293b;">🔐 เปิดใช้งาน Google Authenticator</h3>
+          <button type="button" class="btn-close" @click="show2FASetupModal = false" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b;">✕</button>
+        </div>
+
+        <div v-if="twoFAMessage.text" :style="twoFAMessage.type === 'error' ? 'background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;' : 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;'" style="padding: 10px 14px; border-radius: 8px; font-size: 0.85rem; margin-bottom: 16px; font-weight: 600;">
+          {{ twoFAMessage.text }}
+        </div>
+
+        <p style="font-size: 0.875rem; color: #64748b; line-height: 1.5; margin-bottom: 16px;">
+          เปิดแอป <b>Google Authenticator</b> บนโทรศัพท์ของคุณ สแกน QR Code ด้านล่าง แล้วนำรหัส 6 หลักมายืนยัน
+        </p>
+
+        <div style="display: flex; justify-content: center; margin-bottom: 16px;">
+          <div v-if="setupQrCodeUrl" style="background: white; padding: 12px; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+            <img :src="setupQrCodeUrl" alt="2FA QR Code" style="width: 180px; height: 180px; display: block;" />
+          </div>
+          <div v-else style="height: 180px; display: flex; align-items: center; justify-content: center; color: #94a3b8;">
+            กำลังโหลด QR Code...
+          </div>
+        </div>
+
+        <div style="background: #f1f5f9; padding: 8px 12px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
+          <div style="text-align: left;">
+            <div style="font-size: 0.7rem; color: #64748b;">รหัสสำหรับพิมพ์ด้วยตนเอง:</div>
+            <code style="font-family: monospace; font-weight: 700; color: #0f172a; font-size: 0.9rem;">{{ setupSecretKey }}</code>
+          </div>
+          <button type="button" @click="copy2FASecret" style="padding: 4px 10px; background: white; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer;">
+            {{ copied2FASecret ? '✓ คัดลอกแล้ว' : 'คัดลอก' }}
+          </button>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 6px;">กรอกรหัส 6 หลักจากแอป Authenticator:</label>
+          <input 
+            v-model="setupOtpInput"
+            type="text" 
+            maxlength="6"
+            placeholder="000000"
+            style="font-family: monospace; font-size: 1.5rem; letter-spacing: 0.3em; text-align: center; padding: 8px 12px; border: 2px solid #cbd5e1; border-radius: 10px; width: 100%; max-width: 260px;"
+            :disabled="is2FALoading"
+          />
+        </div>
+
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button type="button" class="btn-ghost" @click="show2FASetupModal = false" :disabled="is2FALoading">ยกเลิก</button>
+          <button type="button" class="btn-primary" @click="confirm2FAEnable" :disabled="is2FALoading || setupOtpInput.trim().length < 6">
+            {{ is2FALoading ? 'กำลังยืนยัน...' : 'ยืนยันและเปิดใช้งาน' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2FA Disable Modal -->
+    <div v-if="show2FADisableModal" class="modal-overlay" @click.self="show2FADisableModal = false">
+      <div class="modal-card" style="max-width: 420px; text-align: left;">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #991b1b;">⚠️ ปิดการใช้งาน Google Authenticator</h3>
+          <button type="button" class="btn-close" @click="show2FADisableModal = false" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b;">✕</button>
+        </div>
+
+        <div v-if="twoFAMessage.text" :style="twoFAMessage.type === 'error' ? 'background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;' : 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;'" style="padding: 10px 14px; border-radius: 8px; font-size: 0.85rem; margin-bottom: 16px; font-weight: 600;">
+          {{ twoFAMessage.text }}
+        </div>
+
+        <p style="font-size: 0.875rem; color: #64748b; margin-bottom: 16px; line-height: 1.5;">
+          การปิดใช้งาน 2FA จะทำให้ความปลอดภัยของบัญชีลดลง โปรดยืนยันรหัสผ่านปัจจุบันของคุณเพื่อปิดการใช้งาน:
+        </p>
+
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 6px;">รหัสผ่านปัจจุบัน:</label>
+          <input 
+            v-model="disablePasswordInput"
+            type="password" 
+            placeholder="••••••••"
+            style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem;"
+            :disabled="is2FALoading"
+          />
+        </div>
+
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button type="button" class="btn-ghost" @click="show2FADisableModal = false" :disabled="is2FALoading">ยกเลิก</button>
+          <button type="button" style="background: #ef4444; color: white; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer;" @click="confirm2FADisable" :disabled="is2FALoading || !disablePasswordInput">
+            {{ is2FALoading ? 'กำลังปิดการใช้งาน...' : 'ยืนยันปิดการใช้งาน' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 

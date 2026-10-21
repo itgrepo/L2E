@@ -2,11 +2,15 @@ from ServiceConfig import *
 from ServiceConfig.register import *
 from ServiceConfig.bigdataservice import *
 from ServiceConfig.login import *
+from ServiceConfig.two_factor_service import *
 from ServiceConfig.group_service import *
 from ServiceConfig.access_service import *
 from ServiceConfig.organization_service import *
 from ServiceConfig.category_service import *
+from ServiceConfig.master_data_service import *
 from ServiceConfig.site_config import *
+from ServiceConfig.file_download_service import *
+from ServiceConfig.monitor import *
 from Management import *
 from Management.groupMgmt import *
 from Management.rolesMgmt import *

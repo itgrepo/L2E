@@ -408,6 +408,32 @@ const handleApproveUser = async (user) => {
     }
 };
 
+const isResetting2FA = ref(null);
+
+const handleReset2FA = async (user) => {
+    if (!confirm(`ยืนยันการรีเซ็ต 2FA Google Authenticator สำหรับผู้ใช้ "${user.username}" หรือไม่?\n\n(ผู้ใช้จะต้องทำการตั้งค่า QR Code ใหม่อีกครั้งในการเข้าสู่ระบบครั้งถัดไป)`)) {
+        return;
+    }
+    isResetting2FA.value = user.user_id;
+    try {
+        const userStored = JSON.parse(localStorage.getItem('user') || '{}');
+        const response = await postWithUser('/api/2fa/admin-reset', userStored, {
+            target_user_id: user.user_id
+        });
+        if (response.data && response.data.status === 'success') {
+            showAlert(`รีเซ็ต 2FA ให้กับผู้ใช้ ${user.username} สำเร็จแล้ว`, 'success');
+            fetchUsers();
+        } else {
+            alert('เกิดข้อผิดพลาด: ' + (response.data.message || response.data.status));
+        }
+    } catch (error) {
+        console.error('Error resetting 2FA:', error);
+        alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
+    } finally {
+        isResetting2FA.value = null;
+    }
+};
+
 const handleDeleteUser = async (user) => {
     if (!confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบผู้ใช้ "${user.username}"? การกระทำนี้ไม่สามารถกู้คืนได้`)) {
         return;
@@ -641,6 +667,16 @@ onMounted(() => {
                       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                       Unlock
                   </button>
+                  <button 
+                    v-if="u.is_2fa_enabled == 1 || u['2fa_status'] === 'on'" 
+                    class="reset-2fa-btn" 
+                    @click="handleReset2FA(u)" 
+                    :disabled="isResetting2FA === u.user_id"
+                    title="รีเซ็ต 2FA Google Authenticator"
+                    style="background: #ef4444; color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.75rem; font-weight: 600; margin-right: 8px;"
+                  >
+                    🔑 {{ isResetting2FA === u.user_id ? 'กำลังรีเซ็ต...' : 'รีเซ็ต 2FA' }}
+                  </button>
                   <button class="delete-btn" @click="handleDeleteUser(u)" title="ลบผู้ใช้">
                     <svg xmlns="http://www.w3.org/2000/svg" class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -714,6 +750,17 @@ onMounted(() => {
                   </span>
                   <span class="mc-value text-muted" v-else>-</span>
                 </div>
+                <div class="mc-row">
+                  <span class="mc-label">2FA (Google)</span>
+                  <span class="mc-value">
+                    <span v-if="u.is_2fa_enabled == 1 || u['2fa_status'] === 'on'" class="two-fa-badge active" style="background: #dcfce7; color: #166534; font-size: 0.75rem; padding: 2px 8px; border-radius: 9999px; font-weight: 600;">
+                      🛡️ เปิดใช้งาน
+                    </span>
+                    <span v-else class="two-fa-badge inactive" style="background: #f1f5f9; color: #94a3b8; font-size: 0.75rem; padding: 2px 8px; border-radius: 9999px;">
+                      ⚪ ปิดอยู่
+                    </span>
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -727,6 +774,7 @@ onMounted(() => {
                 <th>บทบาทปัจจุบัน</th>
                 <th>สถานะ</th>
                 <th>หน่วยงาน / องค์กร</th>
+                <th>2FA</th>
                 <th>ดำเนินการ</th>
               </tr>
             </thead>
@@ -812,6 +860,14 @@ onMounted(() => {
                     </span>
                     <span class="text-muted" v-else>-</span>
                 </td>
+                <td class="two-fa-cell">
+                  <span v-if="u.is_2fa_enabled == 1 || u['2fa_status'] === 'on'" class="two-fa-badge active" style="display: inline-flex; align-items: center; gap: 4px; background: #dcfce7; color: #166534; font-size: 0.75rem; padding: 4px 10px; border-radius: 9999px; font-weight: 600; border: 1px solid #bbf7d0; white-space: nowrap;">
+                    🛡️ เปิดแล้ว
+                  </span>
+                  <span v-else class="two-fa-badge inactive" style="display: inline-flex; align-items: center; gap: 4px; background: #f8fafc; color: #94a3b8; font-size: 0.75rem; padding: 4px 10px; border-radius: 9999px; border: 1px solid #e2e8f0; white-space: nowrap;">
+                    ⚪ ปิดอยู่
+                  </span>
+                </td>
                 <td class="actions-cell">
                   <div class="actions-group">
                     <button 
@@ -856,6 +912,18 @@ onMounted(() => {
                     <button v-if="u.status_id == 6" class="unlock-btn" @click="handleUnlockUser(u)" title="ปลดล็อคบัญชี" style="background-color: #f59e0b; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.85rem; font-weight: 600;">
                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                       Unlock
+                    </button>
+
+                    <button 
+                      v-if="u.is_2fa_enabled == 1 || u['2fa_status'] === 'on'" 
+                      class="reset-2fa-btn" 
+                      @click="handleReset2FA(u)" 
+                      :disabled="isResetting2FA === u.user_id"
+                      title="รีเซ็ต 2FA Google Authenticator"
+                      style="background-color: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.85rem; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.2);"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 2v6h6M21.5 22v-6h-6"/><path d="M22 11.5A10 10 0 0 0 3.2 7.2M2 12.5a10 10 0 0 0 18.8 4.2"/></svg>
+                      <span>{{ isResetting2FA === u.user_id ? 'กำลังรีเซ็ต...' : 'รีเซ็ต 2FA' }}</span>
                     </button>
 
                     <button class="delete-btn" @click="handleDeleteUser(u)" title="ลบผู้ใช้">

@@ -27,23 +27,30 @@ def mgmtgetUser():
     #sql = "SELECT user.user_id, user.username, user.firstname, user.lastname, user.email, user.last_update, user.previlage_id, cs.status_name, cs.status_id ,user.email_news FROM user JOIN codename_status as cs ON user.status_id = cs.status_id "
     # sql = '''SELECT user.user_id, user.username, user.firstname, user.lastname, user.email, ua.login_respond, user.previlage_id, cs.status_name, cs.status_id ,user.email_news ,"" AS send_QR FROM user JOIN codename_status as cs ON user.status_id = cs.status_id JOIN user_activity as ua ON user.user_id = ua.user_id'''
     sql = '''SELECT user.user_id, user.username, user.firstname, 
-    user.lastname, user.email,user.usage_objective,user.other_object, 
-    ua.login_respond, user.previlage_id,user.two_factor_authen, 
-    cs.status_name, cs.status_id ,user.email_news,user.create_at,"" AS send_QR,
+    user.lastname, user.email, user.usage_objective, user.other_object, 
+    ua.login_respond, user.previlage_id, user.2fa_status,
+    COALESCE(utf.is_enabled, 0) AS is_2fa_enabled,
+    cs.status_name, cs.status_id, "" AS email_news, user.create_at, "" AS send_QR,
     user.org_id, (user.apikey IS NOT NULL AND user.apikey != '') AS has_api_key
         FROM user 
     JOIN codename_status as cs 
         ON user.status_id = cs.status_id 
     JOIN user_activity as ua 
         ON user.user_id = ua.user_id 
+    LEFT JOIN user_two_factor as utf
+        ON user.user_id = utf.user_id
     WHERE user.status_id != 7
-    ORDER BY user.user_id DESC''' # เพิ่ม column user.two_factor_authen
+    ORDER BY user.user_id DESC'''
     cursor.execute(sql, ())
     data = cursor.fetchall()
     columns = [column[0] for column in cursor.description]
     result = toJson(data, columns)
     for i in range(len(result)):
-        result[i]['login_respond'] = datetime.utcfromtimestamp(int(result[i]['login_respond'])+25200).strftime('%Y-%m-%d %H:%M:%S')
+        login_resp = result[i].get('login_respond')
+        if login_resp and str(login_resp).isdigit() and int(login_resp) > 0:
+            result[i]['login_respond'] = datetime.utcfromtimestamp(int(login_resp)+25200).strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            result[i]['login_respond'] = '-'
     return jsonify(result)
 
 @app.route('/mgmt/permission', methods=['POST'])

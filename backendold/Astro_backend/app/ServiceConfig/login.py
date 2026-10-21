@@ -9,6 +9,7 @@ import smtplib
 import hmac
 import hashlib
 import requests
+import pyotp
 # from email.MIMEMultipart import MIMEMultipart
 # from email.MIMEText import MIMEText
 
@@ -87,9 +88,9 @@ def login():
     try:
 
         dataInput = request.json
-        username = dataInput['username']
-        password = dataInput['password']
-        link = dataInput['link']
+        username = dataInput.get('username')
+        password = dataInput.get('password')
+        link = dataInput.get('link', LINK)
         conn = mysql.connect()
         cursor = conn.cursor()
         # sql = """SELECT user_id, username, email, firstname, lastname, national_id, national_id_book, national_id_mode, policy_id,
@@ -282,6 +283,69 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
             cursor.close()
             conn.close()
             # /M&M ????1_1
+            # Check if user is approved
+            is_approved = False if str(result[0].get('status_id')) == '8' or str(result[0].get('previlage_id')) == '1' else True
+            
+            # If user is approved, enforce Google Authenticator 2FA
+            if is_approved:
+                conn_2fa = mysql.connect()
+                cursor_2fa = conn_2fa.cursor()
+                cursor_2fa.execute("SELECT secret_key, is_enabled FROM user_two_factor WHERE user_id = %s", (user_id,))
+                row_2fa = cursor_2fa.fetchone()
+                cursor_2fa.close()
+                conn_2fa.close()
+                
+                # Case 1: 2FA is already enabled -> Prompt for 6-digit OTP code
+                if row_2fa and row_2fa[1] == 1:
+                    temp_payload = {
+                        "user_id": user_id,
+                        "username": username,
+                        "action": "login_2fa"
+                    }
+                    temp_token = auth_serializer.dumps(temp_payload)
+                    return jsonify({
+                        "status": "require_2fa",
+                        "requires_2fa": True,
+                        "temp_token": temp_token,
+                        "username": username
+                    })
+                # Case 2: User is approved but hasn't configured 2FA yet -> Prompt to scan QR Code and setup
+                else:
+                    if row_2fa and row_2fa[0]:
+                        secret_key = row_2fa[0]
+                    else:
+                        secret_key = pyotp.random_base32()
+                        conn_init = mysql.connect()
+                        cursor_init = conn_init.cursor()
+                        cursor_init.execute("""
+                            INSERT INTO user_two_factor (user_id, secret_key, is_enabled) 
+                            VALUES (%s, %s, 0) 
+                            ON DUPLICATE KEY UPDATE secret_key = %s, is_enabled = 0
+                        """, (user_id, secret_key, secret_key))
+                        conn_init.commit()
+                        cursor_init.close()
+                        conn_init.close()
+                    
+                    otpauth_url = pyotp.totp.TOTP(secret_key).provisioning_uri(
+                        name=username,
+                        issuer_name="Learn2Earn DataX"
+                    )
+                    temp_payload = {
+                        "user_id": user_id,
+                        "username": username,
+                        "secret_key": secret_key,
+                        "action": "setup_2fa"
+                    }
+                    temp_token = auth_serializer.dumps(temp_payload)
+                    return jsonify({
+                        "status": "require_2fa_setup",
+                        "requires_2fa_setup": True,
+                        "temp_token": temp_token,
+                        "username": username,
+                        "secret_key": secret_key,
+                        "otpauth_url": otpauth_url
+                    })
+
             if str(result1[0]['login_status']) != '2':
                 # /////////////////////////////////////////////////////////////////////////////////
                 # print(check_policy)

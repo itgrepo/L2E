@@ -2,6 +2,7 @@ from ServiceConfig import *
 from ServiceConfig.register import *
 from ServiceConfig.bigdataservice import *
 from ServiceConfig.login import *
+from ServiceConfig.two_factor_service import *
 from ServiceConfig.group_service import *
 from ServiceConfig.access_service import *
 from ServiceConfig.organization_service import *

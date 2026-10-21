@@ -5,6 +5,8 @@ import { encodePassword } from '../utils/crypto';
 import apiClient from '../utils/api';
 import { themeConfig } from '../utils/theme';
 
+import QRCode from 'qrcode';
+
 const router = useRouter();
 const route = useRoute();
 const username = ref('');
@@ -14,6 +16,110 @@ const rememberMe = ref(false);
 const isLoading = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
+
+// 2FA States
+const step = ref('credentials'); // 'credentials' | '2fa_verify' | '2fa_setup'
+const tempToken = ref('');
+const otpCode = ref('');
+const secretKey = ref('');
+const otpauthUrl = ref('');
+const qrCodeDataUrl = ref('');
+const copiedSecret = ref(false);
+
+const copySecretKey = () => {
+  if (secretKey.value) {
+    navigator.clipboard.writeText(secretKey.value);
+    copiedSecret.value = true;
+    setTimeout(() => { copiedSecret.value = false; }, 2000);
+  }
+};
+
+const cancel2FA = () => {
+  step.value = 'credentials';
+  tempToken.value = '';
+  otpCode.value = '';
+  secretKey.value = '';
+  otpauthUrl.value = '';
+  qrCodeDataUrl.value = '';
+  errorMessage.value = '';
+};
+
+const handleSuccessfulLogin = (result) => {
+  if (rememberMe.value) {
+    localStorage.setItem('remembered_username', username.value);
+  } else {
+    localStorage.removeItem('remembered_username');
+  }
+
+  localStorage.setItem('user', JSON.stringify(result.data));
+  window.dispatchEvent(new Event('auth-change'));
+
+  const isPending = (
+    String(result.data?.previlage_id) === '1' ||
+    String(result.data?.status_id) === '8' ||
+    result.data?.is_approved === false ||
+    result.data?.requires_onboarding === true
+  );
+
+  if (result.status && result.status.includes('change password')) {
+    alert('รหัสผ่านของคุณหมดอายุแล้ว กรุณาเปลี่ยนรหัสผ่านเพื่อความปลอดภัย');
+    router.push('/profile');
+  } else if (isPending) {
+    router.push('/profile');
+  } else {
+    router.push('/catalog');
+  }
+};
+
+const handle2FAVerify = async () => {
+  if (!otpCode.value || otpCode.value.trim().length < 6) {
+    errorMessage.value = 'กรุณากรอกรหัส OTP 6 หลักให้ครบถ้วน';
+    return;
+  }
+  isLoading.value = true;
+  errorMessage.value = '';
+  try {
+    const response = await apiClient.post('/api/2fa/login-verify', {
+      temp_token: tempToken.value,
+      otp: otpCode.value.trim()
+    });
+    handleSuccessfulLogin(response.data);
+  } catch (error) {
+    console.error('2FA Verify error:', error);
+    if (error.response && error.response.data && error.response.data.message) {
+      errorMessage.value = error.response.data.message;
+    } else {
+      errorMessage.value = 'รหัส OTP ไม่ถูกต้องหรือหมดอายุแล้ว กรุณาลองใหม่อีกครั้ง';
+    }
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+const handle2FASetupVerify = async () => {
+  if (!otpCode.value || otpCode.value.trim().length < 6) {
+    errorMessage.value = 'กรุณากรอกรหัส OTP 6 หลักให้ครบถ้วน';
+    return;
+  }
+  isLoading.value = true;
+  errorMessage.value = '';
+  try {
+    const response = await apiClient.post('/api/2fa/setup-and-login-verify', {
+      temp_token: tempToken.value,
+      otp: otpCode.value.trim()
+    });
+    handleSuccessfulLogin(response.data);
+  } catch (error) {
+    console.error('2FA Setup Verify error:', error);
+    if (error.response && error.response.data && error.response.data.message) {
+      errorMessage.value = error.response.data.message;
+    } else {
+      errorMessage.value = 'รหัส OTP ไม่ถูกต้อง กรุณาตรวจสอบรหัสในแอปอีกครั้ง';
+    }
+  } finally {
+    isLoading.value = false;
+  }
+};
 
 // Forgot Password States
 const showForgotModal = ref(false);
@@ -96,35 +202,29 @@ const handleLogin = async () => {
 
     const result = response.data;
     
-    if (result.status === 'success' || result.status === 'user is admin' || result.status === 'change password' || result.status === 'change password admin') {
-      // Handle Remember Me
-      if (rememberMe.value) {
-        localStorage.setItem('remembered_username', username.value);
-      } else {
-        localStorage.removeItem('remembered_username');
+    if (result.status === 'require_2fa') {
+      tempToken.value = result.temp_token;
+      step.value = '2fa_verify';
+      otpCode.value = '';
+      errorMessage.value = '';
+    } else if (result.status === 'require_2fa_setup') {
+      tempToken.value = result.temp_token;
+      secretKey.value = result.secret_key;
+      otpauthUrl.value = result.otpauth_url;
+      step.value = '2fa_setup';
+      otpCode.value = '';
+      errorMessage.value = '';
+      try {
+        qrCodeDataUrl.value = await QRCode.toDataURL(result.otpauth_url, {
+          width: 220,
+          margin: 1,
+          color: { dark: '#0f172a', light: '#ffffff' }
+        });
+      } catch (err) {
+        console.error('Error generating QR code:', err);
       }
-
-      // Store user data in localStorage for simplicity (replace with Pinia if needed)
-      localStorage.setItem('user', JSON.stringify(result.data));
-      
-      // Dispatch auth-change event so Navbar updates
-      window.dispatchEvent(new Event('auth-change'));
-
-      const isPending = (
-        String(result.data?.previlage_id) === '1' ||
-        String(result.data?.status_id) === '8' ||
-        result.data?.is_approved === false ||
-        result.data?.requires_onboarding === true
-      );
-
-      if (result.status.includes('change password')) {
-        alert('รหัสผ่านของคุณหมดอายุแล้ว กรุณาเปลี่ยนรหัสผ่านเพื่อความปลอดภัย');
-        router.push('/profile'); // Redirect to profile to change password
-      } else if (isPending) {
-        router.push('/profile');
-      } else {
-        router.push('/catalog');
-      }
+    } else if (result.status === 'success' || result.status === 'user is admin' || result.status === 'change password' || result.status === 'change password admin') {
+      handleSuccessfulLogin(result);
     } else if (result.status === 'pending_approval') {
       errorMessage.value = 'บัญชีของคุณกำลังรอการอนุมัติจากผู้ดูแลระบบ กรุณารอการอนุมัติ';
     } else if (result.status === 'Your account is locked' || (result.status && result.status.includes('unlock account'))) {
@@ -168,10 +268,20 @@ const handleLogin = async () => {
     
     <div class="login-form-side">
       <div class="form-card">
-        <h2>Welcome Back</h2>
-        <p class="subtitle">Please enter your details to sign in</p>
-        
-        
+        <template v-if="step === 'credentials'">
+          <h2>Welcome Back</h2>
+          <p class="subtitle">Please enter your details to sign in</p>
+        </template>
+        <template v-else-if="step === '2fa_verify'">
+          <div class="step-badge">🔐 ขั้นตอนที่ 2 / 2</div>
+          <h2>Google Authenticator</h2>
+          <p class="subtitle">กรุณาเปิดแอปบนมือถือและนำรหัสยืนยัน 6 หลักมากรอก</p>
+        </template>
+        <template v-else-if="step === '2fa_setup'">
+          <div class="step-badge step-badge-setup">🛡️ ตั้งค่าความปลอดภัย 2 ชั้น</div>
+          <h2>Google Authenticator</h2>
+          <p class="subtitle">สแกน QR Code ด้วยแอป Google Authenticator แล้วกรอกรหัส 6 หลักเพื่อเริ่มต้นใช้งาน</p>
+        </template>
 
         <div v-if="successMessage" class="success-alert">
           {{ successMessage }}
@@ -189,7 +299,8 @@ const handleLogin = async () => {
           {{ errorMessage }}
         </div>
 
-        <form @submit.prevent="handleLogin">
+        <!-- 1. Credentials Form -->
+        <form v-if="step === 'credentials'" @submit.prevent="handleLogin">
           <div class="form-group">
             <label for="username">Username</label>
             <input 
@@ -239,8 +350,83 @@ const handleLogin = async () => {
             <span v-else>เข้าสู่ระบบ</span>
           </button>
         </form>
+
+        <!-- 2. Step 2FA Verification Form -->
+        <form v-else-if="step === '2fa_verify'" @submit.prevent="handle2FAVerify" class="two-factor-form">
+          <div class="form-group" style="margin-top: 10px;">
+            <label for="otp-code">รหัส OTP 6 หลัก (จากแอป Authenticator)</label>
+            <input 
+              id="otp-code" 
+              v-model="otpCode" 
+              type="text" 
+              inputmode="numeric"
+              maxlength="6"
+              placeholder="000 000" 
+              class="otp-input"
+              required
+              autofocus
+              autocomplete="one-time-code"
+              :disabled="isLoading"
+            >
+          </div>
+
+          <button type="submit" class="login-btn" :disabled="isLoading || otpCode.trim().length < 6">
+            <span v-if="isLoading" class="loader"></span>
+            <span v-else>ยืนยันและเข้าสู่ระบบ</span>
+          </button>
+
+          <div class="back-link-box">
+            <a href="#" class="forgot-link" @click.prevent="cancel2FA">← กลับไปหน้าเข้าสู่ระบบ</a>
+          </div>
+        </form>
+
+        <!-- 3. Step 2FA First-time Setup Form -->
+        <form v-else-if="step === '2fa_setup'" @submit.prevent="handle2FASetupVerify" class="two-factor-form">
+          <div class="qr-container">
+            <div v-if="qrCodeDataUrl" class="qr-box">
+              <img :src="qrCodeDataUrl" alt="2FA QR Code" class="qr-image" />
+            </div>
+            <div v-else class="qr-loading">กำลังโหลด QR Code...</div>
+
+            <div class="secret-key-box">
+              <span class="secret-label">หรือพิมพ์รหัสลับด้วยตนเอง:</span>
+              <div class="secret-row">
+                <code class="secret-code">{{ secretKey }}</code>
+                <button type="button" class="copy-btn" @click="copySecretKey">
+                  {{ copiedSecret ? '✓ คัดลอกแล้ว' : 'คัดลอก' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top: 16px;">
+            <label for="setup-otp-code">กรอกรหัส 6 หลักจากแอปเพื่อทดสอบและยืนยัน</label>
+            <input 
+              id="setup-otp-code" 
+              v-model="otpCode" 
+              type="text" 
+              inputmode="numeric"
+              maxlength="6"
+              placeholder="000 000" 
+              class="otp-input"
+              required
+              autofocus
+              autocomplete="one-time-code"
+              :disabled="isLoading"
+            >
+          </div>
+
+          <button type="submit" class="login-btn" :disabled="isLoading || otpCode.trim().length < 6">
+            <span v-if="isLoading" class="loader"></span>
+            <span v-else>เปิดใช้งาน 2FA และเข้าสู่ระบบ</span>
+          </button>
+
+          <div class="back-link-box">
+            <a href="#" class="forgot-link" @click.prevent="cancel2FA">← ยกเลิกและกลับไปหน้าเข้าสู่ระบบ</a>
+          </div>
+        </form>
         
-        <p class="register-text">
+        <p v-if="step === 'credentials'" class="register-text">
           Don't have an account? <router-link to="/register">สมัครสมาชิก</router-link>
         </p>
       </div>
@@ -657,5 +843,141 @@ input:focus {
   width: 14px;
   height: 14px;
   border-width: 1.5px;
+}
+
+/* 2FA Styles */
+.step-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  margin-bottom: 12px;
+}
+
+.step-badge-setup {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.two-factor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.otp-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-size: 1.8rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.35em !important;
+  text-align: center !important;
+  padding: 12px 16px !important;
+  color: #1e293b !important;
+  background: #f8fafc !important;
+  border: 2px solid #cbd5e1 !important;
+  border-radius: 12px !important;
+  transition: all 0.2s ease !important;
+}
+
+.otp-input:focus {
+  border-color: #2563eb !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12) !important;
+  outline: none !important;
+}
+
+.qr-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin: 12px 0 8px 0;
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+}
+
+.qr-box {
+  background: white;
+  padding: 12px;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.qr-image {
+  width: 190px;
+  height: 190px;
+  display: block;
+}
+
+.qr-loading {
+  height: 190px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.secret-key-box {
+  width: 100%;
+  text-align: center;
+}
+
+.secret-label {
+  display: block;
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.secret-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: white;
+  padding: 6px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+
+.secret-code {
+  font-family: ui-monospace, monospace;
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 0.95rem;
+  letter-spacing: 0.05em;
+}
+
+.copy-btn {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.copy-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.back-link-box {
+  text-align: center;
+  margin-top: 10px;
 }
 </style>
