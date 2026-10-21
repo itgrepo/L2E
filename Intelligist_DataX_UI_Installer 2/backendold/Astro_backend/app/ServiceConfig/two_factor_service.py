@@ -172,6 +172,7 @@ def complete_user_login_from_id(user_id):
 # 2FA API Routes
 # ==============================================================================
 
+@app.route('/2fa/login-verify', methods=['POST'])
 @app.route('/api/2fa/login-verify', methods=['POST'])
 def two_factor_login_verify():
     """Verifies the 6-digit TOTP code during 2-Step Login for users with 2FA already enabled."""
@@ -219,6 +220,7 @@ def two_factor_login_verify():
         return jsonify({"status": "error", "message": "เกิดข้อผิดพลาดในการตรวจสอบ 2FA"}), 500
 
 
+@app.route('/2fa/setup-and-login-verify', methods=['POST'])
 @app.route('/api/2fa/setup-and-login-verify', methods=['POST'])
 def two_factor_setup_and_login_verify():
     """Verifies the 6-digit TOTP code and activates 2FA on first login, then logs the user in."""
@@ -286,6 +288,7 @@ def _extract_user(data):
     return getattr(request, 'current_user', {}) or {}
 
 
+@app.route('/2fa/status', methods=['POST'])
 @app.route('/api/2fa/status', methods=['POST'])
 def two_factor_status():
     """Checks the 2FA status for the authenticated user."""
@@ -315,6 +318,7 @@ def two_factor_status():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route('/2fa/setup', methods=['POST'])
 @app.route('/api/2fa/setup', methods=['POST'])
 def two_factor_setup_for_profile():
     """Generates a secret key and otpauth URL for a user setting up 2FA from their profile."""
@@ -355,6 +359,7 @@ def two_factor_setup_for_profile():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route('/2fa/verify-and-enable', methods=['POST'])
 @app.route('/api/2fa/verify-and-enable', methods=['POST'])
 def two_factor_verify_and_enable():
     """Verifies OTP and permanently enables 2FA from Profile view."""
@@ -398,6 +403,7 @@ def two_factor_verify_and_enable():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route('/2fa/disable', methods=['POST'])
 @app.route('/api/2fa/disable', methods=['POST'])
 def two_factor_disable():
     """Disables 2FA after password confirmation."""
@@ -439,6 +445,7 @@ def two_factor_disable():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route('/2fa/admin-reset', methods=['POST'])
 @app.route('/api/2fa/admin-reset', methods=['POST'])
 @require_admin
 def two_factor_admin_reset():
