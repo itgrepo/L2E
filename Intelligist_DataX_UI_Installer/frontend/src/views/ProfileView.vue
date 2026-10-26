@@ -1005,96 +1005,100 @@ const saveChanges = async () => {
       </div>
     </main>
     <!-- 2FA Setup Modal -->
-    <div v-if="show2FASetupModal" class="modal-overlay" @click.self="show2FASetupModal = false">
-      <div class="modal-card" style="max-width: 480px; text-align: center;">
-        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: #1e293b;">🔐 เปิดใช้งาน Google Authenticator</h3>
-          <button type="button" class="btn-close" @click="show2FASetupModal = false" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b;">✕</button>
-        </div>
-
-        <div v-if="twoFAMessage.text" :style="twoFAMessage.type === 'error' ? 'background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;' : 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;'" style="padding: 10px 14px; border-radius: 8px; font-size: 0.85rem; margin-bottom: 16px; font-weight: 600;">
-          {{ twoFAMessage.text }}
-        </div>
-
-        <p style="font-size: 0.875rem; color: #64748b; line-height: 1.5; margin-bottom: 16px;">
-          เปิดแอป <b>Google Authenticator</b> บนโทรศัพท์ของคุณ สแกน QR Code ด้านล่าง แล้วนำรหัส 6 หลักมายืนยัน
-        </p>
-
-        <div style="display: flex; justify-content: center; margin-bottom: 16px;">
-          <div v-if="setupQrCodeUrl" style="background: white; padding: 12px; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-            <img :src="setupQrCodeUrl" alt="2FA QR Code" style="width: 180px; height: 180px; display: block;" />
+    <Teleport to="body">
+      <div v-if="show2FASetupModal" class="profile-2fa-modal-overlay" @click.self="show2FASetupModal = false">
+        <div class="profile-2fa-modal-card" style="max-width: 480px; text-align: center;">
+          <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: #1e293b;">🔐 เปิดใช้งาน Google Authenticator</h3>
+            <button type="button" class="btn-close" @click="show2FASetupModal = false" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b;">✕</button>
           </div>
-          <div v-else style="height: 180px; display: flex; align-items: center; justify-content: center; color: #94a3b8;">
-            กำลังโหลด QR Code...
+
+          <div v-if="twoFAMessage.text" :style="twoFAMessage.type === 'error' ? 'background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;' : 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;'" style="padding: 10px 14px; border-radius: 8px; font-size: 0.85rem; margin-bottom: 16px; font-weight: 600;">
+            {{ twoFAMessage.text }}
           </div>
-        </div>
 
-        <div style="background: #f1f5f9; padding: 8px 12px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
-          <div style="text-align: left;">
-            <div style="font-size: 0.7rem; color: #64748b;">รหัสสำหรับพิมพ์ด้วยตนเอง:</div>
-            <code style="font-family: monospace; font-weight: 700; color: #0f172a; font-size: 0.9rem;">{{ setupSecretKey }}</code>
+          <p style="font-size: 0.875rem; color: #64748b; line-height: 1.5; margin-bottom: 16px;">
+            เปิดแอป <b>Google Authenticator</b> บนโทรศัพท์ของคุณ สแกน QR Code ด้านล่าง แล้วนำรหัส 6 หลักมายืนยัน
+          </p>
+
+          <div style="display: flex; justify-content: center; margin-bottom: 16px;">
+            <div v-if="setupQrCodeUrl" style="background: white; padding: 12px; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+              <img :src="setupQrCodeUrl" alt="2FA QR Code" style="width: 180px; height: 180px; display: block;" />
+            </div>
+            <div v-else style="height: 180px; display: flex; align-items: center; justify-content: center; color: #94a3b8;">
+              กำลังโหลด QR Code...
+            </div>
           </div>
-          <button type="button" @click="copy2FASecret" style="padding: 4px 10px; background: white; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer;">
-            {{ copied2FASecret ? '✓ คัดลอกแล้ว' : 'คัดลอก' }}
-          </button>
-        </div>
 
-        <div style="margin-bottom: 20px;">
-          <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 6px;">กรอกรหัส 6 หลักจากแอป Authenticator:</label>
-          <input 
-            v-model="setupOtpInput"
-            type="text" 
-            maxlength="6"
-            placeholder="000000"
-            style="font-family: monospace; font-size: 1.5rem; letter-spacing: 0.3em; text-align: center; padding: 8px 12px; border: 2px solid #cbd5e1; border-radius: 10px; width: 100%; max-width: 260px;"
-            :disabled="is2FALoading"
-          />
-        </div>
+          <div style="background: #f1f5f9; padding: 8px 12px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
+            <div style="text-align: left;">
+              <div style="font-size: 0.7rem; color: #64748b;">รหัสสำหรับพิมพ์ด้วยตนเอง:</div>
+              <code style="font-family: monospace; font-weight: 700; color: #0f172a; font-size: 0.9rem;">{{ setupSecretKey }}</code>
+            </div>
+            <button type="button" @click="copy2FASecret" style="padding: 4px 10px; background: white; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer;">
+              {{ copied2FASecret ? '✓ คัดลอกแล้ว' : 'คัดลอก' }}
+            </button>
+          </div>
 
-        <div style="display: flex; gap: 10px; justify-content: flex-end;">
-          <button type="button" class="btn-ghost" @click="show2FASetupModal = false" :disabled="is2FALoading">ยกเลิก</button>
-          <button type="button" class="btn-primary" @click="confirm2FAEnable" :disabled="is2FALoading || setupOtpInput.trim().length < 6">
-            {{ is2FALoading ? 'กำลังยืนยัน...' : 'ยืนยันและเปิดใช้งาน' }}
-          </button>
+          <div style="margin-bottom: 20px;">
+            <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 6px;">กรอกรหัส 6 หลักจากแอป Authenticator:</label>
+            <input 
+              v-model="setupOtpInput"
+              type="text" 
+              maxlength="6"
+              placeholder="000000"
+              style="font-family: monospace; font-size: 1.5rem; letter-spacing: 0.3em; text-align: center; padding: 8px 12px; border: 2px solid #cbd5e1; border-radius: 10px; width: 100%; max-width: 260px;"
+              :disabled="is2FALoading"
+            />
+          </div>
+
+          <div style="display: flex; gap: 10px; justify-content: flex-end;">
+            <button type="button" class="btn-ghost" @click="show2FASetupModal = false" :disabled="is2FALoading">ยกเลิก</button>
+            <button type="button" class="btn-primary" @click="confirm2FAEnable" :disabled="is2FALoading || setupOtpInput.trim().length < 6">
+              {{ is2FALoading ? 'กำลังยืนยัน...' : 'ยืนยันและเปิดใช้งาน' }}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </Teleport>
 
     <!-- 2FA Disable Modal -->
-    <div v-if="show2FADisableModal" class="modal-overlay" @click.self="show2FADisableModal = false">
-      <div class="modal-card" style="max-width: 420px; text-align: left;">
-        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #991b1b;">⚠️ ปิดการใช้งาน Google Authenticator</h3>
-          <button type="button" class="btn-close" @click="show2FADisableModal = false" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b;">✕</button>
-        </div>
+    <Teleport to="body">
+      <div v-if="show2FADisableModal" class="profile-2fa-modal-overlay" @click.self="show2FADisableModal = false">
+        <div class="profile-2fa-modal-card" style="max-width: 420px; text-align: left;">
+          <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #991b1b;">⚠️ ปิดการใช้งาน Google Authenticator</h3>
+            <button type="button" class="btn-close" @click="show2FADisableModal = false" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b;">✕</button>
+          </div>
 
-        <div v-if="twoFAMessage.text" :style="twoFAMessage.type === 'error' ? 'background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;' : 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;'" style="padding: 10px 14px; border-radius: 8px; font-size: 0.85rem; margin-bottom: 16px; font-weight: 600;">
-          {{ twoFAMessage.text }}
-        </div>
+          <div v-if="twoFAMessage.text" :style="twoFAMessage.type === 'error' ? 'background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;' : 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;'" style="padding: 10px 14px; border-radius: 8px; font-size: 0.85rem; margin-bottom: 16px; font-weight: 600;">
+            {{ twoFAMessage.text }}
+          </div>
 
-        <p style="font-size: 0.875rem; color: #64748b; margin-bottom: 16px; line-height: 1.5;">
-          การปิดใช้งาน 2FA จะทำให้ความปลอดภัยของบัญชีลดลง โปรดยืนยันรหัสผ่านปัจจุบันของคุณเพื่อปิดการใช้งาน:
-        </p>
+          <p style="font-size: 0.875rem; color: #64748b; margin-bottom: 16px; line-height: 1.5;">
+            การปิดใช้งาน 2FA จะทำให้ความปลอดภัยของบัญชีลดลง โปรดยืนยันรหัสผ่านปัจจุบันของคุณเพื่อปิดการใช้งาน:
+          </p>
 
-        <div style="margin-bottom: 20px;">
-          <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 6px;">รหัสผ่านปัจจุบัน:</label>
-          <input 
-            v-model="disablePasswordInput"
-            type="password" 
-            placeholder="••••••••"
-            style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem;"
-            :disabled="is2FALoading"
-          />
-        </div>
+          <div style="margin-bottom: 20px;">
+            <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 6px;">รหัสผ่านปัจจุบัน:</label>
+            <input 
+              v-model="disablePasswordInput"
+              type="password" 
+              placeholder="••••••••"
+              style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem;"
+              :disabled="is2FALoading"
+            />
+          </div>
 
-        <div style="display: flex; gap: 10px; justify-content: flex-end;">
-          <button type="button" class="btn-ghost" @click="show2FADisableModal = false" :disabled="is2FALoading">ยกเลิก</button>
-          <button type="button" style="background: #ef4444; color: white; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer;" @click="confirm2FADisable" :disabled="is2FALoading || !disablePasswordInput">
-            {{ is2FALoading ? 'กำลังปิดการใช้งาน...' : 'ยืนยันปิดการใช้งาน' }}
-          </button>
+          <div style="display: flex; gap: 10px; justify-content: flex-end;">
+            <button type="button" class="btn-ghost" @click="show2FADisableModal = false" :disabled="is2FALoading">ยกเลิก</button>
+            <button type="button" style="background: #ef4444; color: white; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer;" @click="confirm2FADisable" :disabled="is2FALoading || !disablePasswordInput">
+              {{ is2FALoading ? 'กำลังปิดการใช้งาน...' : 'ยืนยันปิดการใช้งาน' }}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1642,5 +1646,48 @@ input:disabled, select:disabled {
   color: #64748b;
   cursor: not-allowed;
   box-shadow: none;
+}
+
+/* 2FA Modal Styles (Full Viewport Centered Overlay) */
+.profile-2fa-modal-overlay {
+  position: fixed;
+  inset: 0;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999999 !important;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.profile-2fa-modal-card {
+  background: #ffffff;
+  border-radius: 20px;
+  padding: 32px;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  width: 100%;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  position: relative;
+  z-index: 1000000 !important;
+  animation: profileModalPopIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes profileModalPopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 </style>
