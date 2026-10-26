@@ -1,5 +1,5 @@
 <script setup>
-import { defineProps } from 'vue';
+import { defineProps, ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 
 const props = defineProps({
@@ -7,6 +7,17 @@ const props = defineProps({
 });
 
 const router = useRouter();
+const isLoggedIn = ref(false);
+
+const checkLoginStatus = () => {
+  isLoggedIn.value = !!localStorage.getItem('user');
+};
+
+onMounted(() => {
+  checkLoginStatus();
+  window.addEventListener('storage', checkLoginStatus);
+  window.addEventListener('auth-change', checkLoginStatus);
+});
 
 const handleCTAClick = () => {
   const rawUser = localStorage.getItem('user');
@@ -42,7 +53,9 @@ const handleCTAClick = () => {
         <h2 class="cta-title">{{ config?.title || 'พร้อมเริ่มต้นแลกเปลี่ยนข้อมูลแล้วหรือยัง?' }}</h2>
         <p class="cta-desc">{{ config?.subtitle || 'สมัครสมาชิกวันนี้เพื่อเข้าถึงชุดข้อมูลจากหน่วยงานรัฐทั่วประเทศ' }}</p>
         <div class="cta-actions">
-          <button class="btn btn-primary btn-lg cta-btn-primary" @click="handleCTAClick">{{ config?.btnPrimary || 'สมัครสมาชิกฟรี' }}</button>
+          <button class="btn btn-primary btn-lg cta-btn-primary" @click="handleCTAClick">
+            {{ isLoggedIn ? 'เข้าใช้งานบัญชีข้อมูล →' : (config?.btnPrimary || 'สมัครสมาชิกฟรี') }}
+          </button>
           <!-- <button class="btn btn-outline btn-lg cta-btn-outline">{{ config?.btnSecondary || 'ดูเอกสาร API' }}</button> -->
         </div>
       </div>
