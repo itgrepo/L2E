@@ -286,65 +286,72 @@ and  expiration  >=  CURRENT_DATE and user.user_id = (select Max(bb.user_id) fro
             # Check if user is approved
             is_approved = False if str(result[0].get('status_id')) == '8' or str(result[0].get('previlage_id')) == '1' else True
             
-            # If user is approved, enforce Google Authenticator 2FA
+            # If user is approved, check whether 2FA is enabled for this user
             if is_approved:
                 conn_2fa = mysql.connect()
                 cursor_2fa = conn_2fa.cursor()
+                cursor_2fa.execute("SELECT 2fa_status FROM user WHERE user_id = %s", (user_id,))
+                user_2fa_row = cursor_2fa.fetchone()
+                user_2fa_status = (user_2fa_row[0] if user_2fa_row and user_2fa_row[0] else 'off').lower()
+                
+                # Check 2FA table
                 cursor_2fa.execute("SELECT secret_key, is_enabled FROM user_two_factor WHERE user_id = %s", (user_id,))
                 row_2fa = cursor_2fa.fetchone()
                 cursor_2fa.close()
                 conn_2fa.close()
                 
-                # Case 1: 2FA is already enabled -> Prompt for 6-digit OTP code
-                if row_2fa and row_2fa[1] == 1:
-                    temp_payload = {
-                        "user_id": user_id,
-                        "username": username,
-                        "action": "login_2fa"
-                    }
-                    temp_token = auth_serializer.dumps(temp_payload)
-                    return jsonify({
-                        "status": "require_2fa",
-                        "requires_2fa": True,
-                        "temp_token": temp_token,
-                        "username": username
-                    })
-                # Case 2: User is approved but hasn't configured 2FA yet -> Prompt to scan QR Code and setup
-                else:
-                    if row_2fa and row_2fa[0]:
-                        secret_key = row_2fa[0]
+                # Only enforce 2FA if user has 2fa_status = 'on'
+                if user_2fa_status == 'on':
+                    # Case 1: 2FA is already enabled -> Prompt for 6-digit OTP code
+                    if row_2fa and row_2fa[1] == 1:
+                        temp_payload = {
+                            "user_id": user_id,
+                            "username": username,
+                            "action": "login_2fa"
+                        }
+                        temp_token = auth_serializer.dumps(temp_payload)
+                        return jsonify({
+                            "status": "require_2fa",
+                            "requires_2fa": True,
+                            "temp_token": temp_token,
+                            "username": username
+                        })
+                    # Case 2: 2FA is ON but not yet activated -> Prompt to scan QR Code and setup
                     else:
-                        secret_key = pyotp.random_base32()
-                        conn_init = mysql.connect()
-                        cursor_init = conn_init.cursor()
-                        cursor_init.execute("""
-                            INSERT INTO user_two_factor (user_id, secret_key, is_enabled) 
-                            VALUES (%s, %s, 0) 
-                            ON DUPLICATE KEY UPDATE secret_key = %s, is_enabled = 0
-                        """, (user_id, secret_key, secret_key))
-                        conn_init.commit()
-                        cursor_init.close()
-                        conn_init.close()
-                    
-                    otpauth_url = pyotp.totp.TOTP(secret_key).provisioning_uri(
-                        name=username,
-                        issuer_name="Learn2Earn DataX"
-                    )
-                    temp_payload = {
-                        "user_id": user_id,
-                        "username": username,
-                        "secret_key": secret_key,
-                        "action": "setup_2fa"
-                    }
-                    temp_token = auth_serializer.dumps(temp_payload)
-                    return jsonify({
-                        "status": "require_2fa_setup",
-                        "requires_2fa_setup": True,
-                        "temp_token": temp_token,
-                        "username": username,
-                        "secret_key": secret_key,
-                        "otpauth_url": otpauth_url
-                    })
+                        if row_2fa and row_2fa[0]:
+                            secret_key = row_2fa[0]
+                        else:
+                            secret_key = pyotp.random_base32()
+                            conn_init = mysql.connect()
+                            cursor_init = conn_init.cursor()
+                            cursor_init.execute("""
+                                INSERT INTO user_two_factor (user_id, secret_key, is_enabled) 
+                                VALUES (%s, %s, 0) 
+                                ON DUPLICATE KEY UPDATE secret_key = %s, is_enabled = 0
+                            """, (user_id, secret_key, secret_key))
+                            conn_init.commit()
+                            cursor_init.close()
+                            conn_init.close()
+                        
+                        otpauth_url = pyotp.totp.TOTP(secret_key).provisioning_uri(
+                            name=username,
+                            issuer_name="Learn2Earn DataX"
+                        )
+                        temp_payload = {
+                            "user_id": user_id,
+                            "username": username,
+                            "secret_key": secret_key,
+                            "action": "setup_2fa"
+                        }
+                        temp_token = auth_serializer.dumps(temp_payload)
+                        return jsonify({
+                            "status": "require_2fa_setup",
+                            "requires_2fa_setup": True,
+                            "temp_token": temp_token,
+                            "username": username,
+                            "secret_key": secret_key,
+                            "otpauth_url": otpauth_url
+                        })
 
             if str(result1[0]['login_status']) != '2':
                 # /////////////////////////////////////////////////////////////////////////////////

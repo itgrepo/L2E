@@ -349,7 +349,7 @@ const fetch2FAStatus = async () => {
     const userData = JSON.parse(rawUser);
     const res = await postWithUser('/api/2fa/status', userData);
     if (res.data && res.data.status === 'success') {
-      is2FAEnabled.value = res.data.is_enabled;
+      is2FAEnabled.value = (res.data.is_enabled === true || res.data.two_factor_status === 'on');
     }
   } catch (err) {
     console.error('Failed to fetch 2FA status:', err);
@@ -399,6 +399,11 @@ const confirm2FAEnable = async () => {
     if (res.data && res.data.status === 'success') {
       is2FAEnabled.value = true;
       show2FASetupModal.value = false;
+      try {
+        const u = JSON.parse(localStorage.getItem('user') || '{}');
+        u['2fa_status'] = 'on';
+        localStorage.setItem('user', JSON.stringify(u));
+      } catch (e) {}
       message.value = { text: 'เปิดใช้งาน Google Authenticator สำเร็จแล้ว!', type: 'success' };
       setTimeout(() => { message.value = { text: '', type: '' }; }, 4000);
     } else {
@@ -435,6 +440,11 @@ const confirm2FADisable = async () => {
     if (res.data && res.data.status === 'success') {
       is2FAEnabled.value = false;
       show2FADisableModal.value = false;
+      try {
+        const u = JSON.parse(localStorage.getItem('user') || '{}');
+        u['2fa_status'] = 'off';
+        localStorage.setItem('user', JSON.stringify(u));
+      } catch (e) {}
       message.value = { text: 'ปิดการใช้งาน Google Authenticator เรียบร้อยแล้ว', type: 'success' };
       setTimeout(() => { message.value = { text: '', type: '' }; }, 4000);
     } else {
@@ -1101,6 +1111,42 @@ const saveChanges = async () => {
     </Teleport>
   </div>
 </template>
+
+<style>
+/* Global rules for Teleported modals to body */
+.profile-2fa-modal-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  background: rgba(15, 23, 42, 0.75) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 9999999 !important;
+  padding: 20px !important;
+  box-sizing: border-box !important;
+}
+
+.profile-2fa-modal-card {
+  background: #ffffff !important;
+  border-radius: 20px !important;
+  padding: 32px !important;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 0, 0, 0.08) !important;
+  width: 100% !important;
+  max-width: 480px !important;
+  max-height: calc(100vh - 40px) !important;
+  overflow-y: auto !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+  z-index: 10000000 !important;
+}
+</style>
 
 <style scoped>
 .profile-layout {

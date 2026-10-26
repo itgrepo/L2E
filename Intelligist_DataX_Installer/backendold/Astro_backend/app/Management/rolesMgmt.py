@@ -192,9 +192,9 @@ def approveUserRegistration():
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        # Update user to R2 (General User) and Active (1)
+        # Update user to R2 (General User) and Active (1) with 2FA enabled for initial setup
         sql = """UPDATE user 
-                 SET previlage_id = 2, status_id = 1, status_account = 'active'
+                 SET previlage_id = 2, status_id = 1, status_account = 'active', 2fa_status = 'on'
                  WHERE user_id = %s"""
         cursor.execute(sql, (target_user_id,))
         cursor.execute("UPDATE user_activity SET status_account = '1' WHERE user_id = %s", (target_user_id,))

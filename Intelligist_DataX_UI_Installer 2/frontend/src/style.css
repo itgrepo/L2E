@@ -390,3 +390,50 @@ p, span, div, h1, h2, h3, h4, h5, h6, a, li, td, th {
   overflow-wrap: break-word;
 }
 
+/* ==========================================================================
+   2FA Modals (Global overlay for Vue Teleport to body)
+   ========================================================================== */
+.profile-2fa-modal-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  background: rgba(15, 23, 42, 0.75) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 9999999 !important;
+  padding: 20px !important;
+  box-sizing: border-box !important;
+}
+
+.profile-2fa-modal-card {
+  background: #ffffff !important;
+  border-radius: 20px !important;
+  padding: 32px !important;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 0, 0, 0.08) !important;
+  width: 100% !important;
+  max-width: 480px !important;
+  max-height: calc(100vh - 40px) !important;
+  overflow-y: auto !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+  z-index: 10000000 !important;
+  animation: profileModalPopIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+@keyframes profileModalPopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
