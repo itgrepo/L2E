@@ -1164,6 +1164,27 @@ def validate_password_rules(raw_pwd):
     return True, ""
 
 
+def validate_username_rules(username):
+    if not username:
+        return False, "กรุณากรอกชื่อผู้ใช้ (Username)"
+    import re
+    if re.search(r'\s', username):
+        return False, "ชื่อผู้ใช้ (Username) ไม่อนุญาตให้มีช่องว่าง (เว้นวรรค)"
+    if re.search(r'[\u0E00-\u0E7F]', username):
+        return False, "ชื่อผู้ใช้ (Username) ไม่อนุญาตให้ใช้ภาษาไทย"
+    if re.search(r'[0-9]', username):
+        return False, "ชื่อผู้ใช้ (Username) ไม่อนุญาตให้มีตัวเลข (0-9)"
+    if not re.match(r'^[A-Za-z]+$', username):
+        return False, "ชื่อผู้ใช้ (Username) ไม่อนุญาตให้ใช้อักขระพิเศษ (อนุญาตเฉพาะตัวอักษรภาษาอังกฤษ A-Z, a-z)"
+    if len(username) < 6 or len(username) > 20:
+        return False, "ชื่อผู้ใช้ (Username) ต้องมีความยาวระหว่าง 6-20 ตัวอักษร"
+    if not re.search(r'[A-Z]', username):
+        return False, "ชื่อผู้ใช้ (Username) ต้องมีตัวอักษรภาษาอังกฤษพิมพ์ใหญ่ (A-Z) อย่างน้อย 1 ตัว"
+    if not re.search(r'[a-z]', username):
+        return False, "ชื่อผู้ใช้ (Username) ต้องมีตัวอักษรภาษาอังกฤษพิมพ์เล็ก (a-z) อย่างน้อย 1 ตัว"
+    return True, ""
+
+
 @app.route('/registerSimple', methods=['POST'])
 def registerSimple():
     """Simplified registration endpoint for the Intelligist DataX platform.
@@ -1183,11 +1204,12 @@ def registerSimple():
         if not username or not password or not email:
             return jsonify({"status": "Failed", "message": "กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน"})
 
+        # Validate username rules
+        is_user_valid, user_err = validate_username_rules(username)
+        if not is_user_valid:
+            return jsonify({"status": "Failed", "message": user_err})
+
         import re
-        if re.search(r'\s', username):
-            return jsonify({"status": "Failed", "message": "ชื่อผู้ใช้ (Username) ต้องไม่มีการเว้นวรรค (ห้ามมีช่องว่าง)"})
-        if re.search(r'[<>"\'/;`%&]', username):
-            return jsonify({"status": "Failed", "message": "Invalid characters in username"})
         if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email) or re.search(r'[<>"\'/;`%&]', email):
             return jsonify({"status": "Failed", "message": "Invalid email format"})
 
@@ -1201,17 +1223,18 @@ def registerSimple():
         cursor = conn.cursor()
         try:
             sql = """SELECT user_id, username, email FROM user
-                     WHERE (username = %s OR email = %s) AND status_id != 7 AND status_account = 'active'"""
+                     WHERE (LOWER(username) = LOWER(%s) OR email = %s) AND status_id != 7 AND status_account = 'active'"""
             cursor.execute(sql, (username, email))
             data = cursor.fetchall()
             columns = [column[0] for column in cursor.description]
             existing = toJson(data, columns)
 
             if existing:
-                if existing[0]['username'] == username:
-                    return jsonify({'status': 'error', 'message': 'ชื่อผู้ใช้นี้ถูกใช้แล้ว'})
-                if existing[0]['email'] == email:
-                    return jsonify({'status': 'error', 'message': 'อีเมลนี้ถูกใช้แล้ว'})
+                for row in existing:
+                    if row.get('username') and row['username'].lower() == username.lower():
+                        return jsonify({'status': 'error', 'message': 'ชื่อผู้ใช้นี้ถูกใช้แล้ว (ไม่อนุญาตให้ซ้ำแม้ต่างกันแค่ตัวพิมพ์ใหญ่-เล็ก)'})
+                    if row.get('email') and row['email'].lower() == email.lower():
+                        return jsonify({'status': 'error', 'message': 'อีเมลนี้ถูกใช้แล้ว'})
 
             # Generate verification token
             token = (str(uuid.uuid4()) + str(uuid.uuid1())).replace('-', '')

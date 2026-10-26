@@ -25,6 +25,8 @@ const showConfirmPassword = ref(false);
 const isScrolledToBottom = ref(false);
 const showTermsModal = ref(false);
 const termsType = ref('terms'); // 'terms' or 'privacy'
+const showUsernameModal = ref(false);
+const usernameModalError = ref('');
 
 const handleScroll = (e) => {
   const { scrollTop, scrollHeight, clientHeight } = e.target;
@@ -105,9 +107,55 @@ const passwordStrength = computed(() => {
   return levels[score] || levels[0];
 });
 
+// Username policy validation
+const usernameRules = computed(() => {
+  const val = username.value || '';
+  return {
+    length: val.length >= 6 && val.length <= 20,
+    hasUpper: /[A-Z]/.test(val),
+    hasLower: /[a-z]/.test(val),
+    noNumbers: !/[0-9]/.test(val),
+    noThai: !/[\u0E00-\u0E7F]/.test(val),
+    noSpaces: !/\s/.test(val),
+    noSpecial: !/[^A-Za-z]/.test(val),
+    isValid: /^[A-Za-z]{6,20}$/.test(val) && /[A-Z]/.test(val) && /[a-z]/.test(val)
+  };
+});
+
+const getUsernameValidationError = (val) => {
+  if (!val) return 'กรุณากรอกชื่อผู้ใช้ (Username)';
+  if (/\s/.test(val)) return 'ชื่อผู้ใช้ (Username) ไม่อนุญาตให้มีช่องว่าง (เว้นวรรค)';
+  if (/[\u0E00-\u0E7F]/.test(val)) return 'ชื่อผู้ใช้ (Username) ไม่อนุญาตให้ใช้ภาษาไทย';
+  if (/[0-9]/.test(val)) return 'ชื่อผู้ใช้ (Username) ไม่อนุญาตให้มีตัวเลข (0-9)';
+  if (/[^A-Za-z]/.test(val)) return 'ชื่อผู้ใช้ (Username) ไม่อนุญาตให้ใช้อักขระพิเศษ (อนุญาตเฉพาะตัวอักษรภาษาอังกฤษ A-Z, a-z)';
+  if (val.length < 6 || val.length > 20) return 'ชื่อผู้ใช้ (Username) ต้องมีความยาวระหว่าง 6-20 ตัวอักษร';
+  if (!/[A-Z]/.test(val)) return 'ชื่อผู้ใช้ (Username) ต้องมีตัวอักษรภาษาอังกฤษพิมพ์ใหญ่ (A-Z) อย่างน้อย 1 ตัว';
+  if (!/[a-z]/.test(val)) return 'ชื่อผู้ใช้ (Username) ต้องมีตัวอักษรภาษาอังกฤษพิมพ์เล็ก (a-z) อย่างน้อย 1 ตัว';
+  return '';
+};
+
+const openUsernameModal = (errorText = '') => {
+  usernameModalError.value = errorText;
+  showUsernameModal.value = true;
+};
+
+const onUsernameInput = () => {
+  const val = username.value;
+  if (val) {
+    if (/\s/.test(val)) {
+      openUsernameModal('ไม่อนุญาตให้มีช่องว่าง (เว้นวรรค)');
+    } else if (/[\u0E00-\u0E7F]/.test(val)) {
+      openUsernameModal('ไม่อนุญาตให้ใช้ภาษาไทย');
+    } else if (/[0-9]/.test(val)) {
+      openUsernameModal('ไม่อนุญาตให้มีตัวเลข (0–9)');
+    } else if (/[^A-Za-z]/.test(val)) {
+      openUsernameModal('ไม่อนุญาตให้ใช้อักขระพิเศษ (อนุญาตเฉพาะตัวอักษรภาษาอังกฤษ A–Z, a–z)');
+    }
+  }
+};
+
 const isStep1Valid = computed(() => {
-  return username.value.length >= 3 && 
-         !/\s/.test(username.value) &&
+  return usernameRules.value.isValid &&
          password.value.length >= 8 &&
          /[A-Z]/.test(password.value) &&
          /[a-z]/.test(password.value) &&
@@ -117,8 +165,7 @@ const isStep1Valid = computed(() => {
 });
 
 const isFormValid = computed(() => {
-  return username.value.trim().length >= 3 &&
-         !/\s/.test(username.value) &&
+  return usernameRules.value.isValid &&
          email.value.includes('@') &&
          password.value.length >= 8 &&
          password.value === confirmPassword.value &&
@@ -130,6 +177,12 @@ const isFormValid = computed(() => {
 });
 
 const nextStep = () => {
+  const userErr = getUsernameValidationError(username.value);
+  if (userErr) {
+    openUsernameModal(userErr);
+    errorMessage.value = userErr;
+    return;
+  }
   if (currentStep.value === 1 && isStep1Valid.value) {
     currentStep.value = 2;
     errorMessage.value = '';
@@ -144,8 +197,10 @@ const prevStep = () => {
 };
 
 const handleRegister = async () => {
-  if (/\s/.test(username.value)) {
-    errorMessage.value = 'ชื่อผู้ใช้ (Username) ต้องไม่มีการเว้นวรรค (ห้ามมีช่องว่าง)';
+  const userErr = getUsernameValidationError(username.value);
+  if (userErr) {
+    openUsernameModal(userErr);
+    errorMessage.value = userErr;
     return;
   }
   if (!isFormValid.value) {
@@ -244,10 +299,48 @@ const goToVerify = () => {
 
           <form @submit.prevent="handleRegister">
             <div class="form-group">
-              <label for="reg-username">ชื่อผู้ใช้ (Username)</label>
-              <input id="reg-username" v-model="username" type="text" placeholder="ตัวอย่าง: somchai_dataportal" required minlength="3" :disabled="isLoading" @keydown.space.prevent>
-              <small v-if="username && /\s/.test(username)" class="field-hint error">ชื่อผู้ใช้ต้องไม่มีการเว้นวรรค (ห้ามมีช่องว่าง)</small>
-              <small v-else-if="username && username.length < 3" class="field-hint error">ต้องมีอย่างน้อย 3 ตัวอักษร</small>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                <label for="reg-username" style="margin-bottom: 0;">ชื่อผู้ใช้ (Username) <span class="required" style="color: #ef4444;">*</span></label>
+                <button type="button" @click="openUsernameModal('')" class="policy-link-btn" title="คลิกเพื่อดูเงื่อนไขการตั้งชื่อผู้ใช้">
+                  ℹ️ เงื่อนไขชื่อผู้ใช้
+                </button>
+              </div>
+              <input id="reg-username" 
+                     v-model="username" 
+                     @input="onUsernameInput" 
+                     type="text" 
+                     placeholder="เช่น Somchai (ตัวอักษร A-Z, a-z 6-20 ตัว)" 
+                     required 
+                     maxlength="20"
+                     :disabled="isLoading" 
+                     @keydown.space.prevent>
+              
+              <div class="username-checklist" v-if="username" style="margin-top: 8px; font-size: 0.85rem; background: #f8fafc; padding: 10px 14px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                <div style="font-weight: 600; color: #475569; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
+                  <span>เงื่อนไขการตั้งชื่อผู้ใช้</span>
+                  <span :style="{ color: usernameRules.isValid ? '#10b981' : '#ef4444', fontWeight: 'bold', fontSize: '0.8rem' }">
+                    {{ usernameRules.isValid ? '✓ ถูกต้องตามเกณฑ์' : '✘ ยังไม่ครบเงื่อนไข' }}
+                  </span>
+                </div>
+                <ul class="checklist-items" style="list-style: none; padding: 0; margin: 0; display: grid; gap: 4px;">
+                  <li :class="{ valid: usernameRules.length }">
+                    <span class="icon">{{ usernameRules.length ? '✔' : '✘' }}</span>
+                    ความยาว 6–20 ตัวอักษร (ปัจจุบัน {{ username.length }} ตัว)
+                  </li>
+                  <li :class="{ valid: usernameRules.hasUpper }">
+                    <span class="icon">{{ usernameRules.hasUpper ? '✔' : '✘' }}</span>
+                    ตัวพิมพ์ใหญ่ (A–Z) อย่างน้อย 1 ตัว (บังคับ)
+                  </li>
+                  <li :class="{ valid: usernameRules.hasLower }">
+                    <span class="icon">{{ usernameRules.hasLower ? '✔' : '✘' }}</span>
+                    ตัวพิมพ์เล็ก (a–z) อย่างน้อย 1 ตัว (บังคับ)
+                  </li>
+                  <li :class="{ valid: usernameRules.noNumbers && usernameRules.noThai && usernameRules.noSpaces && usernameRules.noSpecial }">
+                    <span class="icon">{{ (usernameRules.noNumbers && usernameRules.noThai && usernameRules.noSpaces && usernameRules.noSpecial) ? '✔' : '✘' }}</span>
+                    เฉพาะตัวอักษรภาษาอังกฤษ (ห้ามตัวเลข 0–9, ภาษาไทย, ช่องว่าง, อักขระพิเศษ)
+                  </li>
+                </ul>
+              </div>
             </div>
 
             <div class="form-group">
@@ -431,6 +524,94 @@ const goToVerify = () => {
             <button @click="showTermsModal = false" class="btn-primary-outline" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #cbd5e1; background: white; color: #475569; font-weight: 600; cursor: pointer;">ปิดหน้าต่าง</button>
             <button @click="acceptTerms" class="btn-primary" :disabled="!isScrolledToBottom" :class="{ 'disabled': !isScrolledToBottom }" style="padding: 8px 24px; border-radius: 6px; font-weight: 600;">ฉันได้อ่านและยอมรับ</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Username Policy Popup Modal -->
+    <div v-if="showUsernameModal" class="modal-overlay" @click.self="showUsernameModal = false" style="z-index: 9999;">
+      <div class="modal-content" style="max-width: 520px; width: 90%; border-radius: 16px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);">
+        <div class="modal-header" style="background: linear-gradient(135deg, #1e293b, #0f172a); color: white; padding: 18px 24px; display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 1.3rem;">🛡️</span>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: white;">เงื่อนไขการตั้งชื่อผู้ใช้ (Username)</h3>
+          </div>
+          <button @click="showUsernameModal = false" class="modal-close" style="color: white; font-size: 1.5rem; background: none; border: none; cursor: pointer; line-height: 1;">&times;</button>
+        </div>
+        
+        <div class="modal-body" style="padding: 24px; background: #ffffff;">
+          <div v-if="usernameModalError" style="margin-bottom: 18px; padding: 12px 16px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; display: flex; align-items: flex-start; gap: 12px;">
+            <span style="font-size: 1.25rem; color: #ef4444; line-height: 1;">⚠️</span>
+            <div>
+              <div style="font-weight: 700; color: #991b1b; font-size: 0.95rem;">พบข้อผิดพลาด</div>
+              <div style="color: #b91c1c; font-size: 0.9rem; margin-top: 2px;">{{ usernameModalError }}</div>
+            </div>
+          </div>
+
+          <p style="color: #475569; font-size: 0.92rem; margin-bottom: 16px; line-height: 1.5;">
+            เพื่อความปลอดภัยและมาตรฐานของระบบ การตั้งชื่อผู้ใช้จะต้องเป็นไปตามข้อกำหนดดังนี้:
+          </p>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px;">
+            <ul style="list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; font-size: 0.9rem;">
+              <li style="display: flex; align-items: center; gap: 10px; color: #1e293b;">
+                <span :style="{ color: usernameRules.hasUpper ? '#10b981' : '#64748b', fontWeight: 'bold' }">
+                  {{ usernameRules.hasUpper ? '✔' : '•' }}
+                </span>
+                <span><strong>ภาษาอังกฤษตัวพิมพ์ใหญ่:</strong> อนุญาต A–Z <span style="color: #ef4444; font-weight: 600;">(บังคับอย่างน้อย 1 ตัว)</span></span>
+              </li>
+              <li style="display: flex; align-items: center; gap: 10px; color: #1e293b;">
+                <span :style="{ color: usernameRules.hasLower ? '#10b981' : '#64748b', fontWeight: 'bold' }">
+                  {{ usernameRules.hasLower ? '✔' : '•' }}
+                </span>
+                <span><strong>ภาษาอังกฤษตัวพิมพ์เล็ก:</strong> อนุญาต a–z <span style="color: #ef4444; font-weight: 600;">(บังคับอย่างน้อย 1 ตัว)</span></span>
+              </li>
+              <li style="display: flex; align-items: center; gap: 10px; color: #1e293b;">
+                <span :style="{ color: usernameRules.length ? '#10b981' : '#64748b', fontWeight: 'bold' }">
+                  {{ usernameRules.length ? '✔' : '•' }}
+                </span>
+                <span><strong>ความยาว:</strong> 6–20 ตัวอักษร</span>
+              </li>
+              <li style="display: flex; align-items: center; gap: 10px; color: #1e293b;">
+                <span :style="{ color: usernameRules.noNumbers ? '#10b981' : '#ef4444', fontWeight: 'bold' }">
+                  {{ usernameRules.noNumbers ? '✔' : '✘' }}
+                </span>
+                <span><strong>ตัวเลข (0–9):</strong> <span style="color: #ef4444; font-weight: 600;">ไม่อนุญาต</span></span>
+              </li>
+              <li style="display: flex; align-items: center; gap: 10px; color: #1e293b;">
+                <span :style="{ color: usernameRules.noThai ? '#10b981' : '#ef4444', fontWeight: 'bold' }">
+                  {{ usernameRules.noThai ? '✔' : '✘' }}
+                </span>
+                <span><strong>ภาษาไทย:</strong> <span style="color: #ef4444; font-weight: 600;">ไม่อนุญาต</span></span>
+              </li>
+              <li style="display: flex; align-items: center; gap: 10px; color: #1e293b;">
+                <span :style="{ color: usernameRules.noSpaces ? '#10b981' : '#ef4444', fontWeight: 'bold' }">
+                  {{ usernameRules.noSpaces ? '✔' : '✘' }}
+                </span>
+                <span><strong>ช่องว่าง (เว้นวรรค):</strong> <span style="color: #ef4444; font-weight: 600;">ไม่อนุญาต</span></span>
+              </li>
+              <li style="display: flex; align-items: center; gap: 10px; color: #1e293b;">
+                <span :style="{ color: usernameRules.noSpecial ? '#10b981' : '#ef4444', fontWeight: 'bold' }">
+                  {{ usernameRules.noSpecial ? '✔' : '✘' }}
+                </span>
+                <span><strong>อักขระพิเศษ:</strong> <span style="color: #ef4444; font-weight: 600;">ไม่อนุญาต</span></span>
+              </li>
+              <li style="display: flex; align-items: center; gap: 10px; color: #1e293b;">
+                <span style="color: #64748b; font-weight: bold;">•</span>
+                <span><strong>ตัวอักษรตัวแรก:</strong> ไม่มีบังคับ (เป็นพิมพ์เล็กหรือใหญ่ก็ได้)</span>
+              </li>
+              <li style="display: flex; align-items: center; gap: 10px; color: #1e293b;">
+                <span style="color: #64748b; font-weight: bold;">•</span>
+                <span><strong>ชื่อซ้ำ:</strong> <span style="color: #ef4444; font-weight: 600;">ไม่อนุญาต</span> แม้ต่างกันแค่ตัวพิมพ์ใหญ่–เล็ก</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="modal-footer" style="padding: 16px 24px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end;">
+          <button type="button" @click="showUsernameModal = false" class="btn-primary" style="padding: 10px 24px; font-size: 0.95rem; border-radius: 8px; font-weight: 600;">
+            เข้าใจแล้ว / รับทราบ
+          </button>
         </div>
       </div>
     </div>
@@ -976,6 +1157,25 @@ input:focus {
 
 .back-to-login:hover {
   color: var(--mso-accent);
+}
+
+.policy-link-btn {
+  background: none;
+  border: none;
+  color: var(--primary, #0284c7);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-decoration: underline;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.policy-link-btn:hover {
+  background-color: #f1f5f9;
+  color: var(--mso-accent, #0369a1);
 }
 
 .loader {

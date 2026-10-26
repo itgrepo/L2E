@@ -575,9 +575,9 @@ def AddUserByAdmin():
         if checkUserIsAdmin(data_user) :
             #================ get input data ===========================#
             username = dataInput['username']
-            import re
-            if not username or re.search(r'\s', username):
-                return jsonify({"status": "Failed", "message": "ชื่อผู้ใช้ (Username) ต้องไม่มีการเว้นวรรค (ห้ามมีช่องว่าง)"})
+            is_user_valid, user_err = validate_username_rules(username)
+            if not is_user_valid:
+                return jsonify({"status": "Failed", "message": user_err})
             password = dataInput['password']
             firstname = dataInput['firstname']
             lastname = dataInput['lastname']
@@ -596,7 +596,7 @@ def AddUserByAdmin():
             # ================= Check user has been already exist ========#
             conn = mysql.connect()
             cursor = conn.cursor()
-            sql = "SELECT * FROM user WHERE (username = %s AND status_id != '7') OR (national_id = %s AND national_id_book = %s AND status_id != '7' ) OR (email = %s AND status_id != '7') AND status_account = 'active'"
+            sql = "SELECT * FROM user WHERE (LOWER(username) = LOWER(%s) AND status_id != '7') OR (national_id = %s AND national_id_book = %s AND status_id != '7' ) OR (email = %s AND status_id != '7') AND status_account = 'active'"
             cursor.execute(sql, (username, national_id, national_id_book, email))
             data = cursor.fetchall()
             columns = [column[0] for column in cursor.description]
@@ -604,18 +604,19 @@ def AddUserByAdmin():
             conn.close()
             # current_app.logger.info(len(data))
             if len(data):
-                if result[0]['username'] == username:
-                    logAction(data_user['user_id'], '/AddUserByAdmin', 'Username is duplicate','warning')
-                    return jsonify({'status': 'Error Username is duplicate'})
-                elif result[0]['email'] == email:
-                    logAction(data_user['user_id'], '/AddUserByAdmin', 'Email is duplicate','warning')
-                    return jsonify({'status': 'Error Email is duplicate'})
-                elif result[0]['national_id'] == national_id and national_id_mode == 1:
-                    logAction(data_user['user_id'], '/AddUserByAdmin', 'National ID is duplicate','warning')
-                    return jsonify({'status': 'Error National ID is duplicate'})
-                elif result[0]['national_id_book'] == national_id_book and national_id_mode == 2:
-                    logAction(data_user['user_id'], '/AddUserByAdmin', 'Passport is duplicate','warning')
-                    return jsonify({'status': 'Error Passport is duplicate'})
+                for row in result:
+                    if row.get('username') and row['username'].lower() == username.lower():
+                        logAction(data_user['user_id'], '/AddUserByAdmin', 'Username is duplicate','warning')
+                        return jsonify({'status': 'Failed', 'message': 'ชื่อผู้ใช้นี้ถูกใช้แล้ว (ไม่อนุญาตให้ซ้ำแม้ต่างกันแค่ตัวพิมพ์ใหญ่-เล็ก)'})
+                    elif email and row.get('email') and row['email'].lower() == email.lower():
+                        logAction(data_user['user_id'], '/AddUserByAdmin', 'Email is duplicate','warning')
+                        return jsonify({'status': 'Failed', 'message': 'อีเมลนี้ถูกใช้แล้ว'})
+                    elif row.get('national_id') == national_id and national_id_mode == 1:
+                        logAction(data_user['user_id'], '/AddUserByAdmin', 'National ID is duplicate','warning')
+                        return jsonify({'status': 'Failed', 'message': 'National ID is duplicate'})
+                    elif row.get('national_id_book') == national_id_book and national_id_mode == 2:
+                        logAction(data_user['user_id'], '/AddUserByAdmin', 'Passport is duplicate','warning')
+                        return jsonify({'status': 'Error Passport is duplicate'})
             # ================= Check user has been already exist ========#
             if len(data) != 0:
                 if str(result[0]['status_id']) == '4':

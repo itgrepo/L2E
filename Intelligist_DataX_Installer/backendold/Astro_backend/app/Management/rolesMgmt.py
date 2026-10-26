@@ -323,21 +323,32 @@ def createUser():
         if not username or not email or not password:
             return jsonify({"status": "error", "message": "Missing required fields"})
 
+        is_user_valid, user_err = validate_username_rules(username)
+        if not is_user_valid:
+            return jsonify({"status": "error", "message": user_err})
+
         import re
-        if re.search(r'\s', username):
-            return jsonify({"status": "error", "message": "ชื่อผู้ใช้ (Username) ต้องไม่มีการเว้นวรรค (ห้ามมีช่องว่าง)"})
-        if re.search(r'[<>"\'/;`%&]', username):
-            return jsonify({"status": "error", "message": "Invalid characters in username"})
         if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email) or re.search(r'[<>"\'/;`%&]', email):
             return jsonify({"status": "error", "message": "Invalid email format"})
 
         conn = mysql.connect()
         cursor = conn.cursor()
         
-        # Check duplicate
-        cursor.execute("SELECT user_id FROM user WHERE (username = %s OR email = %s) AND status_id != '7'", (username, email))
-        if cursor.fetchone():
+        # Check duplicate (case-insensitive for username)
+        cursor.execute("SELECT user_id, username, email FROM user WHERE (LOWER(username) = LOWER(%s) OR email = %s) AND status_id != '7'", (username, email))
+        data_dup = cursor.fetchall()
+        if data_dup:
+            for row in data_dup:
+                if row[1] and row[1].lower() == username.lower():
+                    cursor.close()
+                    conn.close()
+                    return jsonify({"status": "error", "message": "ชื่อผู้ใช้นี้ถูกใช้แล้ว (ไม่อนุญาตให้ซ้ำแม้ต่างกันแค่ตัวพิมพ์ใหญ่-เล็ก)"})
+                if row[2] and row[2].lower() == email.lower():
+                    cursor.close()
+                    conn.close()
+                    return jsonify({"status": "error", "message": "อีเมลนี้ถูกใช้แล้ว"})
             cursor.close()
+            conn.close()
             return jsonify({"status": "error", "message": "Username or Email already exists"})
 
         status_account_val = 'active' if str(status_id) in ['1', '2'] else ('suspend' if str(status_id) == '3' else 'pending_verification')

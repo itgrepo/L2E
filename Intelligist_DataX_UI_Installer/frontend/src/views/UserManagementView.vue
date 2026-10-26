@@ -129,16 +129,37 @@ const handleSaveUser = async () => {
         return;
     }
 
-    if (/\s/.test(formData.value.username)) {
-        showAlert('ชื่อผู้ใช้ (Username) ต้องไม่มีการเว้นวรรค (ห้ามมีช่องว่าง)', 'error');
+    const uName = formData.value.username;
+    if (/\s/.test(uName)) {
+        showAlert('ชื่อผู้ใช้ (Username) ไม่อนุญาตให้มีช่องว่าง (เว้นวรรค)', 'error');
+        return;
+    }
+    if (/[\u0E00-\u0E7F]/.test(uName)) {
+        showAlert('ชื่อผู้ใช้ (Username) ไม่อนุญาตให้ใช้ภาษาไทย', 'error');
+        return;
+    }
+    if (/[0-9]/.test(uName)) {
+        showAlert('ชื่อผู้ใช้ (Username) ไม่อนุญาตให้มีตัวเลข (0-9)', 'error');
+        return;
+    }
+    if (/[^A-Za-z]/.test(uName)) {
+        showAlert('ชื่อผู้ใช้ (Username) ไม่อนุญาตให้ใช้อักขระพิเศษ (อนุญาตเฉพาะตัวอักษรภาษาอังกฤษ A-Z, a-z)', 'error');
+        return;
+    }
+    if (uName.length < 6 || uName.length > 20) {
+        showAlert('ชื่อผู้ใช้ (Username) ต้องมีความยาวระหว่าง 6-20 ตัวอักษร', 'error');
+        return;
+    }
+    if (!/[A-Z]/.test(uName)) {
+        showAlert('ชื่อผู้ใช้ (Username) ต้องมีตัวอักษรภาษาอังกฤษพิมพ์ใหญ่ (A-Z) อย่างน้อย 1 ตัว', 'error');
+        return;
+    }
+    if (!/[a-z]/.test(uName)) {
+        showAlert('ชื่อผู้ใช้ (Username) ต้องมีตัวอักษรภาษาอังกฤษพิมพ์เล็ก (a-z) อย่างน้อย 1 ตัว', 'error');
         return;
     }
 
     const invalidCharsRegex = /[<>"\'/;`%&]/;
-    if (invalidCharsRegex.test(formData.value.username)) {
-        showAlert('ชื่อผู้ใช้มีตัวอักษรพิเศษที่ไม่อนุญาต', 'error');
-        return;
-    }
     if (invalidCharsRegex.test(formData.value.email)) {
         showAlert('อีเมลมีตัวอักษรพิเศษที่ไม่อนุญาต', 'error');
         return;
@@ -958,8 +979,8 @@ onMounted(() => {
             <div class="modal-body">
               <div class="form-group">
                 <label>Username <span class="required">*</span></label>
-                <input type="text" v-model="formData.username" class="dark-input" placeholder="Enter username" @keydown.space.prevent />
-                <small v-if="formData.username && /\s/.test(formData.username)" style="color: #ef4444; font-size: 0.75rem; margin-top: 4px; display: block;">ชื่อผู้ใช้ต้องไม่มีการเว้นวรรค (ห้ามมีช่องว่าง)</small>
+                <input type="text" v-model="formData.username" class="dark-input" placeholder="e.g. Somchai (A-Z, a-z, 6-20 chars)" maxlength="20" @keydown.space.prevent />
+                <small style="color: #94a3b8; font-size: 0.75rem; margin-top: 4px; display: block;">อนุญาตเฉพาะ A-Z, a-z ความยาว 6-20 ตัวอักษร (ห้ามตัวเลข/ไทย/สัญลักษณ์/ช่องว่าง)</small>
               </div>
               <div class="form-group">
                 <label>Email <span class="required">*</span></label>

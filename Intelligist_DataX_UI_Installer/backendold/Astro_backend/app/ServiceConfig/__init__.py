@@ -311,3 +311,23 @@ def check_email_format(email):
             return True
     else :
         return False
+
+def validate_username_rules(username):
+    if not username:
+        return False, "กรุณากรอกชื่อผู้ใช้ (Username)"
+    import re
+    if re.search(r'\s', username):
+        return False, "ชื่อผู้ใช้ (Username) ไม่อนุญาตให้มีช่องว่าง (เว้นวรรค)"
+    if re.search(r'[\u0E00-\u0E7F]', username):
+        return False, "ชื่อผู้ใช้ (Username) ไม่อนุญาตให้ใช้ภาษาไทย"
+    if re.search(r'[0-9]', username):
+        return False, "ชื่อผู้ใช้ (Username) ไม่อนุญาตให้มีตัวเลข (0-9)"
+    if not re.match(r'^[A-Za-z]+$', username):
+        return False, "ชื่อผู้ใช้ (Username) ไม่อนุญาตให้ใช้อักขระพิเศษ (อนุญาตเฉพาะตัวอักษรภาษาอังกฤษ A-Z, a-z)"
+    if len(username) < 6 or len(username) > 20:
+        return False, "ชื่อผู้ใช้ (Username) ต้องมีความยาวระหว่าง 6-20 ตัวอักษร"
+    if not re.search(r'[A-Z]', username):
+        return False, "ชื่อผู้ใช้ (Username) ต้องมีตัวอักษรภาษาอังกฤษพิมพ์ใหญ่ (A-Z) อย่างน้อย 1 ตัว"
+    if not re.search(r'[a-z]', username):
+        return False, "ชื่อผู้ใช้ (Username) ต้องมีตัวอักษรภาษาอังกฤษพิมพ์เล็ก (a-z) อย่างน้อย 1 ตัว"
+    return True, ""
