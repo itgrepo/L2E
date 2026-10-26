@@ -29,6 +29,32 @@ onMounted(async () => {
     console.error('Failed to load real stats:', error);
   }
 });
+
+const handleGetStarted = () => {
+  const rawUser = localStorage.getItem('user');
+  if (rawUser) {
+    try {
+      const user = JSON.parse(rawUser);
+      if (user && (user.user_id || user.username)) {
+        const isPending = (
+          String(user.previlage_id) === '1' ||
+          String(user.status_id) === '8' ||
+          user.is_approved === false ||
+          user.requires_onboarding === true
+        );
+        if (isPending) {
+          router.push('/profile');
+        } else {
+          router.push('/catalog');
+        }
+        return;
+      }
+    } catch (e) {
+      console.error('Error parsing stored user in HeroSection:', e);
+    }
+  }
+  router.push('/login');
+};
 </script>
 
 <template>
@@ -44,7 +70,7 @@ onMounted(async () => {
           <button 
             class="btn btn-primary btn-lg" 
             style="border-radius: 20px; background-color: var(--primary); border-color: var(--primary); cursor: pointer;"
-            @click="router.push('/login')"
+            @click="handleGetStarted"
           >
             {{ config?.btnPrimary || 'เริ่มต้นใช้งาน →' }}
           </button>

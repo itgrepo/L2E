@@ -1,10 +1,60 @@
 <script setup>
-import { defineProps } from 'vue';
+import { defineProps, ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import HeroMockup from './HeroMockup.vue';
+import apiClient from '../utils/api';
 
 const props = defineProps({
   config: Object
 });
+
+const router = useRouter();
+
+const realStats = ref(null);
+
+onMounted(async () => {
+  try {
+    const response = await apiClient.get('/dashboard/stats');
+    if (response.data && response.data.status === 'success') {
+      const hero = response.data.hero_stats;
+      if (hero) {
+        realStats.value = [
+          { num: hero.datasets_count.toString(), label: 'ชุดข้อมูล' },
+          { num: hero.organizations_count.toString(), label: 'หน่วยงานเครือข่าย' },
+          { num: (hero.api_calls_count >= 1000000 ? (hero.api_calls_count / 1000000).toFixed(1) + 'M+' : hero.api_calls_count >= 1000 ? (hero.api_calls_count / 1000).toFixed(1) + 'k+' : hero.api_calls_count.toString()), label: 'API Calls/เดือน' }
+        ];
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load real stats:', error);
+  }
+});
+
+const handleGetStarted = () => {
+  const rawUser = localStorage.getItem('user');
+  if (rawUser) {
+    try {
+      const user = JSON.parse(rawUser);
+      if (user && (user.user_id || user.username)) {
+        const isPending = (
+          String(user.previlage_id) === '1' ||
+          String(user.status_id) === '8' ||
+          user.is_approved === false ||
+          user.requires_onboarding === true
+        );
+        if (isPending) {
+          router.push('/profile');
+        } else {
+          router.push('/catalog');
+        }
+        return;
+      }
+    } catch (e) {
+      console.error('Error parsing stored user in HeroSection:', e);
+    }
+  }
+  router.push('/login');
+};
 </script>
 
 <template>
@@ -12,16 +62,21 @@ const props = defineProps({
     <div class="container hero-grid">
       <div class="hero-content">
         <div class="badge-wrapper">
-          <span class="badge">{{ config?.badge || 'MSDHS DATA PORTAL' }}</span>
+          <span class="badge">{{ config?.badge || 'BDE DATA PORTAL' }}</span>
         </div>
         <h1 class="hero-title" v-html="config?.title || 'ศูนย์กลางบัญชีข้อมูล<br/>สวัสดิการสังคมและสิทธิมนุษยชน'"></h1>
         <p class="hero-desc" v-html="config?.desc || 'แพลตฟอร์มบริหารจัดการและแลกเปลี่ยนข้อมูล พม.<br/>อย่างปลอดภัย มีมาตรฐาน พร้อมระบบวิเคราะห์ข้อมูลเชิงลึก'"></p>
         <div class="hero-buttons">
-          <button class="btn btn-primary btn-lg" style="border-radius: 20px; background-color: var(--primary); border-color: var(--primary);">{{ config?.btnPrimary || 'เริ่มต้นใช้งาน →' }}</button>
-          <button class="btn btn-outline btn-lg" style="border-radius: 20px; color: var(--primary); border-color: var(--primary);">{{ config?.btnSecondary || 'เรียนรู้เพิ่มเติม' }}</button>
+          <button 
+            class="btn btn-primary btn-lg" 
+            style="border-radius: 20px; background-color: var(--primary); border-color: var(--primary); cursor: pointer;"
+            @click="handleGetStarted"
+          >
+            {{ config?.btnPrimary || 'เริ่มต้นใช้งาน →' }}
+          </button>
         </div>
-        <div class="hero-stats" v-if="config?.stats && config.stats.length">
-          <div class="stat-block" v-for="(stat, index) in config.stats" :key="index">
+        <div class="hero-stats" v-if="(realStats && realStats.length) || (config?.stats && config.stats.length)">
+          <div class="stat-block" v-for="(stat, index) in (realStats || config.stats)" :key="index">
             <span class="stat-num">{{ stat.num }}</span>
             <span class="stat-label">{{ stat.label }}</span>
           </div>

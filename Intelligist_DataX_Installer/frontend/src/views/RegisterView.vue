@@ -250,6 +250,30 @@ const goToVerify = () => {
     router.push(`/verify/${successData.value.token}`);
   }
 };
+
+onMounted(() => {
+  const rawUser = localStorage.getItem('user');
+  if (rawUser) {
+    try {
+      const user = JSON.parse(rawUser);
+      if (user && (user.user_id || user.username)) {
+        const isPending = (
+          String(user.previlage_id) === '1' ||
+          String(user.status_id) === '8' ||
+          user.is_approved === false ||
+          user.requires_onboarding === true
+        );
+        if (isPending) {
+          router.replace('/profile');
+        } else {
+          router.replace('/catalog');
+        }
+      }
+    } catch (e) {
+      console.error('Error parsing stored user in RegisterView:', e);
+    }
+  }
+});
 </script>
 
 <template>

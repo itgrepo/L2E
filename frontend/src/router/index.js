@@ -184,9 +184,21 @@ router.beforeEach((to, from, next) => {
     const isPending = (
       String(user.previlage_id) === '1' ||
       String(user.status_id) === '8' ||
-      user.is_approved === false
+      user.is_approved === false ||
+      user.requires_onboarding === true
     );
-    if (isPending && to.name !== 'profile' && to.name !== 'login') {
+
+    // If user is already authenticated and tries to access /login or /register, direct them into the system
+    if (to.name === 'login' || to.name === 'register' || to.path === '/login' || to.path === '/register') {
+      if (isPending) {
+        next({ name: 'profile' });
+      } else {
+        next({ name: 'catalog' });
+      }
+      return;
+    }
+
+    if (isPending && to.name !== 'profile') {
       next({ name: 'profile' });
     } else {
       next();

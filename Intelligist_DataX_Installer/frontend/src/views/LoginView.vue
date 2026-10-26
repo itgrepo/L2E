@@ -177,6 +177,30 @@ const submitForgotPassword = async () => {
 };
 
 onMounted(() => {
+  // If user is already authenticated, redirect immediately
+  const rawUser = localStorage.getItem('user');
+  if (rawUser) {
+    try {
+      const user = JSON.parse(rawUser);
+      if (user && (user.user_id || user.username)) {
+        const isPending = (
+          String(user.previlage_id) === '1' ||
+          String(user.status_id) === '8' ||
+          user.is_approved === false ||
+          user.requires_onboarding === true
+        );
+        if (isPending) {
+          router.replace('/profile');
+        } else {
+          router.replace('/catalog');
+        }
+        return;
+      }
+    } catch (e) {
+      console.error('Error parsing stored user in LoginView:', e);
+    }
+  }
+
   if (route.query.verified === 'true') {
     successMessage.value = 'อีเมลได้รับการยืนยันแล้ว คุณสามารถเข้าสู่ระบบได้';
   }
