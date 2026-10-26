@@ -575,6 +575,9 @@ def AddUserByAdmin():
         if checkUserIsAdmin(data_user) :
             #================ get input data ===========================#
             username = dataInput['username']
+            import re
+            if not username or re.search(r'\s', username):
+                return jsonify({"status": "Failed", "message": "ชื่อผู้ใช้ (Username) ต้องไม่มีการเว้นวรรค (ห้ามมีช่องว่าง)"})
             password = dataInput['password']
             firstname = dataInput['firstname']
             lastname = dataInput['lastname']

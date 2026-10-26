@@ -1184,6 +1184,8 @@ def registerSimple():
             return jsonify({"status": "Failed", "message": "กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน"})
 
         import re
+        if re.search(r'\s', username):
+            return jsonify({"status": "Failed", "message": "ชื่อผู้ใช้ (Username) ต้องไม่มีการเว้นวรรค (ห้ามมีช่องว่าง)"})
         if re.search(r'[<>"\'/;`%&]', username):
             return jsonify({"status": "Failed", "message": "Invalid characters in username"})
         if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email) or re.search(r'[<>"\'/;`%&]', email):

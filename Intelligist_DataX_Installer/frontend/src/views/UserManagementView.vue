@@ -129,6 +129,11 @@ const handleSaveUser = async () => {
         return;
     }
 
+    if (/\s/.test(formData.value.username)) {
+        showAlert('ชื่อผู้ใช้ (Username) ต้องไม่มีการเว้นวรรค (ห้ามมีช่องว่าง)', 'error');
+        return;
+    }
+
     const invalidCharsRegex = /[<>"\'/;`%&]/;
     if (invalidCharsRegex.test(formData.value.username)) {
         showAlert('ชื่อผู้ใช้มีตัวอักษรพิเศษที่ไม่อนุญาต', 'error');
@@ -953,7 +958,8 @@ onMounted(() => {
             <div class="modal-body">
               <div class="form-group">
                 <label>Username <span class="required">*</span></label>
-                <input type="text" v-model="formData.username" class="dark-input" placeholder="Enter username" />
+                <input type="text" v-model="formData.username" class="dark-input" placeholder="Enter username" @keydown.space.prevent />
+                <small v-if="formData.username && /\s/.test(formData.username)" style="color: #ef4444; font-size: 0.75rem; margin-top: 4px; display: block;">ชื่อผู้ใช้ต้องไม่มีการเว้นวรรค (ห้ามมีช่องว่าง)</small>
               </div>
               <div class="form-group">
                 <label>Email <span class="required">*</span></label>

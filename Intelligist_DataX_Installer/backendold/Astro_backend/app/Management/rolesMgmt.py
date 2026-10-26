@@ -324,6 +324,8 @@ def createUser():
             return jsonify({"status": "error", "message": "Missing required fields"})
 
         import re
+        if re.search(r'\s', username):
+            return jsonify({"status": "error", "message": "ชื่อผู้ใช้ (Username) ต้องไม่มีการเว้นวรรค (ห้ามมีช่องว่าง)"})
         if re.search(r'[<>"\'/;`%&]', username):
             return jsonify({"status": "error", "message": "Invalid characters in username"})
         if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email) or re.search(r'[<>"\'/;`%&]', email):

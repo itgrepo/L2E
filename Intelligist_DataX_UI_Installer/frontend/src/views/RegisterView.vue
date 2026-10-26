@@ -107,6 +107,7 @@ const passwordStrength = computed(() => {
 
 const isStep1Valid = computed(() => {
   return username.value.length >= 3 && 
+         !/\s/.test(username.value) &&
          password.value.length >= 8 &&
          /[A-Z]/.test(password.value) &&
          /[a-z]/.test(password.value) &&
@@ -117,6 +118,7 @@ const isStep1Valid = computed(() => {
 
 const isFormValid = computed(() => {
   return username.value.trim().length >= 3 &&
+         !/\s/.test(username.value) &&
          email.value.includes('@') &&
          password.value.length >= 8 &&
          password.value === confirmPassword.value &&
@@ -142,6 +144,10 @@ const prevStep = () => {
 };
 
 const handleRegister = async () => {
+  if (/\s/.test(username.value)) {
+    errorMessage.value = 'ชื่อผู้ใช้ (Username) ต้องไม่มีการเว้นวรรค (ห้ามมีช่องว่าง)';
+    return;
+  }
   if (!isFormValid.value) {
     if (!hasAcceptedTerms.value || !hasAcceptedPrivacy.value) {
       errorMessage.value = 'กรุณากดอ่านและยอมรับข้อตกลงการใช้งานและนโยบายความเป็นส่วนตัวก่อนสมัคร';
@@ -239,8 +245,9 @@ const goToVerify = () => {
           <form @submit.prevent="handleRegister">
             <div class="form-group">
               <label for="reg-username">ชื่อผู้ใช้ (Username)</label>
-              <input id="reg-username" v-model="username" type="text" placeholder="ตัวอย่าง: somchai_dataportal" required minlength="3" :disabled="isLoading">
-              <small v-if="username && username.length < 3" class="field-hint error">ต้องมีอย่างน้อย 3 ตัวอักษร</small>
+              <input id="reg-username" v-model="username" type="text" placeholder="ตัวอย่าง: somchai_dataportal" required minlength="3" :disabled="isLoading" @keydown.space.prevent>
+              <small v-if="username && /\s/.test(username)" class="field-hint error">ชื่อผู้ใช้ต้องไม่มีการเว้นวรรค (ห้ามมีช่องว่าง)</small>
+              <small v-else-if="username && username.length < 3" class="field-hint error">ต้องมีอย่างน้อย 3 ตัวอักษร</small>
             </div>
 
             <div class="form-group">
