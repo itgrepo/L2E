@@ -3554,10 +3554,12 @@ def get_pending_dataset_requests():
         if filter_status == 'All':
             sql = f"""SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
                             r.mou_file_path, r.mou_filename, r.request_type,
-                            u.username, u.firstname, u.lastname, u.email, COALESCE(org.org_name, '') AS organization,
+                            COALESCE(u.username, '') AS username, COALESCE(u.firstname, '') AS firstname, COALESCE(u.lastname, '') AS lastname, 
+                            COALESCE(u.email, '') AS email, COALESCE(org.org_name, '') AS organization,
+                            COALESCE(u.status_id, 7) AS user_status_id,
                             s.service_name, s.dataset_id, s.organization as dataset_org
                      FROM dataset_permission_requests r
-                     JOIN user u ON r.user_id = u.user_id
+                     LEFT JOIN user u ON r.user_id = u.user_id
                      LEFT JOIN organization org ON u.org_id = org.org_id
                      JOIN service s ON r.service_id = s.service_id
                      WHERE 1=1 {owner_filter_sql}
@@ -3566,10 +3568,12 @@ def get_pending_dataset_requests():
         else:
             sql = f"""SELECT r.request_id, r.user_id, r.service_id, r.fields_json, r.reason, r.status, r.created_at,
                             r.mou_file_path, r.mou_filename, r.request_type,
-                            u.username, u.firstname, u.lastname, u.email, COALESCE(org.org_name, '') AS organization,
+                            COALESCE(u.username, '') AS username, COALESCE(u.firstname, '') AS firstname, COALESCE(u.lastname, '') AS lastname, 
+                            COALESCE(u.email, '') AS email, COALESCE(org.org_name, '') AS organization,
+                            COALESCE(u.status_id, 7) AS user_status_id,
                             s.service_name, s.dataset_id, s.organization as dataset_org
                      FROM dataset_permission_requests r
-                     JOIN user u ON r.user_id = u.user_id
+                     LEFT JOIN user u ON r.user_id = u.user_id
                      LEFT JOIN organization org ON u.org_id = org.org_id
                      JOIN service s ON r.service_id = s.service_id
                      WHERE r.status = %s {owner_filter_sql}
@@ -3624,6 +3628,14 @@ def approve_dataset_request():
             return jsonify({'status': 'error', 'message': 'Request not found'}), 404
             
         target_user_id, service_id, req_type, req_fields_raw = req_row
+        
+        # Verify target user still exists and has not been deleted
+        cursor.execute("SELECT status_id FROM user WHERE user_id = %s", (target_user_id,))
+        u_check = cursor.fetchone()
+        if not u_check or str(u_check[0]) == '7':
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': 'ไม่สามารถอนุมัติได้ เนื่องจากบัญชีผู้ใช้งานนี้ถูกลบออกจากระบบแล้ว'}), 400
         
         is_allowed, err = check_dataset_owner(cursor, service_id, user_data)
         if not is_allowed:

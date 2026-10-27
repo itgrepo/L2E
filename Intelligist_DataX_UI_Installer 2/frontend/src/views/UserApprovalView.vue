@@ -382,7 +382,10 @@ onMounted(() => {
                       {{ (req.username || '?').charAt(0).toUpperCase() }}
                     </div>
                     <div>
-                      <div class="user-fullname">{{ req.firstname || '-' }} {{ req.lastname || '' }}</div>
+                      <div class="user-fullname">
+                        {{ req.firstname || '-' }} {{ req.lastname || '' }}
+                        <span v-if="String(req.user_status_id) === '7'" style="background: #fee2e2; color: #b91c1c; font-size: 0.7rem; padding: 1px 6px; border-radius: 9999px; margin-left: 4px; font-weight: 600;">บัญชีถูกลบแล้ว</span>
+                      </div>
                       <div style="font-size:0.75rem; color:#64748b;">@{{ req.username }}</div>
                     </div>
                   </div>

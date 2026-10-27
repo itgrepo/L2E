@@ -86,6 +86,10 @@ const fetchPendingRequests = async () => {
 const isApproving = ref(false);
 
 const openApprovalModal = (req) => {
+  if (String(req.user_status_id) === '7' || (!req.firstname && !req.username)) {
+    alert('ไม่สามารถอนุมัติคำขอนี้ได้ เนื่องจากบัญชีผู้ใช้งานนี้ถูกลบออกจากระบบแล้ว (ท่านสามารถกด "ปฏิเสธ" เพื่อปิดคำขอนี้ได้)');
+    return;
+  }
   selectedRequest.value = req;
   const isDashboardOnly = req.request_type === 'dashboard';
   const isApiOnly = req.request_type === 'api';
@@ -272,8 +276,25 @@ onMounted(async () => {
                   {{ req.fields.length }} ฟิลด์: {{ req.fields.join(', ') }}
                 </div>
               </td>
-              <td>{{ req.firstname }} {{ req.lastname }}</td>
-              <td>{{ req.email }}</td>
+              <td>
+                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                  <strong style="color: #1e293b;">
+                    {{ req.firstname || req.username || 'ผู้ใช้ที่ไม่มีในระบบ' }} {{ req.lastname || '' }}
+                  </strong>
+                  <span 
+                    v-if="String(req.user_status_id) === '7' || (!req.firstname && !req.username)" 
+                    class="badge-deleted-user" 
+                    style="display: inline-flex; align-items: center; gap: 3px; background: #fee2e2; color: #b91c1c; font-size: 0.72rem; padding: 2px 8px; border-radius: 9999px; font-weight: 600; border: 1px solid #fecaca; white-space: nowrap;"
+                    title="บัญชีผู้ใช้งานนี้ถูกลบออกจากระบบแล้ว"
+                  >
+                    🗑️ บัญชีถูกลบแล้ว
+                  </span>
+                </div>
+                <div v-if="req.username" style="font-size: 0.75rem; color: #94a3b8; margin-top: 2px;">
+                  @{{ req.username }} (ID: #{{ req.user_id }})
+                </div>
+              </td>
+              <td>{{ req.email || '-' }}</td>
               <td>{{ req.organization || '-' }}</td>
               <td>{{ req.service_name || req.service_id }}</td>
               <td style="max-width: 180px; white-space: normal; font-size: 0.85rem;">{{ req.reason || '-' }}</td>
@@ -296,7 +317,13 @@ onMounted(async () => {
               <td>{{ req.created_at || '-' }}</td>
               <td>
                 <div v-if="req.status === 'Pending'" class="action-buttons">
-                  <button class="btn-approve" @click="openApprovalModal(req)">อนุมัติ</button>
+                  <button 
+                    class="btn-approve" 
+                    @click="openApprovalModal(req)"
+                    :disabled="String(req.user_status_id) === '7' || (!req.firstname && !req.username)"
+                    :style="(String(req.user_status_id) === '7' || (!req.firstname && !req.username)) ? 'opacity: 0.45; cursor: not-allowed; background: #94a3b8;' : ''"
+                    :title="(String(req.user_status_id) === '7' || (!req.firstname && !req.username)) ? 'ไม่สามารถอนุมัติได้ เนื่องจากบัญชีผู้ใช้ถูกลบออกจากระบบแล้ว' : 'อนุมัติคำขอ'"
+                  >อนุมัติ</button>
                   <button class="btn-reject" @click="rejectRequest(req)">ปฏิเสธ</button>
                 </div>
                 <div v-else style="font-weight: 600; color: #475569;">
@@ -409,7 +436,13 @@ onMounted(async () => {
             </div>
             <div class="meta-item">
               <span class="meta-label">ผู้ขอเข้าถึง</span>
-              <span class="meta-value">{{ selectedRequest?.firstname }} {{ selectedRequest?.lastname }} ({{ selectedRequest?.email }})</span>
+              <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                <span class="meta-value">{{ selectedRequest?.firstname || selectedRequest?.username }} {{ selectedRequest?.lastname || '' }} ({{ selectedRequest?.email || '-' }})</span>
+                <span 
+                  v-if="String(selectedRequest?.user_status_id) === '7' || (!selectedRequest?.firstname && !selectedRequest?.username)" 
+                  style="background: #fee2e2; color: #b91c1c; font-size: 0.72rem; padding: 2px 8px; border-radius: 9999px; font-weight: 600; border: 1px solid #fecaca;"
+                >🗑️ บัญชีถูกลบแล้ว</span>
+              </div>
             </div>
             <div class="meta-item">
               <span class="meta-label">หน่วยงาน</span>
