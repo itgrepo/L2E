@@ -694,7 +694,7 @@ onMounted(() => {
                       Unlock
                   </button>
                   <button 
-                    v-if="u.is_2fa_enabled == 1 || u['2fa_status'] === 'on'" 
+                    v-if="u.is_2fa_enabled == 1 || String(u['2fa_status'] || '').toLowerCase() === 'on'" 
                     class="reset-2fa-btn" 
                     @click="handleReset2FA(u)" 
                     :disabled="isResetting2FA === u.user_id"
@@ -779,8 +779,11 @@ onMounted(() => {
                 <div class="mc-row">
                   <span class="mc-label">2FA (Google)</span>
                   <span class="mc-value">
-                    <span v-if="u.is_2fa_enabled == 1 || u['2fa_status'] === 'on'" class="two-fa-badge active" style="background: #dcfce7; color: #166534; font-size: 0.75rem; padding: 2px 8px; border-radius: 9999px; font-weight: 600;">
-                      🛡️ เปิดใช้งาน
+                    <span v-if="u.is_2fa_enabled == 1" class="two-fa-badge active" style="background: #dcfce7; color: #166534; font-size: 0.75rem; padding: 2px 8px; border-radius: 9999px; font-weight: 600;">
+                      🛡️ เปิดแล้ว
+                    </span>
+                    <span v-else-if="String(u['2fa_status'] || '').toLowerCase() === 'on'" class="two-fa-badge pending" style="background: #fef3c7; color: #92400e; font-size: 0.75rem; padding: 2px 8px; border-radius: 9999px; font-weight: 600;">
+                      ⏳ รอตั้งค่า
                     </span>
                     <span v-else class="two-fa-badge inactive" style="background: #f1f5f9; color: #94a3b8; font-size: 0.75rem; padding: 2px 8px; border-radius: 9999px;">
                       ⚪ ปิดอยู่
@@ -887,8 +890,11 @@ onMounted(() => {
                     <span class="text-muted" v-else>-</span>
                 </td>
                 <td class="two-fa-cell">
-                  <span v-if="u.is_2fa_enabled == 1 || u['2fa_status'] === 'on'" class="two-fa-badge active" style="display: inline-flex; align-items: center; gap: 4px; background: #dcfce7; color: #166534; font-size: 0.75rem; padding: 4px 10px; border-radius: 9999px; font-weight: 600; border: 1px solid #bbf7d0; white-space: nowrap;">
+                  <span v-if="u.is_2fa_enabled == 1" class="two-fa-badge active" style="display: inline-flex; align-items: center; gap: 4px; background: #dcfce7; color: #166534; font-size: 0.75rem; padding: 4px 10px; border-radius: 9999px; font-weight: 600; border: 1px solid #bbf7d0; white-space: nowrap;">
                     🛡️ เปิดแล้ว
+                  </span>
+                  <span v-else-if="String(u['2fa_status'] || '').toLowerCase() === 'on'" class="two-fa-badge pending" style="display: inline-flex; align-items: center; gap: 4px; background: #fef3c7; color: #92400e; font-size: 0.75rem; padding: 4px 10px; border-radius: 9999px; font-weight: 600; border: 1px solid #fde68a; white-space: nowrap;">
+                    ⏳ รอตั้งค่า
                   </span>
                   <span v-else class="two-fa-badge inactive" style="display: inline-flex; align-items: center; gap: 4px; background: #f8fafc; color: #94a3b8; font-size: 0.75rem; padding: 4px 10px; border-radius: 9999px; border: 1px solid #e2e8f0; white-space: nowrap;">
                     ⚪ ปิดอยู่
@@ -941,7 +947,7 @@ onMounted(() => {
                     </button>
 
                     <button 
-                      v-if="u.is_2fa_enabled == 1 || u['2fa_status'] === 'on'" 
+                      v-if="u.is_2fa_enabled == 1 || String(u['2fa_status'] || '').toLowerCase() === 'on'" 
                       class="reset-2fa-btn" 
                       @click="handleReset2FA(u)" 
                       :disabled="isResetting2FA === u.user_id"

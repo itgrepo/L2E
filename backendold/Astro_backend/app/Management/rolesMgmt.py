@@ -15,10 +15,13 @@ def addUser():
         sql = """SELECT user.status_id, user.user_id, user.national_id, user.national_id_book, user.email, 
                         user.firstname, user.lastname, user.usage_objective,
                         cp.previlage_name, cp.previlage_id, user.username, user.create_at, user.org_id, 
-                        org.org_name, (user.apikey IS NOT NULL AND user.apikey != '') AS has_api_key 
+                        org.org_name, (user.apikey IS NOT NULL AND user.apikey != '') AS has_api_key,
+                        user.`2fa_status`,
+                        COALESCE(utf.is_enabled, 0) AS is_2fa_enabled
                  FROM `user`
                  LEFT JOIN codename_previlage as cp ON cp.previlage_id = user.previlage_id
                  LEFT JOIN organization org ON user.org_id = org.org_id
+                 LEFT JOIN user_two_factor utf ON user.user_id = utf.user_id
                  WHERE user.status_id != '7'"""
         cursor.execute(sql,)
         data = cursor.fetchall()
@@ -45,9 +48,13 @@ def addUserById():
         previlage_id = dataInput['previlage_id']
         conn = mysql.connect()
         cursor = conn.cursor()
-        sql = """SELECT user.user_id, user.national_id, user.national_id_book, user.email, cp.previlage_name, cp.previlage_id, user.username FROM `user`
-                        JOIN codename_previlage as cp ON cp.previlage_id = user.previlage_id
-                            WHERE user.previlage_id != %s AND user.status_id != '7'"""
+        sql = """SELECT user.user_id, user.national_id, user.national_id_book, user.email, cp.previlage_name, cp.previlage_id, user.username,
+                        user.`2fa_status`,
+                        COALESCE(utf.is_enabled, 0) AS is_2fa_enabled
+                 FROM `user`
+                 JOIN codename_previlage as cp ON cp.previlage_id = user.previlage_id
+                 LEFT JOIN user_two_factor utf ON user.user_id = utf.user_id
+                 WHERE user.previlage_id != %s AND user.status_id != '7'"""
         cursor.execute(sql, (previlage_id))
         data = cursor.fetchall()
         columns = [column[0] for column in cursor.description]

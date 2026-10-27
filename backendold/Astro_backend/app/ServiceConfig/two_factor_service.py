@@ -487,8 +487,8 @@ def two_factor_admin_reset():
             conn.close()
             return jsonify({"status": "error", "message": "ไม่พบผู้ใช้งานนี้ในระบบ"}), 404
             
-        cursor.execute("UPDATE user_two_factor SET is_enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s", (target_user_id,))
-        cursor.execute("UPDATE user SET 2fa_status = 'off' WHERE user_id = %s", (target_user_id,))
+        cursor.execute("UPDATE user_two_factor SET is_enabled = 0, secret_key = '', updated_at = CURRENT_TIMESTAMP WHERE user_id = %s", (target_user_id,))
+        cursor.execute("UPDATE user SET 2fa_status = 'on' WHERE user_id = %s", (target_user_id,))
         conn.commit()
         cursor.close()
         conn.close()

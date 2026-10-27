@@ -283,6 +283,12 @@ def _extract_user(data):
                 return parsed
         except Exception:
             pass
+        try:
+            parsed = auth_serializer.loads(user_val, max_age=86400 * 30)
+            if isinstance(parsed, dict) and parsed:
+                return parsed
+        except Exception:
+            pass
     if data.get('user_id'):
         return {'user_id': data.get('user_id'), 'username': data.get('username')}
     return getattr(request, 'current_user', {}) or {}
@@ -302,12 +308,15 @@ def two_factor_status():
             
         conn = mysql.connect()
         cursor = conn.cursor()
+        cursor.execute("SELECT 2fa_status FROM user WHERE user_id = %s", (user_id,))
+        user_row = cursor.fetchone()
         cursor.execute("SELECT is_enabled, secret_key FROM user_two_factor WHERE user_id = %s", (user_id,))
         row = cursor.fetchone()
         cursor.close()
         conn.close()
         
-        is_enabled = bool(row and row[0] == 1)
+        user_2fa = str(user_row[0]).lower() if user_row and user_row[0] else 'off'
+        is_enabled = bool(row and row[0] == 1 and user_2fa == 'on')
         return jsonify({
             "status": "success",
             "is_enabled": is_enabled,
@@ -420,13 +429,23 @@ def two_factor_disable():
         conn = mysql.connect()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT user.user_id FROM user 
+            SELECT user.user_id, user_activity.password FROM user 
             JOIN user_activity ON user.user_id = user_activity.user_id 
-            WHERE user.user_id = %s AND user_activity.password = %s AND user.status_id != '7'
-        """, (user_id, password))
+            WHERE user.user_id = %s AND user.status_id != '7'
+        """, (user_id,))
         matched = cursor.fetchone()
         
         if not matched:
+            cursor.close()
+            conn.close()
+            return jsonify({"status": "error", "message": "ไม่พบผู้ใช้งาน"}), 404
+            
+        db_pwd = matched[1]
+        from ServiceConfig.login import decode_raw_password
+        raw_input = decode_raw_password(password)
+        raw_db = decode_raw_password(db_pwd)
+        
+        if password != db_pwd and raw_input != raw_db and raw_input != db_pwd:
             cursor.close()
             conn.close()
             return jsonify({"status": "error", "message": "รหัสผ่านไม่ถูกต้อง"}), 400
@@ -468,8 +487,8 @@ def two_factor_admin_reset():
             conn.close()
             return jsonify({"status": "error", "message": "ไม่พบผู้ใช้งานนี้ในระบบ"}), 404
             
-        cursor.execute("UPDATE user_two_factor SET is_enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s", (target_user_id,))
-        cursor.execute("UPDATE user SET 2fa_status = 'off' WHERE user_id = %s", (target_user_id,))
+        cursor.execute("UPDATE user_two_factor SET is_enabled = 0, secret_key = '', updated_at = CURRENT_TIMESTAMP WHERE user_id = %s", (target_user_id,))
+        cursor.execute("UPDATE user SET 2fa_status = 'on' WHERE user_id = %s", (target_user_id,))
         conn.commit()
         cursor.close()
         conn.close()
