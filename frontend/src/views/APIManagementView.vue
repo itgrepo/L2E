@@ -1065,7 +1065,16 @@ const formatScopeJson = (scopeJson) => {
                 </thead>
                 <tbody>
                   <tr v-for="cred in credentials" :key="cred.credential_id">
-                    <td style="font-weight:600;">{{ cred.username }}</td>
+                    <td>
+                      <div style="font-weight:600; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                        <span>{{ cred.username }}</span>
+                        <span v-if="cred.scope_json && ((cred.scope_json.request_fields && cred.scope_json.request_fields.length > 0) || (cred.scope_json.response_fields && cred.scope_json.response_fields.length > 0))" 
+                              class="badge-scoped" 
+                              :title="'Scope: ' + (cred.scope_json.request_fields || cred.scope_json.response_fields || []).join(', ')">
+                          Scope: {{ (cred.scope_json.request_fields || cred.scope_json.response_fields || []).length <= 2 ? (cred.scope_json.request_fields || cred.scope_json.response_fields || []).join(', ') : (cred.scope_json.request_fields || cred.scope_json.response_fields || []).length + ' ฟิลด์' }}
+                        </span>
+                      </div>
+                    </td>
                     <td><span class="mono-cell">{{ cred.public_key_id }}</span></td>
                     <td class="key-cell">
                       <span class="secret-box">••••••••{{ cred.key_last_four }}</span>
@@ -1473,6 +1482,7 @@ const formatScopeJson = (scopeJson) => {
 
 .mono-cell { font-family: 'JetBrains Mono', monospace; font-size: 0.8125em; background: #f1f5f9; padding: 4px 10px; border-radius: 6px; display: inline-block; color: #475569; }
 .scope-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.8125em; background: #f1f5f9; padding: 4px 10px; border-radius: 6px; display: inline-block; color: #475569; word-break: break-all; max-width: 200px; }
+.badge-scoped { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; padding: 2px 8px; border-radius: 9999px; font-size: 0.72rem; font-weight: 600; display: inline-block; cursor: help; }
 .action-btns { display: flex; gap: 6px; align-items: center; justify-content: center; }
 
 .table-scroll-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; padding: 0 4px; }

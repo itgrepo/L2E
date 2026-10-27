@@ -2628,7 +2628,7 @@ def getApiCredentials():
                  FROM api_credentials c
                  LEFT JOIN user u ON c.user_id = u.user_id
                  LEFT JOIN api_scopes s ON s.credential_id = c.credential_id
-                 WHERE c.service_id = %s AND s.scope_id IS NULL
+                 WHERE c.service_id = %s
                  ORDER BY c.created_at DESC"""
         cursor.execute(sql, (service_id,))
         data = cursor.fetchall()
