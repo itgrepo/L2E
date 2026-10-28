@@ -817,7 +817,7 @@ watch(() => route.params.id, (newId) => {
                       </div>
                     </div>
                   </div>
-                  <button class="btn-download xls" style="cursor: pointer; padding: 8px 18px; border-radius: 8px; font-weight: 600; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.06);" @click="openPreview('DICTIONARY')" title="ดาวน์โหลด Data Dictionary">
+                  <button class="btn-download xls" style="flex: 0 0 auto; width: auto; min-width: auto; cursor: pointer; padding: 8px 20px; border-radius: 8px; font-weight: 600; font-size: 0.85rem; display: inline-flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.06); white-space: nowrap;" @click="openPreview('DICTIONARY')" title="ดาวน์โหลด Data Dictionary">
                     <span>📥 ดาวน์โหลดไฟล์พจนานุกรม</span>
                   </button>
                 </div>

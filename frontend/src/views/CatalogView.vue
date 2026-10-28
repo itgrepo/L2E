@@ -1088,7 +1088,7 @@ onMounted(async () => {
                     </div>
                   </div>
                 </div>
-                <button class="btn-download xls" style="cursor: pointer; padding: 6px 14px; border-radius: 6px; font-weight: 600; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 6px;" @click="openPreview('DICTIONARY')" title="ดาวน์โหลด Data Dictionary">
+                <button class="btn-download xls" style="flex: 0 0 auto; width: auto; min-width: auto; cursor: pointer; padding: 6px 16px; border-radius: 6px; font-weight: 600; font-size: 0.8rem; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap;" @click="openPreview('DICTIONARY')" title="ดาวน์โหลด Data Dictionary">
                   📥 ดาวน์โหลดไฟล์พจนานุกรม
                 </button>
               </div>
