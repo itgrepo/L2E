@@ -4356,6 +4356,73 @@ def toggleApiEnabled():
         print("Error in toggleApiEnabled: " + str(e))
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+@app.route('/deleteDatasetFile', methods=['POST'])
+@require_admin
+def deleteDatasetFile():
+    """Delete uploaded data file, excel file, dictionary, or zip from a dataset."""
+    try:
+        dataInput = request.json
+        service_id = dataInput.get('service_id')
+        file_type = dataInput.get('file_type', 'main')
+        
+        if not service_id:
+            return jsonify({'status': 'error', 'message': 'Missing service_id'}), 400
+            
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        user_data = getattr(request, 'current_user', {})
+        is_allowed, err = check_dataset_owner(cursor, service_id, user_data)
+        if not is_allowed:
+            cursor.close()
+            conn.close()
+            return err
+            
+        cursor.execute("SELECT file_path, excel_file_path, data_dictionary_path, data_sampling_path FROM service WHERE service_id = %s", (service_id,))
+        row = cursor.fetchone()
+        if not row:
+            cursor.close()
+            conn.close()
+            return jsonify({'status': 'error', 'message': 'Dataset not found'}), 404
+            
+        f_main, f_excel, f_dict, f_zip = row
+        files_to_delete = []
+        updates = []
+        
+        if file_type in ['main', 'excel', 'all']:
+            if f_main:
+                files_to_delete.append(f_main)
+            if f_excel and f_excel != f_main:
+                files_to_delete.append(f_excel)
+            updates.extend(["file_path = NULL", "excel_file_path = NULL"])
+            updates.extend(["api_enabled = 0", "api_endpoint = NULL", "api_response_fields = NULL"])
+            
+        if file_type in ['dictionary', 'all']:
+            if f_dict and f_dict not in files_to_delete:
+                files_to_delete.append(f_dict)
+            updates.append("data_dictionary_path = NULL")
+            
+        if file_type in ['zip', 'all']:
+            if f_zip and f_zip not in files_to_delete:
+                files_to_delete.append(f_zip)
+            updates.append("data_sampling_path = NULL")
+            
+        if updates:
+            sql = f"UPDATE service SET {', '.join(updates)} WHERE service_id = %s"
+            cursor.execute(sql, (service_id,))
+            conn.commit()
+            
+        cursor.close()
+        conn.close()
+        
+        for fname in files_to_delete:
+            safe_remove_uploaded_file(fname)
+            
+        return jsonify({'status': 'success', 'message': 'ลบไฟล์สำเร็จ'})
+    except Exception as e:
+        print("Error in deleteDatasetFile: " + str(e))
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @app.route('/deleteApiService', methods=['POST'])
 @require_admin
 def deleteApiService():
