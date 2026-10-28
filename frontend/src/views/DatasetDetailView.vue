@@ -43,11 +43,17 @@ const combinedApis = computed(() => {
       (selectedDataset.value.api_enabled === 1 || selectedDataset.value.api_enabled === true || selectedDataset.value.api_enabled === '1') &&
       selectedDataset.value.api_endpoint && String(selectedDataset.value.api_endpoint).trim() !== ''
   ) {
+    let mainRespFields = [];
+    if (selectedDataset.value.api_response_fields) {
+      try {
+        mainRespFields = typeof selectedDataset.value.api_response_fields === 'string' ? JSON.parse(selectedDataset.value.api_response_fields) : selectedDataset.value.api_response_fields;
+      } catch(e) { mainRespFields = []; }
+    }
     apis.push({
       api_type: selectedDataset.value.api_type || 'general',
       api_endpoint: selectedDataset.value.api_endpoint,
       service_name: selectedDataset.value.title,
-      api_response_fields: selectedDataset.value.api_response_fields || []
+      api_response_fields: mainRespFields
     });
   }
   if (apiClones.value && apiClones.value.length > 0) {
@@ -917,8 +923,8 @@ watch(() => route.params.id, (newId) => {
                 </div>
               </div>
 
-              <!-- If HAS API access and no endpoints available -->
-              <div v-else-if="combinedApis.length === 0" style="padding:40px; text-align:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px;">
+              <!-- If HAS API access and no endpoints available and no data file -->
+              <div v-else-if="combinedApis.length === 0 && !selectedDataset.file_path" style="padding:40px; text-align:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px;">
                 <p style="font-weight:bold; font-size:1.1rem; color:#475569; margin:0 0 8px 0;">🔒 ไม่พบปลายทาง API ที่เปิดใช้งาน</p>
                 <p style="font-size:0.875rem; color:#64748b; margin:0;">ชุดข้อมูลนี้ยังไม่มีการกำหนด API Endpoint สำหรับให้บริการ</p>
               </div>

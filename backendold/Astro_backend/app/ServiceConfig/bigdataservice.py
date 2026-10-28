@@ -466,7 +466,7 @@ def addService():
                     conn.close()
                     return jsonify({"status": err_msg}), 400
                     
-                sql = "SELECT service_id, dataset_id, service_url, file_path, excel_file_path, data_dictionary_path, data_sampling_path, api_response_fields, api_enabled, access_type, created_by, contact_email FROM service WHERE service_id = %s"
+                sql = "SELECT service_id, dataset_id, service_url, file_path, excel_file_path, data_dictionary_path, data_sampling_path, api_response_fields, api_enabled, access_type, created_by, contact_email, api_endpoint, api_type FROM service WHERE service_id = %s"
                 cursor.execute(sql, (service_id,))
                 service_result = cursor.fetchall()
                 
@@ -480,9 +480,12 @@ def addService():
                     old_samp_path = svc_row_info[6]
                     old_api_res_fields = svc_row_info[7] if len(svc_row_info) > 7 else None
                     has_existing_api_fields = bool(old_api_res_fields and str(old_api_res_fields).strip() not in ['', '[]', 'null', 'None'])
+                    old_api_enabled = svc_row_info[8] if len(svc_row_info) > 8 else 0
                     existing_access_type = svc_row_info[9] if len(svc_row_info) > 9 else None
                     existing_created_by = svc_row_info[10] if len(svc_row_info) > 10 else None
                     existing_contact_email = svc_row_info[11] if len(svc_row_info) > 11 else None
+                    old_api_endpoint = svc_row_info[12] if len(svc_row_info) > 12 else None
+                    old_api_type = svc_row_info[13] if len(svc_row_info) > 13 else None
 
                     is_allowed, err_owner = check_dataset_owner(cursor, service_id, user_data)
                     if not is_allowed:
@@ -739,10 +742,27 @@ def addService():
                                 fields.append("data_dictionary_path = %s")
                                 values.append(filename)
 
-                            # Save parsed response fields ONLY if no API fields exist yet (available for future API creation via API Management)
-                            if not has_existing_api_fields:
-                                fields.append("api_response_fields = %s")
-                                values.append(json.dumps(columns))
+                            # Auto-enable API when main Data File is uploaded to reduce manual redundancy
+                            fields.append("api_response_fields = %s")
+                            values.append(json.dumps(columns))
+                            fields.append("api_db_name = NULL")
+                            fields.append("api_source_name = NULL")
+
+                            if not old_api_endpoint or str(old_api_endpoint).strip() == '':
+                                target_did = dataset_id or existing_dataset_id or f"DS-{service_id}"
+                                auto_endpoint = f"{target_did}-API"
+                                fields.append("api_endpoint = %s")
+                                values.append(auto_endpoint)
+
+                            if (old_api_enabled is None or old_api_enabled == 0) and api_enabled is None:
+                                fields.append("api_enabled = %s")
+                                values.append(1)
+
+                            if not old_api_type or str(old_api_type).strip() == '':
+                                effective_access = (access_type or existing_access_type or 'public').lower()
+                                default_api_type = 'private' if effective_access in ['restricted', 'internal', 'pii'] else 'public'
+                                fields.append("api_type = %s")
+                                values.append(default_api_type)
 
                         elif file_type == 'zip':
                             fields.append("data_sampling_path = %s")
@@ -1816,8 +1836,8 @@ def get_dataset_api(dataset_id):
                 secret_hash = hashlib.sha256(apikey.encode('utf-8')).hexdigest()
 
                 placeholders = ', '.join(['%s'] * len(related_service_ids))
-                sql_cred = f"SELECT c.credential_id, c.user_id, c.status, c.expires_at, u.previlage_id FROM api_credentials c JOIN user u ON c.user_id = u.user_id WHERE c.public_key_id = %s AND c.secret_hash = %s AND c.service_id IN ({placeholders}) ORDER BY c.credential_id DESC LIMIT 1"
-                cursor.execute(sql_cred, [public_key_id, secret_hash] + related_service_ids)
+                sql_cred = f"SELECT c.credential_id, c.user_id, c.status, c.expires_at, u.previlage_id FROM api_credentials c JOIN user u ON c.user_id = u.user_id WHERE c.public_key_id = %s AND c.secret_hash = %s AND c.service_id IN ({placeholders}) ORDER BY (c.service_id = %s) DESC, c.credential_id DESC LIMIT 1"
+                cursor.execute(sql_cred, [public_key_id, secret_hash] + related_service_ids + [real_service_id])
                 cred_row = cursor.fetchone()
 
                 if not cred_row:
@@ -1856,7 +1876,7 @@ def get_dataset_api(dataset_id):
                 user_id, user_role = user_row
                 
                 placeholders = ', '.join(['%s'] * len(related_service_ids))
-                cursor.execute(f"SELECT credential_id FROM api_credentials WHERE user_id = %s AND service_id IN ({placeholders}) AND status = 'active' ORDER BY credential_id DESC LIMIT 1", [user_id] + related_service_ids)
+                cursor.execute(f"SELECT credential_id FROM api_credentials WHERE user_id = %s AND service_id IN ({placeholders}) AND status = 'active' ORDER BY (service_id = %s) DESC, credential_id DESC LIMIT 1", [user_id] + related_service_ids + [real_service_id])
                 c_row = cursor.fetchone()
                 if c_row:
                     credential_id = c_row[0]
@@ -1877,7 +1897,7 @@ def get_dataset_api(dataset_id):
                     if user_row:
                         user_id, user_role = user_row
                         placeholders = ', '.join(['%s'] * len(related_service_ids))
-                        cursor.execute(f"SELECT credential_id FROM api_credentials WHERE user_id = %s AND service_id IN ({placeholders}) AND status = 'active' ORDER BY credential_id DESC LIMIT 1", [user_id] + related_service_ids)
+                        cursor.execute(f"SELECT credential_id FROM api_credentials WHERE user_id = %s AND service_id IN ({placeholders}) AND status = 'active' ORDER BY (service_id = %s) DESC, credential_id DESC LIMIT 1", [user_id] + related_service_ids + [real_service_id])
                         c_row = cursor.fetchone()
                         if c_row:
                             credential_id = c_row[0]

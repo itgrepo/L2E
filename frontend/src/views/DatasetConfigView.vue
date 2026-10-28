@@ -1549,7 +1549,7 @@ const updateDatasetPrefix = onSubgroupChange;
                 <p v-if="!selectedFile">ลากไฟล์มาวางที่นี่ หรือ <span>คลิกเพื่อเลือกไฟล์</span></p>
                 <p v-else class="text-green-600 font-bold">เลือกไฟล์แล้ว: {{ selectedFile.name }}</p>
                 <span class="text-xs text-slate-400" v-if="fileType === 'dictionary'">รองรับไฟล์ CSV, XLS, XLSX (เฉพาะพจนานุกรมข้อมูล)</span>
-                <span class="text-xs text-slate-400" v-else-if="fileType === 'main'">รองรับไฟล์ CSV, XLS, XLSX, XML, JSON (สำหรับให้บริการข้อมูล และนำไปเปิด API ผ่านเมนู API Management)</span>
+                <span class="text-xs text-slate-400" v-else-if="fileType === 'main'">รองรับไฟล์ CSV, XLS, XLSX, XML, JSON (ระบบจะเปิดใช้งานและสร้าง API ให้อัตโนมัติทันทีหลังอัปโหลด)</span>
                 <span class="text-xs text-slate-400" v-else-if="fileType === 'zip'">รองรับเฉพาะไฟล์ ZIP (สำหรับการดาวน์โหลดข้อมูลสุ่ม/ตัวอย่าง)</span>
               </div>
             </div>
