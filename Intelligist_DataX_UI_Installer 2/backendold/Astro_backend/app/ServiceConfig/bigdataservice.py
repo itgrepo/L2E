@@ -629,12 +629,25 @@ def addService():
                                 import pandas as pd
                                 if ext == 'csv':
                                     try:
-                                        df = pd.read_csv(save_path, nrows=5, encoding='utf-8-sig')
+                                        df = pd.read_csv(save_path, nrows=500, encoding='utf-8-sig')
                                     except UnicodeDecodeError:
-                                        df = pd.read_csv(save_path, nrows=5, encoding='cp874')
+                                        df = pd.read_csv(save_path, nrows=500, encoding='cp874')
                                 else:
-                                    df = pd.read_excel(save_path, nrows=5)
-                                columns = [str(c).strip() for c in df.columns if str(c).strip() and not str(c).startswith('Unnamed:')]
+                                    df = pd.read_excel(save_path, nrows=500)
+
+                                # Check if there is a column defining the dataset field names (e.g. ชื่อคอลัมน์, ชื่อฟิลด์, Field, Column)
+                                dict_col = None
+                                for c in df.columns:
+                                    c_str = str(c).strip().lower()
+                                    if c_str in ['ชื่อคอลัมน์', 'ชื่อฟิลด์', 'คอลัมน์', 'ฟิลด์', 'field_name', 'column_name', 'fieldname', 'columnname', 'field', 'column', 'attribute']:
+                                        dict_col = c
+                                        break
+
+                                if dict_col:
+                                    columns = [str(v).strip() for v in df[dict_col].dropna() if str(v).strip() and not str(v).startswith('Unnamed:')]
+                                else:
+                                    columns = [str(c).strip() for c in df.columns if str(c).strip() and not str(c).startswith('Unnamed:')]
+
                                 if not columns:
                                     raise ValueError('ไม่พบคอลัมน์ในไฟล์ Data Dictionary')
                             except Exception as ve:
@@ -648,18 +661,11 @@ def addService():
 
                             fields.append("data_dictionary_path = %s")
                             values.append(filename)
-                            if not has_existing_api_fields:
+                            if not has_existing_api_fields or has_existing_api_fields in ['[]', '']:
                                 fields.append("api_response_fields = %s")
                                 values.append(json.dumps(columns))
 
-                            if not old_file_path and ext in ['csv', 'xls', 'xlsx']:
-                                fields.append("file_path = %s")
-                                values.append(filename)
-                                if ext in ['xls', 'xlsx'] and not old_excel_path:
-                                    fields.append("excel_file_path = %s")
-                                    values.append(filename)
-
-                            if old_dict_path and old_dict_path != filename and old_dict_path != old_file_path:
+                            if old_dict_path and old_dict_path != filename and old_dict_path != old_file_path and old_dict_path != old_excel_path:
                                 safe_remove_uploaded_file(old_dict_path)
 
                         elif file_type == 'main':
@@ -728,19 +734,15 @@ def addService():
                                 values.append(filename)
                                 fields.append("file_path = %s")
                                 values.append(filename)
-                                if old_excel_path and old_excel_path != filename:
+                                if old_excel_path and old_excel_path != filename and old_excel_path != old_dict_path:
                                     safe_remove_uploaded_file(old_excel_path)
-                                if old_file_path and old_file_path != filename and old_file_path != old_excel_path:
+                                if old_file_path and old_file_path != filename and old_file_path != old_excel_path and old_file_path != old_dict_path:
                                     safe_remove_uploaded_file(old_file_path)
                             else:
                                 fields.append("file_path = %s")
                                 values.append(filename)
-                                if old_file_path and old_file_path != filename:
+                                if old_file_path and old_file_path != filename and old_file_path != old_dict_path:
                                     safe_remove_uploaded_file(old_file_path)
-
-                            if not old_dict_path and ext in ['csv', 'xls', 'xlsx']:
-                                fields.append("data_dictionary_path = %s")
-                                values.append(filename)
 
                             # Auto-enable API when main Data File is uploaded to reduce manual redundancy
                             fields.append("api_response_fields = %s")
@@ -767,7 +769,7 @@ def addService():
                         elif file_type == 'zip':
                             fields.append("data_sampling_path = %s")
                             values.append(filename)
-                            if old_samp_path and old_samp_path != filename:
+                            if old_samp_path and old_samp_path != filename and old_samp_path != old_dict_path and old_samp_path != old_file_path:
                                 safe_remove_uploaded_file(old_samp_path)
 
                         elif file_type == 'excel':
@@ -776,16 +778,13 @@ def addService():
                             if not old_file_path:
                                 fields.append("file_path = %s")
                                 values.append(filename)
-                            if old_excel_path and old_excel_path != filename:
+                            if old_excel_path and old_excel_path != filename and old_excel_path != old_dict_path:
                                 safe_remove_uploaded_file(old_excel_path)
 
                         else:
                             fields.append("file_path = %s")
                             values.append(filename)
-                            if not old_dict_path and ext in ['csv', 'xls', 'xlsx']:
-                                fields.append("data_dictionary_path = %s")
-                                values.append(filename)
-                            if old_file_path and old_file_path != filename:
+                            if old_file_path and old_file_path != filename and old_file_path != old_dict_path:
                                 safe_remove_uploaded_file(old_file_path)
 
                     if not fields:
@@ -1223,6 +1222,104 @@ def getDatasetApiEndpoints():
         return jsonify({'status': 'success', 'data': result})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/getDatasetDictionary/<int:service_id>', methods=['GET', 'POST'])
+def getDatasetDictionary(service_id):
+    """Retrieve structured Data Dictionary content (Excel/CSV table rows or API field list) for a dataset."""
+    try:
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        sql = "SELECT data_dictionary_path, file_path, excel_file_path, api_response_fields, service_name, dataset_id FROM service WHERE service_id = %s"
+        cursor.execute(sql, (service_id,))
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not row:
+            return jsonify({"status": "error", "message": "Dataset not found"}), 404
+
+        dict_path, file_path, excel_path, api_fields_raw, sname, did = row
+        
+        # 1. Try reading the physical data dictionary file if it exists
+        if dict_path:
+            dict_full_path = os.path.join(UPLOAD_FOLDER, dict_path)
+            if os.path.exists(dict_full_path):
+                import pandas as pd
+                ext = dict_path.rsplit('.', 1)[-1].lower() if '.' in dict_path else ''
+                try:
+                    if ext == 'csv':
+                        try:
+                            df = pd.read_csv(dict_full_path, nrows=500, encoding='utf-8-sig')
+                        except UnicodeDecodeError:
+                            df = pd.read_csv(dict_full_path, nrows=500, encoding='cp874')
+                    elif ext in ['xls', 'xlsx']:
+                        df = pd.read_excel(dict_full_path, nrows=500)
+                    else:
+                        df = None
+
+                    if df is not None and not df.empty:
+                        df = df.fillna('')
+                        cols = [str(c).strip() for c in df.columns if str(c).strip() and not str(c).startswith('Unnamed:')]
+                        records = df[cols].to_dict(orient='records')
+                        return jsonify({
+                            "status": "success",
+                            "has_file": True,
+                            "file_name": dict_path,
+                            "file_type": ext,
+                            "columns": cols,
+                            "data": records
+                        })
+                except Exception as read_err:
+                    print("Error reading dictionary file in getDatasetDictionary:", read_err)
+
+        # 2. Fallback to api_response_fields if present
+        api_fields = []
+        if api_fields_raw:
+            try:
+                api_fields = json.loads(api_fields_raw) if isinstance(api_fields_raw, str) else api_fields_raw
+            except Exception:
+                api_fields = []
+
+        if api_fields and isinstance(api_fields, list) and len(api_fields) > 0:
+            records = [
+                {
+                    "ลำดับ": idx + 1,
+                    "ชื่อคอลัมน์": str(f),
+                    "ชนิดข้อมูล": "VARCHAR / String",
+                    "ความหมาย": "ฟิลด์ข้อมูลที่ให้บริการสำหรับชุดข้อมูลนี้"
+                }
+                for idx, f in enumerate(api_fields)
+            ]
+            return jsonify({
+                "status": "success",
+                "has_file": bool(dict_path),
+                "file_name": dict_path or '',
+                "file_type": dict_path.rsplit('.', 1)[-1].lower() if dict_path and '.' in dict_path else '',
+                "columns": ["ลำดับ", "ชื่อคอลัมน์", "ชนิดข้อมูล", "ความหมาย"],
+                "data": records
+            })
+
+        # 3. If neither file content nor api_response_fields exists, but dict_path exists
+        if dict_path:
+            return jsonify({
+                "status": "success",
+                "has_file": True,
+                "file_name": dict_path,
+                "file_type": dict_path.rsplit('.', 1)[-1].lower() if '.' in dict_path else '',
+                "columns": [],
+                "data": []
+            })
+
+        return jsonify({
+            "status": "empty",
+            "has_file": False,
+            "message": "ยังไม่มีพจนานุกรมข้อมูลสำหรับชุดข้อมูลนี้",
+            "columns": [],
+            "data": []
+        })
+    except Exception as e:
+        print("Error in getDatasetDictionary:", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/retrieveService', methods=['GET'])
 @app.route('/retrieveService', methods=['GET', 'POST'])
@@ -2598,6 +2695,13 @@ def saveApiConfig():
             cursor.close()
             conn.close()
             return err
+
+        # If incoming api_response_fields is empty, preserve existing fields if already in DB
+        if api_response_fields in ['[]', '', None]:
+            cursor.execute("SELECT api_response_fields FROM service WHERE service_id = %s", (service_id,))
+            exist_row = cursor.fetchone()
+            if exist_row and exist_row[0] and exist_row[0] not in ['[]', '']:
+                api_response_fields = exist_row[0]
 
         sql = """UPDATE service SET 
                     api_enabled = %s,
@@ -4390,17 +4494,21 @@ def deleteDatasetFile():
         updates = []
         
         if file_type in ['main', 'excel', 'all']:
-            if f_main:
+            if f_main and (file_type == 'all' or f_main != f_dict):
                 files_to_delete.append(f_main)
-            if f_excel and f_excel != f_main:
+            if f_excel and f_excel != f_main and (file_type == 'all' or f_excel != f_dict):
                 files_to_delete.append(f_excel)
             updates.extend(["file_path = NULL", "excel_file_path = NULL"])
-            updates.extend(["api_enabled = 0", "api_endpoint = NULL", "api_response_fields = NULL"])
+            if file_type == 'all' or not f_dict:
+                updates.extend(["api_enabled = 0", "api_endpoint = NULL", "api_response_fields = NULL"])
             
         if file_type in ['dictionary', 'all']:
-            if f_dict and f_dict not in files_to_delete:
-                files_to_delete.append(f_dict)
+            if f_dict and (file_type == 'all' or (f_dict != f_main and f_dict != f_excel)):
+                if f_dict not in files_to_delete:
+                    files_to_delete.append(f_dict)
             updates.append("data_dictionary_path = NULL")
+            if file_type == 'all' or (not f_main and not f_excel):
+                updates.extend(["api_enabled = 0", "api_endpoint = NULL", "api_response_fields = NULL"])
             
         if file_type in ['zip', 'all']:
             if f_zip and f_zip not in files_to_delete:

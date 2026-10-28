@@ -37,6 +37,57 @@ const apiRequestForm = ref({
 const customApiEndpoints = ref([]);
 const apiClones = ref([]);
 
+const dictionaryLoading = ref(false);
+const dictionaryInfo = ref({
+  has_file: false,
+  file_name: '',
+  file_type: '',
+  columns: [],
+  data: []
+});
+
+const isHeaderCol = (col) => {
+  if (!col) return false;
+  const c = String(col).toLowerCase().trim();
+  return c.includes('ชื่อ') || c.includes('field') || c.includes('column') || c.includes('ฟิลด์') || c.includes('คอลัมน์');
+};
+
+const loadDictionary = async (serviceId) => {
+  if (!serviceId) return;
+  dictionaryLoading.value = true;
+  try {
+    const res = await apiClient.get(`/getDatasetDictionary/${serviceId}`);
+    if (res.data && res.data.status === 'success') {
+      dictionaryInfo.value = res.data;
+    } else {
+      dictionaryInfo.value = {
+        has_file: Boolean(selectedDataset.value?.data_dictionary_path),
+        file_name: selectedDataset.value?.data_dictionary_path || '',
+        file_type: selectedDataset.value?.data_dictionary_path ? selectedDataset.value.data_dictionary_path.split('.').pop() : '',
+        columns: [],
+        data: []
+      };
+    }
+  } catch (err) {
+    console.error('Error fetching dictionary:', err);
+    dictionaryInfo.value = {
+      has_file: Boolean(selectedDataset.value?.data_dictionary_path),
+      file_name: selectedDataset.value?.data_dictionary_path || '',
+      file_type: selectedDataset.value?.data_dictionary_path ? selectedDataset.value.data_dictionary_path.split('.').pop() : '',
+      columns: [],
+      data: []
+    };
+  } finally {
+    dictionaryLoading.value = false;
+  }
+};
+
+watch(activeTab, (newTab) => {
+  if (newTab === 'dictionary' && selectedDataset.value?.id && (!dictionaryInfo.value.data || dictionaryInfo.value.data.length === 0)) {
+    loadDictionary(selectedDataset.value.id);
+  }
+});
+
 const combinedApis = computed(() => {
   let apis = [];
   if (selectedDataset.value && 
@@ -294,6 +345,7 @@ const fetchDatasetDetail = async () => {
           geo_reference_time: found.geo_reference_time,
           geo_published_date: found.geo_published_date
         };
+        loadDictionary(found.service_id);
       } else {
         errorMessage.value = 'ไม่พบชุดข้อมูลดังกล่าวในระบบ';
       }
@@ -740,31 +792,107 @@ watch(() => route.params.id, (newId) => {
             
             <!-- Dictionary Tab (Always Publicly Viewable) -->
             <div v-if="activeTab === 'dictionary'" class="dictionary-tab transition-fade">
-              <div v-if="!selectedDataset.api_response_fields || selectedDataset.api_response_fields.length === 0" style="padding: 48px 24px; text-align: center; color: #64748b; background: white; border-radius: 12px; border: 1px solid #e2e8f0;">
-                <svg xmlns="http://www.w3.org/2000/svg" style="width: 48px; height: 48px; margin: 0 auto 12px auto; color: #cbd5e1;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                </svg>
-                <h4 style="font-size: 1.05rem; font-weight: 600; color: #334155; margin: 0 0 6px 0;">ยังไม่มีพจนานุกรมข้อมูลสำหรับชุดข้อมูลนี้</h4>
-                <p style="font-size: 0.85rem; color: #94a3b8; margin: 0;">ชุดข้อมูลนี้ยังไม่มีการสร้าง API หรืออัปโหลดไฟล์พจนานุกรมข้อมูล (Data Dictionary)</p>
+              <!-- Loading State -->
+              <div v-if="dictionaryLoading" style="padding: 40px; text-align: center; color: #64748b; background: white; border-radius: 12px; border: 1px solid #e2e8f0;">
+                <div style="font-size: 28px; margin-bottom: 8px;">⏳</div>
+                <p style="font-size: 0.9rem; color: #64748b; margin: 0;">กำลังโหลดข้อมูลพจนานุกรมข้อมูล...</p>
               </div>
-              <table v-else class="dictionary-table">
-                <thead>
-                  <tr>
-                    <th style="width: 10%">ลำดับ</th>
-                    <th style="width: 30%">ชื่อฟิลด์</th>
-                    <th style="width: 20%">ประเภท</th>
-                    <th style="width: 40%">คำอธิบาย</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(field, index) in selectedDataset.api_response_fields" :key="field">
-                    <td>{{ index + 1 }}</td>
-                    <td class="font-mono" style="font-weight:600;">{{ field }}</td>
-                    <td>VARCHAR / String</td>
-                    <td>ฟิลด์ข้อมูลที่ให้บริการสำหรับชุดข้อมูลนี้</td>
-                  </tr>
-                </tbody>
-              </table>
+
+              <template v-else>
+                <!-- Dictionary File Download Banner (if dictionary file attached) -->
+                <div v-if="dictionaryInfo.has_file || selectedDataset.data_dictionary_path" style="background: linear-gradient(135deg, #f0fdf4 0%, #e8f5e9 100%); border: 1.5px solid #86efac; border-radius: 12px; padding: 18px 20px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+                  <div style="display: flex; align-items: center; gap: 14px;">
+                    <div style="width: 44px; height: 44px; border-radius: 10px; background: #dcfce7; color: #16a34a; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; box-shadow: 0 2px 4px rgba(22, 163, 74, 0.1);">
+                      📑
+                    </div>
+                    <div>
+                      <div style="font-weight: 700; color: #166534; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
+                        <span>ไฟล์พจนานุกรมข้อมูล (Data Dictionary File)</span>
+                        <span style="background: #bbf7d0; color: #14532d; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px; text-transform: uppercase;">
+                          {{ (dictionaryInfo.file_type || (selectedDataset.data_dictionary_path ? selectedDataset.data_dictionary_path.split('.').pop() : 'FILE')).toUpperCase() }}
+                        </span>
+                      </div>
+                      <div style="font-size: 0.82rem; color: #15803d; margin-top: 3px; font-family: monospace; word-break: break-all;">
+                        {{ dictionaryInfo.file_name || selectedDataset.data_dictionary_path }}
+                      </div>
+                    </div>
+                  </div>
+                  <button class="btn-download xls" style="cursor: pointer; padding: 8px 18px; border-radius: 8px; font-weight: 600; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.06);" @click="openPreview('DICTIONARY')" title="ดาวน์โหลด Data Dictionary">
+                    <span>📥 ดาวน์โหลดไฟล์พจนานุกรม</span>
+                  </button>
+                </div>
+
+                <!-- Structured Table (if rows from parsed file or api_response_fields exist) -->
+                <div v-if="dictionaryInfo.data && dictionaryInfo.data.length > 0" style="background: white; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                  <div style="padding: 14px 20px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: 700; color: #334155; font-size: 0.9rem;">
+                      โครงสร้างและคำอธิบายข้อมูล ({{ dictionaryInfo.data.length }} รายการ)
+                    </span>
+                    <span style="font-size: 0.8rem; color: #64748b;">
+                      แสดงข้อมูลจากไฟล์พจนานุกรม
+                    </span>
+                  </div>
+                  <div style="overflow-x: auto;">
+                    <table class="dictionary-table">
+                      <thead>
+                        <tr>
+                          <th v-for="col in dictionaryInfo.columns" :key="col" style="white-space: nowrap;">
+                            {{ col }}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="(row, rIdx) in dictionaryInfo.data" :key="rIdx">
+                          <td v-for="col in dictionaryInfo.columns" :key="col" :class="{ 'font-mono font-semibold text-slate-800': isHeaderCol(col) }">
+                            {{ row[col] !== undefined && row[col] !== '' ? row[col] : '-' }}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Fallback Table if only api_response_fields is present -->
+                <div v-else-if="selectedDataset.api_response_fields && selectedDataset.api_response_fields.length > 0" style="background: white; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden;">
+                  <div style="padding: 14px 20px; background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                    <span style="font-weight: 700; color: #334155; font-size: 0.9rem;">
+                      โครงสร้างฟิลด์ข้อมูล API ({{ selectedDataset.api_response_fields.length }} ฟิลด์)
+                    </span>
+                  </div>
+                  <table class="dictionary-table">
+                    <thead>
+                      <tr>
+                        <th style="width: 10%">ลำดับ</th>
+                        <th style="width: 30%">ชื่อฟิลด์</th>
+                        <th style="width: 20%">ประเภท</th>
+                        <th style="width: 40%">คำอธิบาย</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(field, index) in selectedDataset.api_response_fields" :key="field">
+                        <td>{{ index + 1 }}</td>
+                        <td class="font-mono" style="font-weight:600;">{{ field }}</td>
+                        <td>VARCHAR / String</td>
+                        <td>ฟิลด์ข้อมูลที่ให้บริการสำหรับชุดข้อมูลนี้</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Empty State (No file and no fields) -->
+                <div v-else-if="!dictionaryInfo.has_file && !selectedDataset.data_dictionary_path" style="padding: 48px 24px; text-align: center; color: #64748b; background: white; border-radius: 12px; border: 1px solid #e2e8f0;">
+                  <svg xmlns="http://www.w3.org/2000/svg" style="width: 48px; height: 48px; margin: 0 auto 12px auto; color: #cbd5e1;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                  </svg>
+                  <h4 style="font-size: 1.05rem; font-weight: 600; color: #334155; margin: 0 0 6px 0;">ยังไม่มีพจนานุกรมข้อมูลสำหรับชุดข้อมูลนี้</h4>
+                  <p style="font-size: 0.85rem; color: #94a3b8; margin: 0;">ชุดข้อมูลนี้ยังไม่มีการสร้าง API หรืออัปโหลดไฟล์พจนานุกรมข้อมูล (Data Dictionary)</p>
+                </div>
+
+                <!-- Note when file exists but table is empty -->
+                <div v-else style="padding: 32px 24px; text-align: center; color: #64748b; background: white; border-radius: 12px; border: 1px solid #e2e8f0;">
+                  <p style="font-size: 0.9rem; color: #475569; margin: 0 0 12px 0;">ชุดข้อมูลนี้แนบไฟล์พจนานุกรมข้อมูลเรียบร้อยแล้ว สามารถคลิกปุ่มดาวน์โหลดด้านบนเพื่อเปิดดูรายละเอียดฉบับสมบูรณ์</p>
+                </div>
+              </template>
             </div>
             
             <!-- Visual Tab (Dashboard) -->
