@@ -451,6 +451,8 @@ def addService():
                 geo_published_date = request.form.get('geo_published_date')
                 api_enabled_raw = request.form.get('api_enabled')
                 api_enabled = 1 if api_enabled_raw in ['true', '1', True] else (0 if api_enabled_raw in ['false', '0', False] else None)
+                api_type_form = request.form.get('api_type')
+                api_endpoint_form = request.form.get('api_endpoint')
                 if date_start == '': date_start = None
                 if date_updated == '': date_updated = None
                 if geo_published_date == '': geo_published_date = None
@@ -597,6 +599,8 @@ def addService():
                     if geo_reference_time is not None: fields.append("geo_reference_time = %s"); values.append(geo_reference_time)
                     if geo_published_date is not None: fields.append("geo_published_date = %s"); values.append(geo_published_date)
                     if api_enabled is not None: fields.append("api_enabled = %s"); values.append(api_enabled)
+                    if api_type_form is not None: fields.append("api_type = %s"); values.append(api_type_form)
+                    if api_endpoint_form is not None: fields.append("api_endpoint = %s"); values.append(api_endpoint_form)
                     
                     # Handle separate file upload if present
                     data_file = request.files.get('data_file')
@@ -761,10 +765,8 @@ def addService():
                                 values.append(1)
 
                             if not old_api_type or str(old_api_type).strip() == '':
-                                effective_access = (access_type or existing_access_type or 'public').lower()
-                                default_api_type = 'private' if effective_access in ['restricted', 'internal', 'pii'] else 'public'
                                 fields.append("api_type = %s")
-                                values.append(default_api_type)
+                                values.append('scope')
 
                         elif file_type == 'zip':
                             fields.append("data_sampling_path = %s")
@@ -1137,88 +1139,98 @@ def getDatasetApiEndpoints():
             return jsonify({'status': 'error', 'message': 'Missing dataset_id'})
             
         user_id = None
+        user_role = None
         user_str = dataInput.get('user')
         if user_str:
             try:
                 decoded_user = platform_decode(user_str)
                 user_data = safe_json_loads(decoded_user)
                 user_id = user_data.get('user_id')
+                user_role = str(user_data.get('previlage_id', ''))
             except Exception:
                 user_id = None
 
         conn = mysql.connect()
         cursor = conn.cursor()
-        
-        # Match API_CLONE_[dataset_id]_[api_endpoint]
-        pattern = f"API\_CLONE\_{dataset_id}\_%"
-        sql = "SELECT service_id, dataset_id, service_name, api_endpoint, description, api_type, status, api_response_fields, api_request_fields FROM service WHERE dataset_id LIKE %s AND status = 'Active'"
-        cursor.execute(sql, (pattern,))
+
+        if user_id and not user_role:
+            cursor.execute("SELECT previlage_id FROM user WHERE user_id = %s", (user_id,))
+            u_r = cursor.fetchone()
+            if u_r:
+                user_role = str(u_r[0])
+
+        is_admin = (str(user_role) == '4')
+
+        # Base dataset_id extraction
+        base_dataset_id = str(dataset_id)
+        if base_dataset_id.startswith("API_CLONE_"):
+            parts = base_dataset_id.split('_')
+            if len(parts) >= 3:
+                base_dataset_id = parts[2]
+            else:
+                base_dataset_id = base_dataset_id.replace("API_CLONE_", "")
+
+        # Query all active services associated with this dataset
+        sql = """
+            SELECT service_id, dataset_id, service_name, api_endpoint, description, api_type, status, api_response_fields, api_request_fields, api_enabled 
+            FROM service 
+            WHERE (dataset_id = %s OR dataset_id LIKE %s OR service_id = %s)
+              AND status = 'Active'
+              AND (api_enabled = 1 OR api_enabled = '1')
+              AND api_endpoint IS NOT NULL AND TRIM(api_endpoint) != ''
+        """
+        cursor.execute(sql, (base_dataset_id, f"API_CLONE_{base_dataset_id}_%", base_dataset_id))
         data = cursor.fetchall()
         columns = [col[0] for col in cursor.description]
-        result = [dict(zip(columns, row)) for row in data]
-        
-        # If user is logged in, personalize the scoped fields for their credential
-        if user_id:
-            for row in result:
-                svc_id = row.get('service_id')
-                cursor.execute("""
-                    SELECT s.scope_json FROM api_credentials c 
-                    JOIN api_scopes s ON c.credential_id = s.credential_id 
-                    WHERE c.service_id = %s AND c.user_id = %s AND c.status = 'active'
-                    ORDER BY c.credential_id DESC LIMIT 1
-                """, (svc_id, user_id))
-                s_row = cursor.fetchone()
-                if not s_row:
+        candidates = [dict(zip(columns, row)) for row in data]
+
+        result = []
+        for cand in candidates:
+            cand_svc_id = cand.get('service_id')
+            cand_api_type = (cand.get('api_type') or 'general').lower()
+            is_clone = str(cand.get('dataset_id', '')).startswith('API_CLONE_')
+
+            if isinstance(cand.get('api_response_fields'), str):
+                try:
+                    cand['api_response_fields'] = json.loads(cand['api_response_fields'])
+                except Exception:
+                    pass
+            if isinstance(cand.get('api_request_fields'), str):
+                try:
+                    cand['api_request_fields'] = json.loads(cand['api_request_fields'])
+                except Exception:
+                    pass
+
+            if cand_api_type == 'scope':
+                # Strict 1 User : 1 API Scope
+                if is_admin:
+                    result.append(cand)
+                elif user_id:
                     cursor.execute("""
                         SELECT s.scope_json FROM api_credentials c 
                         JOIN api_scopes s ON c.credential_id = s.credential_id 
-                        WHERE c.user_id = %s AND c.status = 'active'
-                          AND c.service_id IN (SELECT service_id FROM service WHERE dataset_id = %s OR dataset_id LIKE %s OR service_id = %s)
+                        WHERE c.service_id = %s AND c.user_id = %s AND c.status = 'active'
+                          AND (c.expires_at IS NULL OR c.expires_at > NOW())
                         ORDER BY c.credential_id DESC LIMIT 1
-                    """, (user_id, dataset_id, f"API_CLONE_{dataset_id}_%", svc_id))
+                    """, (cand_svc_id, user_id))
                     s_row = cursor.fetchone()
-                
-                if s_row and s_row[0]:
-                    try:
-                        s_obj = json.loads(s_row[0]) if isinstance(s_row[0], str) else s_row[0]
-                        if isinstance(s_obj, dict) and s_obj.get('response_fields'):
-                            row['api_response_fields'] = s_obj.get('response_fields')
-                        if isinstance(s_obj, dict) and s_obj.get('request_fields'):
-                            row['api_request_fields'] = s_obj.get('request_fields')
-                    except Exception:
-                        pass
-                else:
-                    cursor.execute("""
-                        SELECT fields_json FROM dataset_permission_requests 
-                        WHERE user_id = %s AND status = 'Approved'
-                          AND (approved_api = 1 OR request_type IN ('api', 'all'))
-                          AND service_id IN (SELECT service_id FROM service WHERE dataset_id = %s OR dataset_id LIKE %s OR service_id = %s)
-                        ORDER BY request_id DESC LIMIT 1
-                    """, (user_id, dataset_id, f"API_CLONE_{dataset_id}_%", svc_id))
-                    p_row = cursor.fetchone()
-                    if p_row and p_row[0]:
+                    if s_row and s_row[0]:
                         try:
-                            p_fields = json.loads(p_row[0]) if isinstance(p_row[0], str) else p_row[0]
-                            if isinstance(p_fields, list) and p_fields:
-                                row['api_response_fields'] = p_fields
+                            s_obj = json.loads(s_row[0]) if isinstance(s_row[0], str) else s_row[0]
+                            if isinstance(s_obj, dict):
+                                cand['api_response_fields'] = s_obj.get('response_fields', [])
+                                cand['api_request_fields'] = s_obj.get('request_fields', [])
                         except Exception:
                             pass
-
-        for row in result:
-            if isinstance(row.get('api_response_fields'), str):
-                try:
-                    row['api_response_fields'] = json.loads(row['api_response_fields'])
-                except Exception:
-                    pass
-            if isinstance(row.get('api_request_fields'), str):
-                try:
-                    row['api_request_fields'] = json.loads(row['api_request_fields'])
-                except Exception:
-                    pass
+                        result.append(cand)
+                    # If user has no active scope for this service, DO NOT append (invisible)
+            else:
+                # General API: Only include clones in endpoints list; main service is displayed by dataset detail
+                if is_clone:
+                    result.append(cand)
 
         cursor.close()
         conn.close()
-        
         return jsonify({'status': 'success', 'data': result})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -1915,13 +1927,93 @@ def get_dataset_api(dataset_id):
             if r[0] not in related_service_ids:
                 related_service_ids.append(r[0])
 
-        # Enforce key check if NOT public or if access_type requires authentication
+        # Enforce key check and scope authorization
+        is_scope_api = (api_type == 'scope' or str(actual_dataset_id).startswith("API_CLONE_") or request.path.startswith('/dataapi/api/v1/scope/'))
         user_id = 0
         credential_id = None
         user_role = '2'
         expires_at = None
-        
-        if api_type != 'public' or access_type in ['internal', 'restricted', 'pii']:
+
+        user_req_fields = []
+        user_res_fields = []
+        user_conditions = []
+
+        if is_scope_api:
+            # Strict 1 User : 1 API Scope execution check
+            if not apikey:
+                log_api_usage(0, 'Missing apikey parameter for Scope API', 401)
+                cursor.close()
+                conn.close()
+                return jsonify({'status': 'error', 'message': 'Missing apikey parameter for Scope API', 'request_id': request_id}), 401
+
+            if "." in apikey:
+                public_key_id = apikey.split('.')[0]
+                secret_hash = hashlib.sha256(apikey.encode('utf-8')).hexdigest()
+                sql_cred = """
+                    SELECT c.credential_id, c.user_id, c.status, c.expires_at, u.previlage_id 
+                    FROM api_credentials c 
+                    JOIN user u ON c.user_id = u.user_id 
+                    WHERE c.public_key_id = %s AND c.secret_hash = %s AND c.service_id = %s 
+                    ORDER BY c.credential_id DESC LIMIT 1
+                """
+                cursor.execute(sql_cred, (public_key_id, secret_hash, real_service_id))
+                cred_row = cursor.fetchone()
+            else:
+                sql_user = "SELECT user_id, previlage_id FROM user WHERE apikey = %s "
+                cursor.execute(sql_user, (apikey,))
+                user_row = cursor.fetchone()
+                if user_row:
+                    user_id, user_role = user_row
+                    cursor.execute("""
+                        SELECT credential_id, user_id, status, expires_at, %s 
+                        FROM api_credentials 
+                        WHERE user_id = %s AND service_id = %s 
+                        ORDER BY credential_id DESC LIMIT 1
+                    """, (user_role, user_id, real_service_id))
+                    cred_row = cursor.fetchone()
+                else:
+                    cred_row = None
+
+            if not cred_row:
+                log_api_usage(0, 'Unauthorized access to Scope API', 403)
+                cursor.close()
+                conn.close()
+                return jsonify({'status': 'error', 'message': 'Permission denied: You do not have access to this API Scope', 'request_id': request_id}), 403
+
+            credential_id, user_id, cred_status, expires_at, user_role = cred_row
+
+            if cred_status != 'active':
+                log_api_usage(user_id, 'Scope API Key is inactive or revoked', 403)
+                cursor.close()
+                conn.close()
+                return jsonify({'status': 'error', 'message': 'Permission denied: API Key is inactive or revoked', 'request_id': request_id}), 403
+
+            if expires_at and expires_at < datetime.now():
+                log_api_usage(user_id, 'Scope API Key expired', 403)
+                cursor.close()
+                conn.close()
+                return jsonify({'status': 'error', 'message': 'Permission denied: API Key has expired', 'request_id': request_id}), 403
+
+            # Fetch explicit scope from api_scopes
+            cursor.execute("SELECT scope_json FROM api_scopes WHERE credential_id = %s", (credential_id,))
+            scope_row = cursor.fetchone()
+            if not scope_row and str(user_role) != '4':
+                log_api_usage(user_id, 'No scope configured for user', 403)
+                cursor.close()
+                conn.close()
+                return jsonify({'status': 'error', 'message': 'Permission denied: No scope configured for this user', 'request_id': request_id}), 403
+
+            if scope_row and scope_row[0]:
+                try:
+                    scope_obj = json.loads(scope_row[0]) if isinstance(scope_row[0], str) else scope_row[0]
+                    if isinstance(scope_obj, dict):
+                        user_req_fields = scope_obj.get('request_fields', []) or []
+                        user_res_fields = scope_obj.get('response_fields', []) or []
+                        user_conditions = scope_obj.get('conditions', []) or []
+                except Exception as se:
+                    current_app.logger.error(f"Scope parse error: {se}")
+
+        elif api_type != 'public' or access_type in ['internal', 'restricted', 'pii']:
             if not apikey:
                 log_api_usage(0, 'Missing apikey parameter for private/restricted API', 401)
                 cursor.close()
@@ -1936,11 +2028,6 @@ def get_dataset_api(dataset_id):
                 sql_cred = f"SELECT c.credential_id, c.user_id, c.status, c.expires_at, u.previlage_id FROM api_credentials c JOIN user u ON c.user_id = u.user_id WHERE c.public_key_id = %s AND c.secret_hash = %s AND c.service_id IN ({placeholders}) ORDER BY (c.service_id = %s) DESC, c.credential_id DESC LIMIT 1"
                 cursor.execute(sql_cred, [public_key_id, secret_hash] + related_service_ids + [real_service_id])
                 cred_row = cursor.fetchone()
-
-                if not cred_row:
-                    sql_cred_fallback = "SELECT c.credential_id, c.user_id, c.status, c.expires_at, u.previlage_id FROM api_credentials c JOIN user u ON c.user_id = u.user_id WHERE c.public_key_id = %s AND c.secret_hash = %s ORDER BY c.credential_id DESC LIMIT 1"
-                    cursor.execute(sql_cred_fallback, (public_key_id, secret_hash))
-                    cred_row = cursor.fetchone()
 
                 if not cred_row:
                     log_api_usage(0, 'Invalid API key for this dataset', 403)
@@ -1977,68 +2064,41 @@ def get_dataset_api(dataset_id):
                 c_row = cursor.fetchone()
                 if c_row:
                     credential_id = c_row[0]
+
+            if credential_id:
+                cursor.execute("SELECT scope_json FROM api_scopes WHERE credential_id = %s", (credential_id,))
+                scope_row = cursor.fetchone()
+                if scope_row and scope_row[0]:
+                    try:
+                        scope_obj = json.loads(scope_row[0]) if isinstance(scope_row[0], str) else scope_row[0]
+                        if isinstance(scope_obj, dict):
+                            user_req_fields = scope_obj.get('request_fields', []) or []
+                            user_res_fields = scope_obj.get('response_fields', []) or []
+                            user_conditions = scope_obj.get('conditions', []) or []
+                    except Exception as se:
+                        current_app.logger.error(f"Scope parse error: {se}")
+
+            if not user_res_fields and user_id:
+                placeholders = ', '.join(['%s'] * len(related_service_ids))
+                cursor.execute(f"""
+                    SELECT fields_json FROM dataset_permission_requests 
+                    WHERE user_id = %s AND service_id IN ({placeholders}) AND status = 'Approved' AND (approved_api = 1 OR request_type IN ('api', 'all'))
+                    ORDER BY request_id DESC LIMIT 1
+                """, [user_id] + related_service_ids)
+                p_row = cursor.fetchone()
+                if p_row and p_row[0]:
+                    try:
+                        p_fields = json.loads(p_row[0]) if isinstance(p_row[0], str) else p_row[0]
+                        if isinstance(p_fields, list) and p_fields:
+                            user_res_fields = p_fields
+                            if not user_req_fields:
+                                user_req_fields = p_fields
+                    except Exception as pe:
+                        current_app.logger.error(f"Permission request fields parse error: {pe}")
+
         else:
-            if apikey:
-                if "." in apikey:
-                    public_key_id = apikey.split('.')[0]
-                    secret_hash = hashlib.sha256(apikey.encode('utf-8')).hexdigest()
-                    sql_user = "SELECT c.credential_id, c.user_id, u.previlage_id FROM api_credentials c JOIN user u ON c.user_id = u.user_id WHERE c.public_key_id = %s AND c.secret_hash = %s LIMIT 1"
-                    cursor.execute(sql_user, (public_key_id, secret_hash))
-                    user_row = cursor.fetchone()
-                    if user_row:
-                        credential_id, user_id, user_role = user_row
-                else:
-                    sql_user = "SELECT user_id, previlage_id FROM user WHERE apikey = %s "
-                    cursor.execute(sql_user, (apikey,))
-                    user_row = cursor.fetchone()
-                    if user_row:
-                        user_id, user_role = user_row
-                        placeholders = ', '.join(['%s'] * len(related_service_ids))
-                        cursor.execute(f"SELECT credential_id FROM api_credentials WHERE user_id = %s AND service_id IN ({placeholders}) AND status = 'active' ORDER BY (service_id = %s) DESC, credential_id DESC LIMIT 1", [user_id] + related_service_ids + [real_service_id])
-                        c_row = cursor.fetchone()
-                        if c_row:
-                            credential_id = c_row[0]
-
-        # Scope resolution (Field Request, Field Response, Row Conditions)
-        user_req_fields = []
-        user_res_fields = []
-        user_conditions = []
-
-        if credential_id:
-            cursor.execute("SELECT scope_json FROM api_scopes WHERE credential_id = %s", (credential_id,))
-            scope_row = cursor.fetchone()
-            if scope_row and scope_row[0]:
-                try:
-                    scope_obj = json.loads(scope_row[0]) if isinstance(scope_row[0], str) else scope_row[0]
-                    if isinstance(scope_obj, dict) and ('request_fields' in scope_obj or 'response_fields' in scope_obj or 'conditions' in scope_obj):
-                        user_req_fields = scope_obj.get('request_fields', []) or []
-                        user_res_fields = scope_obj.get('response_fields', []) or []
-                        user_conditions = scope_obj.get('conditions', []) or []
-                    elif isinstance(scope_obj, list):
-                        user_conditions = scope_obj
-                    elif isinstance(scope_obj, dict):
-                        user_conditions = scope_obj
-                except Exception as se:
-                    current_app.logger.error(f"Scope parse error: {se}")
-
-        # If user_res_fields is still empty, check approved dataset permission requests for this user
-        if not user_res_fields and user_id:
-            placeholders = ', '.join(['%s'] * len(related_service_ids))
-            cursor.execute(f"""
-                SELECT fields_json FROM dataset_permission_requests 
-                WHERE user_id = %s AND service_id IN ({placeholders}) AND status = 'Approved' AND (approved_api = 1 OR request_type IN ('api', 'all'))
-                ORDER BY request_id DESC LIMIT 1
-            """, [user_id] + related_service_ids)
-            p_row = cursor.fetchone()
-            if p_row and p_row[0]:
-                try:
-                    p_fields = json.loads(p_row[0]) if isinstance(p_row[0], str) else p_row[0]
-                    if isinstance(p_fields, list) and p_fields:
-                        user_res_fields = p_fields
-                        if not user_req_fields:
-                            user_req_fields = p_fields
-                except Exception as pe:
-                    current_app.logger.error(f"Permission request fields parse error: {pe}")
+            # Public API: No key required
+            pass
 
         if user_req_fields and not user_res_fields:
             user_res_fields = list(user_req_fields)
@@ -3794,77 +3854,6 @@ def approve_dataset_request():
         """
         cursor.execute(sql_grant, (service_id, target_user_id, allow_dictionary, allow_dashboard, allow_api))
         
-        # Sync API Credentials and Scopes if API access is approved
-        if allow_api:
-            import secrets
-            import string
-            import hashlib
-            
-            approved_fields = []
-            if req_fields_raw:
-                try:
-                    approved_fields = json.loads(req_fields_raw) if isinstance(req_fields_raw, str) else req_fields_raw
-                except Exception:
-                    approved_fields = []
-            if not isinstance(approved_fields, list):
-                approved_fields = []
-
-            # Find all related services (parent and clones)
-            cursor.execute("SELECT dataset_id FROM service WHERE service_id = %s", (service_id,))
-            ds_row = cursor.fetchone()
-            ds_id = ds_row[0] if ds_row else ''
-            
-            target_services = [service_id]
-            if ds_id:
-                base_ds_id = ds_id
-                if base_ds_id.startswith("API_CLONE_"):
-                    parts = base_ds_id.split('_')
-                    if len(parts) >= 3:
-                        base_ds_id = parts[2]
-                    else:
-                        base_ds_id = base_ds_id.replace("API_CLONE_", "")
-                
-                cursor.execute("""
-                    SELECT service_id FROM service 
-                    WHERE (dataset_id = %s OR dataset_id LIKE %s OR service_id = %s)
-                       OR (dataset_id = %s OR dataset_id LIKE %s)
-                """, (ds_id, f"API_CLONE_{ds_id}_%", service_id, base_ds_id, f"API_CLONE_{base_ds_id}_%"))
-                for s_row in cursor.fetchall():
-                    if s_row[0] not in target_services:
-                        target_services.append(s_row[0])
-
-            scope_data = {
-                "request_fields": approved_fields,
-                "response_fields": approved_fields,
-                "conditions": []
-            }
-            scope_str = json.dumps(scope_data, ensure_ascii=False)
-
-            for target_svc in target_services:
-                cursor.execute("SELECT credential_id FROM api_credentials WHERE service_id = %s AND user_id = %s", (target_svc, target_user_id))
-                cred = cursor.fetchone()
-                if cred:
-                    cred_id = cred[0]
-                    cursor.execute("UPDATE api_credentials SET status = 'active' WHERE credential_id = %s", (cred_id,))
-                else:
-                    alphabet = string.ascii_letters + string.digits
-                    public_key_id = 'datax_' + ''.join(secrets.choice(alphabet) for _ in range(12))
-                    secret_part = secrets.token_hex(16)
-                    full_secret_key = f"{public_key_id}.{secret_part}"
-                    secret_hash = hashlib.sha256(full_secret_key.encode('utf-8')).hexdigest()
-                    key_last_four = full_secret_key[-4:]
-                    
-                    sql_cred_ins = "INSERT INTO api_credentials (service_id, user_id, public_key_id, secret_hash, key_last_four, status) VALUES (%s, %s, %s, %s, %s, 'active')"
-                    cursor.execute(sql_cred_ins, (target_svc, target_user_id, public_key_id, secret_hash, key_last_four))
-                    cred_id = cursor.lastrowid
-                
-                if cred_id and approved_fields:
-                    cursor.execute("SELECT scope_id FROM api_scopes WHERE credential_id = %s", (cred_id,))
-                    if cursor.fetchone():
-                        cursor.execute("UPDATE api_scopes SET scope_json = %s WHERE credential_id = %s", (scope_str, cred_id))
-                    else:
-                        cursor.execute("INSERT INTO api_scopes (credential_id, scope_json) VALUES (%s, %s)", (cred_id, scope_str))
-
         # Auto-promote user from R2 (2) to R5 (5) upon dataset approval
         cursor.execute("SELECT previlage_id FROM user WHERE user_id = %s", (target_user_id,))
         u_priv_row = cursor.fetchone()
@@ -4139,8 +4128,8 @@ def deleteApiScopeForUser():
 
         credential_id = dataInput['credential_id']
         conn = mysql.connect()
-        cursor = conn.cursor()
         cursor.execute("DELETE FROM api_scopes WHERE credential_id=%s", (credential_id,))
+        cursor.execute("DELETE FROM api_credentials WHERE credential_id=%s", (credential_id,))
         conn.commit()
         cursor.close()
         conn.close()

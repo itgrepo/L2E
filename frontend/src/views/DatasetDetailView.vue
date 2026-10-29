@@ -90,9 +90,11 @@ watch(activeTab, (newTab) => {
 
 const combinedApis = computed(() => {
   let apis = [];
+  // Main dataset API: only include if NOT a scope API (Scope APIs are handled per-user via apiClones)
   if (selectedDataset.value && 
       (selectedDataset.value.api_enabled === 1 || selectedDataset.value.api_enabled === true || selectedDataset.value.api_enabled === '1') &&
-      selectedDataset.value.api_endpoint && String(selectedDataset.value.api_endpoint).trim() !== ''
+      selectedDataset.value.api_endpoint && String(selectedDataset.value.api_endpoint).trim() !== '' &&
+      selectedDataset.value.api_type !== 'scope'
   ) {
     let mainRespFields = [];
     if (selectedDataset.value.api_response_fields) {
@@ -103,10 +105,11 @@ const combinedApis = computed(() => {
     apis.push({
       api_type: selectedDataset.value.api_type || 'general',
       api_endpoint: selectedDataset.value.api_endpoint,
-      service_name: selectedDataset.value.title,
+      service_name: selectedDataset.value.title || selectedDataset.value.service_name,
       api_response_fields: mainRespFields
     });
   }
+  // Authorized Scope / Clone APIs for the logged in user
   if (apiClones.value && apiClones.value.length > 0) {
     apiClones.value.forEach(clone => {
       if (clone.api_enabled === 1 || clone.api_enabled === true || clone.api_enabled === '1' || clone.api_enabled === undefined || clone.status === 'Active') {
@@ -117,7 +120,7 @@ const combinedApis = computed(() => {
           } catch(e) { respFields = []; }
         }
         apis.push({
-          api_type: clone.api_type || 'general',
+          api_type: clone.api_type || 'scope',
           api_endpoint: clone.api_endpoint || (selectedDataset.value ? (selectedDataset.value.api_endpoint || selectedDataset.value.dataset_id) : ''),
           service_name: clone.service_name || clone.description,
           api_response_fields: respFields
@@ -1079,6 +1082,13 @@ watch(() => route.params.id, (newId) => {
                     <pre style="margin: 0; color: #e2e8f0; font-size:0.85rem; overflow-x:auto;">
 curl -X GET "{{ selectedDataset.external_api_url || apiBaseUrl + (selectedDataset.api_endpoint || selectedDataset.dataset_id) + '/file?apikey=' }}<span class='blur-key'>{{ userApiKey }}</span>"</pre>
                   </div>
+                </div>
+
+                <!-- Scope API Notice for Unauthorized Users -->
+                <div v-if="selectedDataset.api_type === 'scope' && combinedApis.length === 0" style="padding: 32px 24px; text-align: center; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 16px;">
+                  <div style="font-size: 1.8rem; margin-bottom: 8px;">🔒</div>
+                  <h4 style="margin: 0 0 6px 0; color: #334155; font-size: 1.05rem; font-weight: 700;">API Scope (จำกัดสิทธิ์เฉพาะบุคคล)</h4>
+                  <p style="margin: 0; color: #64748b; font-size: 0.88rem; max-width: 520px; margin: 0 auto; line-height: 1.5;">ชุดข้อมูลนี้เปิดให้บริการในรูปแบบ API Scope เฉพาะผู้ใช้ที่ได้รับอนุญาตจากผู้ดูแลระบบเท่านั้น ขณะนี้คุณยังไม่ได้รับสิทธิ์เข้าถึงปลายทางนี้ กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดสิทธิ์การใช้งาน</p>
                 </div>
 
                 <!-- Loop through all configured APIs (Original + Clones) -->
