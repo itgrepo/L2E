@@ -11,10 +11,22 @@ const availableDatasetsForApi = computed(() => {
 const generalApiServices = computed(() => {
   return services.value.filter(s => 
     s.api_endpoint && s.api_endpoint.trim() !== '' &&
-    (s.api_enabled == 1 || s.api_enabled === '1' || s.api_enabled === true) && 
     s.api_type !== 'scope'
   );
 });
+
+const allScopes = ref([]);
+const fetchAllScopes = async () => {
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await apiClient.post('/getAllApiScopes', { user: encodeUserData(userData) });
+    if (res.data.status === 'success') {
+      allScopes.value = res.data.data;
+    }
+  } catch (e) {
+    console.error('Error fetching all scopes:', e);
+  }
+};
 
 const scopeApiServices = computed(() => {
   return services.value.filter(s => 
@@ -100,6 +112,7 @@ const fetchServices = async () => {
     if (response.data.status === 'success') {
       services.value = response.data.data;
     }
+    await fetchAllScopes();
   } catch (error) {
     console.error('Error fetching services:', error);
   } finally {
@@ -189,6 +202,7 @@ const handleCredentialAction = async (endpoint, cred) => {
       } else if (scopeSelectedService.value) {
         await fetchScopesForService(scopeSelectedService.value.service_id);
       }
+      await fetchAllScopes();
     } else {
       alert(`Error: ${response.data.message}`);
     }
@@ -211,6 +225,7 @@ const formatDateTime = (dateStr) => {
 
 onMounted(() => {
   fetchServices();
+  fetchAllScopes();
   fetchDatabases();
 });
 
@@ -507,6 +522,20 @@ const openEditScopeForm = async (scope) => {
   showScopeFormModal.value = true;
 };
 
+const editScopeFromTable = async (sc) => {
+  const svc = services.value.find(s => String(s.service_id) === String(sc.service_id)) || {
+    service_id: sc.service_id,
+    service_name: sc.service_name,
+    api_endpoint: sc.api_endpoint,
+    api_db_name: sc.api_db_name,
+    api_source_name: sc.api_source_name,
+    api_response_fields: sc.global_response_fields,
+    api_request_fields: sc.global_request_fields
+  };
+  scopeSelectedService.value = svc;
+  await openEditScopeForm(sc);
+};
+
 const addScopeCondition = () => {
   scopeConditions.value.push({ logic: 'AND', field: '', operator: '=', value: '' });
 };
@@ -713,7 +742,10 @@ const saveScopeForm = async () => {
         alert('SUCCESS! Please copy this API Key now, it will not be shown again:\n\n' + res.data.secret_key);
       }
       showScopeFormModal.value = false;
-      await fetchScopesForService(scopeSelectedService.value.service_id);
+      if (scopeSelectedService.value) {
+        await fetchScopesForService(scopeSelectedService.value.service_id);
+      }
+      await fetchAllScopes();
     } else {
       alert('Error saving scope: ' + (res.data.message || res.data.status));
     }
@@ -814,13 +846,13 @@ const formatScopeJson = (scopeJson) => {
             :class="['tab-btn', { active: activeTab === 'general' }]"
             @click="activeTab = 'general'"
           >
-            API GENERAL
+            API GENERAL ({{ generalApiServices.length }})
           </button>
           <button 
             :class="['tab-btn', { active: activeTab === 'scopes' }]"
             @click="activeTab = 'scopes'"
           >
-            API SCOPES
+            API SCOPES ({{ allScopes.length }})
           </button>
         </div>
 
@@ -894,38 +926,57 @@ const formatScopeJson = (scopeJson) => {
               <tr>
                 <th>API SERVICE NAME</th>
                 <th>API ENDPOINT</th>
-                <th>API DESCRIPTION</th>
+                <th>เจ้าของ SCOPE (USERNAME)</th>
+                <th>FIELD REQUEST</th>
+                <th>FIELD RESPONSE</th>
                 <th>ACTIVE</th>
                 <th>STATUS</th>
                 <th class="text-center">SELECT</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="svc in scopeApiServices" :key="svc.service_id">
-                <td><strong>{{ svc.service_name }}</strong></td>
-                <td>{{ svc.api_endpoint }}</td>
-                <td>{{ svc.service_description || svc.service_name }}</td>
+              <tr v-if="allScopes.length === 0">
+                <td colspan="8" class="text-center text-muted" style="padding: 2rem;">ไม่พบรายการ API Scope</td>
+              </tr>
+              <tr v-for="sc in allScopes" :key="sc.credential_id">
+                <td><strong>{{ sc.service_name || sc.dataset_id }}</strong></td>
+                <td><code style="background:#f1f5f9; padding:2px 6px; border-radius:4px; font-size:0.85rem;">{{ sc.api_endpoint || sc.dataset_id }}</code></td>
                 <td>
-                  <label class="toggle-switch" title="Toggle Service Status" @click.prevent="toggleMainServiceStatus(svc)">
-                    <input type="checkbox" :checked="svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true">
+                  <div style="font-weight: 600; color: #1e293b;">{{ sc.username }}</div>
+                  <div v-if="sc.firstname || sc.lastname" style="font-size: 0.78rem; color: #64748b;">{{ sc.firstname || '' }} {{ sc.lastname || '' }}</div>
+                </td>
+                <td>
+                  <span v-if="sc.request_fields && sc.request_fields.length > 0" class="badge-req" :title="sc.request_fields.join(', ')">
+                    {{ sc.request_fields.length }} ฟิลด์
+                  </span>
+                  <span v-else class="text-muted" style="font-size:0.8rem;">ทั้งหมด / ไม่มี</span>
+                </td>
+                <td>
+                  <span v-if="sc.response_fields && sc.response_fields.length > 0" class="badge-res" :title="sc.response_fields.join(', ')">
+                    {{ sc.response_fields.length }} ฟิลด์
+                  </span>
+                  <span v-else class="text-muted" style="font-size:0.8rem;">ทั้งหมด (Default)</span>
+                </td>
+                <td>
+                  <label class="toggle-switch" title="Toggle Status" @click.prevent="toggleCredentialStatus(sc)" v-if="sc.status !== 'revoked'">
+                    <input type="checkbox" :checked="sc.status === 'active'">
                     <span class="slider"></span>
                   </label>
                 </td>
                 <td>
-                  <span :class="['status-badge', (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true) ? 'active' : 'inactive']">{{ (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true) ? 'ACTIVE' : 'INACTIVE' }}</span>
+                  <span :class="['status-badge', sc.status]">{{ sc.status }}</span>
                 </td>
                 <td class="text-center">
                   <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                    <button @click="openScopesForService(svc)" class="btn-outline-primary" style="padding: 5px 12px; font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;" title="Manage Access by User">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                    <button class="btn-icon" @click="editScopeFromTable(sc)" title="แก้ไข Scope" style="background-color:#e0f2fe; color:#0284c7; border:none; border-radius:4px; padding:6px; cursor:pointer;">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                       </svg>
-                      MANAGE ACCESS
                     </button>
-                    <button @click="editApiService(svc)" class="btn-icon" style="background-color:#e0f2fe; color:#0284c7; border:none; border-radius:4px; padding:6px; cursor:pointer;" title="Edit API">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    <button v-if="sc.status !== 'revoked'" class="btn-icon" @click="openEditExpiryForm(sc)" title="ตั้งวันหมดอายุ" style="background-color:#f1f5f9; color:#475569; border:none; border-radius:4px; padding:6px; cursor:pointer;">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" stroke-width="2"/><line x1="16" y1="2" x2="16" y2="6" stroke-width="2"/><line x1="8" y1="2" x2="8" y2="6" stroke-width="2"/><line x1="3" y1="10" x2="21" y2="10" stroke-width="2"/></svg>
                     </button>
-                    <button @click="deleteApiService(svc)" class="btn-icon" style="background-color:#fee2e2; color:#ef4444; border:none; border-radius:4px; padding:6px; cursor:pointer;" title="Delete API">
+                    <button class="btn-icon" @click="handleCredentialAction('deleteApiCredential', sc)" title="ลบ Scope" style="background-color:#fee2e2; color:#ef4444; border:none; border-radius:4px; padding:6px; cursor:pointer;">
                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                     </button>
                   </div>
@@ -1468,6 +1519,8 @@ const formatScopeJson = (scopeJson) => {
 .mono-cell { font-family: 'JetBrains Mono', monospace; font-size: 0.8125em; background: #f1f5f9; padding: 4px 10px; border-radius: 6px; display: inline-block; color: #475569; }
 .scope-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.8125em; background: #f1f5f9; padding: 4px 10px; border-radius: 6px; display: inline-block; color: #475569; word-break: break-all; max-width: 200px; }
 .badge-scoped { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; padding: 2px 8px; border-radius: 9999px; font-size: 0.72rem; font-weight: 600; display: inline-block; cursor: help; }
+.badge-req { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; display: inline-block; }
+.badge-res { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; padding: 2px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; display: inline-block; }
 .action-btns { display: flex; gap: 6px; align-items: center; justify-content: center; }
 
 .table-scroll-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; padding: 0 4px; }

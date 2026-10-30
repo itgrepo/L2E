@@ -169,6 +169,14 @@ def updateDatasetAccessUsers():
             sql_insert = "INSERT INTO service_user_access (service_id, user_id) VALUES (%s, %s)"
             for uid in user_ids:
                 cursor.execute(sql_insert, (service_id, uid))
+            
+            # Revoke API credentials for users who no longer have access
+            placeholders = ', '.join(['%s'] * len(user_ids))
+            sql_revoke = f"UPDATE api_credentials SET status = 'revoked' WHERE service_id = %s AND user_id NOT IN ({placeholders})"
+            cursor.execute(sql_revoke, [service_id] + user_ids)
+        else:
+            # If no users have access, revoke all credentials for this service
+            cursor.execute("UPDATE api_credentials SET status = 'revoked' WHERE service_id = %s", (service_id,))
         
         conn.commit()
         conn.close()

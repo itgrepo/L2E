@@ -121,6 +121,92 @@ def check_dataset_owner(cursor, service_id, user_data):
         return False, (jsonify({"status": "error", "message": err_msg}), 403)
     return True, None
 
+def check_user_dataset_api_access(cursor, service_id, user_id, user_role):
+    """
+    Verify whether user_id is authorized to access the API of service_id.
+    Returns: (is_authorized: bool, error_message: str or None)
+    """
+    if not user_id:
+        return False, "ไม่พบข้อมูลผู้ใช้งาน หรือไม่ได้ระบุ API Key"
+
+    # 1. Check user account status
+    cursor.execute("SELECT status_account, status_id, org_id, email, previlage_id FROM user WHERE user_id = %s", (user_id,))
+    u_row = cursor.fetchone()
+    if not u_row:
+        return False, "ไม่พบข้อมูลผู้ใช้งานนี้ในระบบ"
+    
+    status_account, status_id, user_org_id, user_email, db_user_role = u_row
+    effective_role = str(db_user_role if db_user_role is not None else user_role)
+    if status_id == 7 or str(status_account).lower() not in ['active', '1', 'true', 'approved']:
+        return False, "บัญชีผู้ใช้งานนี้ถูกปิดการใช้งานหรือถูกลบออกจากระบบแล้ว"
+
+    # 2. Super Admin (role 4) always allowed
+    if effective_role == '4':
+        return True, None
+
+    # 3. Check Service metadata
+    cursor.execute("SELECT access_type, api_type, organization, created_by, contact_email FROM service WHERE service_id = %s", (service_id,))
+    svc_row = cursor.fetchone()
+    if not svc_row:
+        return False, "ไม่พบชุดข้อมูลที่ระบุ"
+    
+    access_type, api_type, svc_org, created_by, contact_email = svc_row
+
+    # 4. Dataset Owner / Creator always allowed
+    if created_by is not None and int(created_by) == int(user_id):
+        return True, None
+    if contact_email and user_email and contact_email.strip().lower() == user_email.strip().lower():
+        return True, None
+
+    # 5. Public dataset & public API
+    if str(access_type).lower() == 'public' and str(api_type).lower() == 'public':
+        return True, None
+
+    # 6. Check direct grant in service_user_access
+    cursor.execute("""
+        SELECT allow_api FROM service_user_access 
+        WHERE service_id = %s AND user_id = %s
+    """, (service_id, user_id))
+    sua_row = cursor.fetchone()
+    if sua_row:
+        allow_api = sua_row[0]
+        if allow_api is not None and int(allow_api) == 0:
+            return False, "สิทธิ์การเข้าถึง API ของท่านในชุดข้อมูลนี้ถูกปิดการใช้งาน"
+        return True, None
+
+    # 7. Check Group Access (service_group_access or l2e_group_id)
+    cursor.execute("""
+        SELECT 1 
+        FROM service_group_access sga
+        JOIN group_user_detail gud ON sga.group_id = gud.group_id
+        WHERE sga.service_id = %s AND gud.user_id = %s
+    """, (service_id, user_id))
+    if cursor.fetchone():
+        return True, None
+
+    cursor.execute("""
+        SELECT s.l2e_group_id 
+        FROM service s
+        JOIN group_user_detail gud ON s.l2e_group_id = gud.group_id
+        WHERE s.service_id = %s AND gud.user_id = %s
+    """, (service_id, user_id))
+    if cursor.fetchone():
+        return True, None
+
+    # 8. Internal Dataset: users in the same organization
+    if str(access_type).lower() == 'internal':
+        is_same_org = False
+        if svc_org and user_org_id:
+            cursor.execute("SELECT org_name FROM organization WHERE org_id = %s", (user_org_id,))
+            org_row = cursor.fetchone()
+            if org_row and org_row[0] and str(org_row[0]).strip().lower() == str(svc_org).strip().lower():
+                is_same_org = True
+        if is_same_org:
+            return True, None
+
+    # Otherwise: denied!
+    return False, "สิทธิ์การเข้าถึง API ของท่านถูกยกเลิกหรือไม่มีสิทธิ์ในชุดข้อมูลนี้"
+
 @app.route('/addService', methods=['POST','PUT'])
 @require_admin
 def addService():
@@ -1204,30 +1290,32 @@ def getDatasetApiEndpoints():
                 except Exception:
                     pass
 
-            if cand_api_type == 'scope':
-                # Strict 1 User : 1 API Scope
-                s_obj = None
-                if user_id:
-                    cursor.execute("""
-                        SELECT s.scope_json FROM api_credentials c 
-                        JOIN api_scopes s ON c.credential_id = s.credential_id 
-                        WHERE c.service_id = %s AND c.user_id = %s AND c.status = 'active'
-                          AND (c.expires_at IS NULL OR c.expires_at > NOW())
-                        ORDER BY c.credential_id DESC LIMIT 1
-                    """, (cand_svc_id, user_id))
-                    s_row = cursor.fetchone()
-                    if s_row and s_row[0]:
-                        try:
-                            s_obj = json.loads(s_row[0]) if isinstance(s_row[0], str) else s_row[0]
-                            if isinstance(s_obj, dict):
-                                cand['api_response_fields'] = s_obj.get('response_fields', [])
-                                cand['api_request_fields'] = s_obj.get('request_fields', [])
-                        except Exception:
-                            pass
+            # Check if user has a personal scope for this service endpoint
+            s_obj = None
+            if user_id:
+                cursor.execute("""
+                    SELECT s.scope_json FROM api_credentials c 
+                    JOIN api_scopes s ON c.credential_id = s.credential_id 
+                    WHERE c.service_id = %s AND c.user_id = %s AND c.status = 'active'
+                      AND (c.expires_at IS NULL OR c.expires_at > NOW())
+                    ORDER BY c.credential_id DESC LIMIT 1
+                """, (cand_svc_id, user_id))
+                s_row = cursor.fetchone()
+                if s_row and s_row[0]:
+                    try:
+                        s_obj = json.loads(s_row[0]) if isinstance(s_row[0], str) else s_row[0]
+                    except Exception:
+                        pass
 
-                if s_obj is not None:
-                    user_scoped_endpoints.append(cand)
-                elif is_admin and not is_clone:
+            if s_obj is not None:
+                scoped_cand = dict(cand)
+                scoped_cand['api_type'] = 'scope'
+                if isinstance(s_obj, dict):
+                    scoped_cand['api_response_fields'] = s_obj.get('response_fields', [])
+                    scoped_cand['api_request_fields'] = s_obj.get('request_fields', [])
+                user_scoped_endpoints.append(scoped_cand)
+            elif cand_api_type == 'scope':
+                if is_admin and not is_clone:
                     admin_fallback_endpoints.append(cand)
             else:
                 # General API: Only include clones in endpoints list; main service is displayed by dataset detail
@@ -1637,7 +1725,7 @@ def get_dataset_file_api(dataset_id):
                 public_key_id = apikey.split('.')[0]
                 secret_hash = hashlib.sha256(apikey.encode('utf-8')).hexdigest()
 
-                sql_cred = "SELECT c.status, c.expires_at FROM api_credentials c WHERE c.public_key_id = %s AND c.secret_hash = %s AND c.service_id = %s"
+                sql_cred = "SELECT c.status, c.expires_at, c.user_id, u.previlage_id FROM api_credentials c JOIN user u ON c.user_id = u.user_id WHERE c.public_key_id = %s AND c.secret_hash = %s AND c.service_id = %s"
                 cursor.execute(sql_cred, (public_key_id, secret_hash, real_service_id))
                 cred_row = cursor.fetchone()
 
@@ -1650,6 +1738,8 @@ def get_dataset_file_api(dataset_id):
                     cursor.close()
                     conn.close()
                     return jsonify({'status': 'error', 'message': 'API Key is inactive', 'request_id': request_id}), 403
+                
+                user_id, user_role = cred_row[2], cred_row[3]
             else:
                 sql_user = "SELECT user_id, previlage_id FROM user WHERE apikey = %s "
                 cursor.execute(sql_user, (apikey,))
@@ -1659,6 +1749,13 @@ def get_dataset_file_api(dataset_id):
                     conn.close()
                     return jsonify({'status': 'error', 'message': 'Invalid Global API Key', 'request_id': request_id}), 401
                 user_id, user_role = user_row
+
+            # Check dataset API access authorization
+            is_auth, auth_err = check_user_dataset_api_access(cursor, real_service_id, user_id, user_role)
+            if not is_auth:
+                cursor.close()
+                conn.close()
+                return jsonify({'status': 'error', 'message': auth_err or 'สิทธิ์การเข้าถึง API ของท่านถูกยกเลิกหรือไม่มีสิทธิ์ในชุดข้อมูลนี้', 'request_id': request_id}), 403
         if not file_path:
             cursor.close()
             conn.close()
@@ -2085,6 +2182,14 @@ def get_dataset_api(dataset_id):
                 c_row = cursor.fetchone()
                 if c_row:
                     credential_id = c_row[0]
+
+            # Check dataset API access authorization
+            is_auth, auth_err = check_user_dataset_api_access(cursor, real_service_id, user_id, user_role)
+            if not is_auth:
+                log_api_usage(user_id, f"Access Denied: {auth_err}", 403)
+                cursor.close()
+                conn.close()
+                return jsonify({'status': 'error', 'message': auth_err or 'สิทธิ์การเข้าถึง API ของท่านถูกยกเลิกหรือไม่มีสิทธิ์ในชุดข้อมูลนี้', 'request_id': request_id}), 403
 
             if credential_id:
                 cursor.execute("SELECT scope_json FROM api_scopes WHERE credential_id = %s", (credential_id,))
@@ -3881,6 +3986,61 @@ def approve_dataset_request():
             allow_api = GREATEST(COALESCE(allow_api, 0), VALUES(allow_api))
         """
         cursor.execute(sql_grant, (service_id, target_user_id, allow_dictionary, allow_dashboard, allow_api))
+
+        # Auto-create or activate API scope for the target user if API access is approved
+        if allow_api == 1:
+            req_fields = []
+            if req_fields_raw:
+                try:
+                    parsed = json.loads(req_fields_raw)
+                    if isinstance(parsed, list):
+                        req_fields = parsed
+                    elif isinstance(parsed, dict) and 'response_fields' in parsed:
+                        req_fields = parsed.get('response_fields', [])
+                except Exception:
+                    req_fields = []
+            
+            if not req_fields:
+                cursor.execute("SELECT api_response_fields FROM service WHERE service_id = %s", (service_id,))
+                s_rf = cursor.fetchone()
+                if s_rf and s_rf[0]:
+                    try:
+                        req_fields = json.loads(s_rf[0]) if isinstance(s_rf[0], str) else s_rf[0]
+                    except Exception:
+                        req_fields = []
+
+            if isinstance(req_fields, list) and len(req_fields) > 0:
+                standard_scope_obj = {
+                    'request_fields': req_fields,
+                    'response_fields': req_fields,
+                    'conditions': []
+                }
+                scope_str = json.dumps(standard_scope_obj)
+
+                cursor.execute("SELECT credential_id FROM api_credentials WHERE service_id = %s AND user_id = %s", (service_id, target_user_id))
+                cred_row = cursor.fetchone()
+                if cred_row:
+                    cred_id = cred_row[0]
+                    cursor.execute("UPDATE api_credentials SET status = 'active' WHERE credential_id = %s", (cred_id,))
+                else:
+                    import secrets
+                    import string
+                    import hashlib
+                    alphabet = string.ascii_letters + string.digits
+                    public_key_id = 'datax_' + ''.join(secrets.choice(alphabet) for _ in range(12))
+                    secret_part = secrets.token_hex(16)
+                    full_secret_key = f"{public_key_id}.{secret_part}"
+                    secret_hash = hashlib.sha256(full_secret_key.encode('utf-8')).hexdigest()
+                    key_last_four = full_secret_key[-4:]
+                    sql_c = "INSERT INTO api_credentials (service_id, user_id, public_key_id, secret_hash, key_last_four, status) VALUES (%s, %s, %s, %s, %s, 'active')"
+                    cursor.execute(sql_c, (service_id, target_user_id, public_key_id, secret_hash, key_last_four))
+                    cred_id = cursor.lastrowid
+
+                cursor.execute("SELECT scope_id FROM api_scopes WHERE credential_id = %s", (cred_id,))
+                if cursor.fetchone():
+                    cursor.execute("UPDATE api_scopes SET scope_json = %s WHERE credential_id = %s", (scope_str, cred_id))
+                else:
+                    cursor.execute("INSERT INTO api_scopes (credential_id, scope_json) VALUES (%s, %s)", (cred_id, scope_str))
         
         # Auto-promote user from R2 (2) to R5 (5) upon dataset approval
         cursor.execute("SELECT previlage_id FROM user WHERE user_id = %s", (target_user_id,))
@@ -3999,7 +4159,7 @@ def getAllApiScopes():
         sql = """SELECT c.credential_id, c.service_id, c.user_id, c.status, c.public_key_id, c.key_last_four, c.expires_at,
                         u.username, u.firstname, u.lastname,
                         s.scope_json, s.scope_id,
-                        srv.service_name, srv.dataset_id, srv.api_db_name, srv.api_source_name,
+                        srv.service_name, srv.dataset_id, srv.api_db_name, srv.api_source_name, srv.api_endpoint,
                         srv.api_request_fields AS global_request_fields,
                         srv.api_response_fields AS global_response_fields
                  FROM api_credentials c

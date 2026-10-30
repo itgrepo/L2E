@@ -90,8 +90,12 @@ watch(activeTab, (newTab) => {
 
 const combinedApis = computed(() => {
   let apis = [];
-  // Main dataset API: only include if NOT a scope API (Scope APIs are handled per-user via apiClones)
-  if (selectedDataset.value && 
+  const hasScopeApi = apiClones.value && apiClones.value.length > 0 && apiClones.value.some(c => c.api_type === 'scope');
+  const isSuperAdmin = String(user.value?.previlage_id || '') === '4';
+
+  // Main dataset API: only include if user is Super Admin OR user does not have a personal Scope API
+  if ((!hasScopeApi || isSuperAdmin) &&
+      selectedDataset.value && 
       (selectedDataset.value.api_enabled === 1 || selectedDataset.value.api_enabled === true || selectedDataset.value.api_enabled === '1') &&
       selectedDataset.value.api_endpoint && String(selectedDataset.value.api_endpoint).trim() !== '' &&
       selectedDataset.value.api_type !== 'scope'
