@@ -3,9 +3,11 @@ import { ref, onMounted, watch, computed, onActivated, reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { encodeUserData, postWithUser } from '../utils/api';
+import { usePermissions } from '../utils/usePermissions';
 
 const route = useRoute();
 const router = useRouter();
+const { canViewDashboard, loadPermissions: loadPerms } = usePermissions();
 
 const currentUser = computed(() => {
   try {
@@ -246,6 +248,7 @@ const checkEditQuery = () => {
 };
 
 onMounted(async () => {
+  loadPerms();
   await fetchCategories();
   fetchOrganizations();
   await fetchMasters();
@@ -1009,7 +1012,7 @@ const updateDatasetPrefix = onSubgroupChange;
         <!-- Breadcrumbs -->
         <nav class="breadcrumbs" aria-label="Breadcrumb">
           <ol style="display: flex; align-items: center; gap: 8px; font-size: 0.875rem; color: #64748b; margin-bottom: 16px; list-style: none; padding: 0;">
-            <li>
+            <li v-if="canViewDashboard">
               <router-link to="/dashboard" style="color: #64748b; text-decoration: none; display: flex; align-items: center; transition: color 0.2s;" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='#64748b'">
                 <svg xmlns="http://www.w3.org/2000/svg" style="height: 16px; width: 16px; margin-right: 4px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
@@ -1017,7 +1020,7 @@ const updateDatasetPrefix = onSubgroupChange;
                 หน้าหลัก
               </router-link>
             </li>
-            <li>/</li>
+            <li v-if="canViewDashboard">/</li>
             <li>
               <router-link to="/catalog" style="color: #64748b; text-decoration: none; transition: color 0.2s;" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='#64748b'">
                 บัญชีข้อมูล

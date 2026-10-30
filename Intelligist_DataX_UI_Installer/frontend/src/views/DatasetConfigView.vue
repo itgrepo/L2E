@@ -3,9 +3,11 @@ import { ref, onMounted, watch, computed, onActivated, reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { encodeUserData, postWithUser } from '../utils/api';
+import { usePermissions } from '../utils/usePermissions';
 
 const route = useRoute();
 const router = useRouter();
+const { canViewDashboard, loadPermissions: loadPerms } = usePermissions();
 
 const currentUser = computed(() => {
   try {
@@ -246,6 +248,7 @@ const checkEditQuery = () => {
 };
 
 onMounted(async () => {
+  loadPerms();
   await fetchCategories();
   fetchOrganizations();
   await fetchMasters();
@@ -477,6 +480,66 @@ watch(apiDatasetId, (newId) => {
   }
 });
 
+const handleToggleApi = async () => {
+  if (!apiDatasetId.value) return;
+  const newStatus = isApiEnabled.value ? 1 : 0;
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await postWithUser('/toggleApiEnabled', userData, {
+      service_id: apiDatasetId.value,
+      api_enabled: newStatus
+    });
+    if (res.data && res.data.status === 'success') {
+      const ds = datasets.value.find(d => d.service_id === apiDatasetId.value);
+      if (ds) ds.api_enabled = newStatus;
+      successMessage.value = newStatus === 1 ? 'เปิดใช้งาน API Access สำเร็จ' : 'ปิดใช้งาน API Access สำเร็จ';
+      setTimeout(() => {
+        if (successMessage.value && successMessage.value.includes('API Access')) successMessage.value = '';
+      }, 3000);
+    } else {
+      isApiEnabled.value = !isApiEnabled.value;
+      errorMessage.value = res.data?.message || 'ไม่สามารถเปลี่ยนสถานะ API ได้';
+    }
+  } catch (err) {
+    console.error('Failed to toggle API status:', err);
+    isApiEnabled.value = !isApiEnabled.value;
+    errorMessage.value = 'เกิดข้อผิดพลาดในการเปลี่ยนสถานะ API';
+  }
+};
+
+const currentUploadDataset = computed(() => {
+  if (!uploadDatasetId.value) return null;
+  return datasets.value.find(d => d.service_id === uploadDatasetId.value);
+});
+
+const deleteDatasetFile = async (type) => {
+  if (!uploadDatasetId.value) return;
+  const label = type === 'dictionary' ? 'พจนานุกรมข้อมูล' : (type === 'main' ? 'ไฟล์ข้อมูล (API File)' : 'ไฟล์ Zip ตัวอย่าง');
+  if (!confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบ${label}ออกจากชุดข้อมูลนี้?`)) return;
+  
+  isSubmitting.value = true;
+  successMessage.value = '';
+  errorMessage.value = '';
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await postWithUser('/deleteDatasetFile', userData, {
+      service_id: uploadDatasetId.value,
+      file_type: type
+    });
+    if (res.data && res.data.status === 'success') {
+      successMessage.value = `ลบ${label}เรียบร้อยแล้ว`;
+      await fetchDatasets();
+    } else {
+      errorMessage.value = res.data?.message || 'ไม่สามารถลบไฟล์ได้';
+    }
+  } catch (err) {
+    console.error('Delete file error:', err);
+    errorMessage.value = err.response?.data?.message || 'เกิดข้อผิดพลาดในการลบไฟล์';
+  } finally {
+    isSubmitting.value = false;
+  }
+};
+
 const toggleRequestField = (name) => {
   const idx = apiRequestFields.value.indexOf(name);
   if (idx >= 0) apiRequestFields.value.splice(idx, 1);
@@ -511,7 +574,13 @@ const handleApiConfigSubmit = async () => {
     });
     if (res.data.status === 'success') {
       successMessage.value = 'บันทึกการตั้งค่า API เรียบร้อยแล้ว';
-      fetchDatasets();
+      const ds = datasets.value.find(d => d.service_id === apiDatasetId.value);
+      if (ds) {
+        ds.api_enabled = isApiEnabled.value ? 1 : 0;
+        ds.api_endpoint = apiEndpoint.value;
+        ds.api_type = apiType.value;
+      }
+      await fetchDatasets();
     } else {
       errorMessage.value = res.data.status || 'เกิดข้อผิดพลาด';
     }
@@ -943,7 +1012,7 @@ const updateDatasetPrefix = onSubgroupChange;
         <!-- Breadcrumbs -->
         <nav class="breadcrumbs" aria-label="Breadcrumb">
           <ol style="display: flex; align-items: center; gap: 8px; font-size: 0.875rem; color: #64748b; margin-bottom: 16px; list-style: none; padding: 0;">
-            <li>
+            <li v-if="canViewDashboard">
               <router-link to="/dashboard" style="color: #64748b; text-decoration: none; display: flex; align-items: center; transition: color 0.2s;" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='#64748b'">
                 <svg xmlns="http://www.w3.org/2000/svg" style="height: 16px; width: 16px; margin-right: 4px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
@@ -951,7 +1020,7 @@ const updateDatasetPrefix = onSubgroupChange;
                 หน้าหลัก
               </router-link>
             </li>
-            <li>/</li>
+            <li v-if="canViewDashboard">/</li>
             <li>
               <router-link to="/catalog" style="color: #64748b; text-decoration: none; transition: color 0.2s;" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='#64748b'">
                 บัญชีข้อมูล
@@ -1516,6 +1585,36 @@ const updateDatasetPrefix = onSubgroupChange;
               </select>
             </div>
 
+            <!-- Current attached files for selected dataset -->
+            <div v-if="currentUploadDataset && (currentUploadDataset.data_dictionary_path || currentUploadDataset.file_path || currentUploadDataset.excel_file_path || currentUploadDataset.data_sampling_path)" class="current-files-box" style="margin-bottom: 24px; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 16px;">
+              <h4 style="font-size: 0.875rem; font-weight: 700; color: #334155; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+                <span>📁</span> ไฟล์ที่แนบอยู่ในชุดข้อมูลนี้:
+              </h4>
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <div v-if="currentUploadDataset.data_dictionary_path" style="display: flex; justify-content: space-between; align-items: center; background: white; padding: 10px 14px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                  <span style="font-size: 0.85rem; color: #334155; display: flex; align-items: center; gap: 8px;">
+                    <span style="background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">Dictionary</span>
+                    <strong>{{ currentUploadDataset.data_dictionary_path }}</strong>
+                  </span>
+                  <button @click="deleteDatasetFile('dictionary')" class="text-rose-600 hover:text-rose-700 text-xs font-semibold px-2.5 py-1 rounded border border-rose-200 hover:bg-rose-50" :disabled="isSubmitting">ลบไฟล์</button>
+                </div>
+                <div v-if="currentUploadDataset.file_path || currentUploadDataset.excel_file_path" style="display: flex; justify-content: space-between; align-items: center; background: white; padding: 10px 14px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                  <span style="font-size: 0.85rem; color: #334155; display: flex; align-items: center; gap: 8px;">
+                    <span style="background: #dcfce7; color: #15803d; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">Data File</span>
+                    <strong>{{ currentUploadDataset.file_path || currentUploadDataset.excel_file_path }}</strong>
+                  </span>
+                  <button @click="deleteDatasetFile('main')" class="text-rose-600 hover:text-rose-700 text-xs font-semibold px-2.5 py-1 rounded border border-rose-200 hover:bg-rose-50" :disabled="isSubmitting">ลบไฟล์</button>
+                </div>
+                <div v-if="currentUploadDataset.data_sampling_path" style="display: flex; justify-content: space-between; align-items: center; background: white; padding: 10px 14px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                  <span style="font-size: 0.85rem; color: #334155; display: flex; align-items: center; gap: 8px;">
+                    <span style="background: #fef3c7; color: #b45309; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">Zip Sampling</span>
+                    <strong>{{ currentUploadDataset.data_sampling_path }}</strong>
+                  </span>
+                  <button @click="deleteDatasetFile('zip')" class="text-rose-600 hover:text-rose-700 text-xs font-semibold px-2.5 py-1 rounded border border-rose-200 hover:bg-rose-50" :disabled="isSubmitting">ลบไฟล์</button>
+                </div>
+              </div>
+            </div>
+
             <div class="file-type-selector">
               <label class="radio-card">
                 <input type="radio" value="dictionary" v-model="fileType" @change="selectedFile = null">
@@ -1549,7 +1648,7 @@ const updateDatasetPrefix = onSubgroupChange;
                 <p v-if="!selectedFile">ลากไฟล์มาวางที่นี่ หรือ <span>คลิกเพื่อเลือกไฟล์</span></p>
                 <p v-else class="text-green-600 font-bold">เลือกไฟล์แล้ว: {{ selectedFile.name }}</p>
                 <span class="text-xs text-slate-400" v-if="fileType === 'dictionary'">รองรับไฟล์ CSV, XLS, XLSX (เฉพาะพจนานุกรมข้อมูล)</span>
-                <span class="text-xs text-slate-400" v-else-if="fileType === 'main'">รองรับไฟล์ CSV, XLS, XLSX, XML, JSON (สำหรับให้บริการข้อมูล และนำไปเปิด API ผ่านเมนู API Management)</span>
+                <span class="text-xs text-slate-400" v-else-if="fileType === 'main'">รองรับไฟล์ CSV, XLS, XLSX, XML, JSON (ระบบจะเปิดใช้งานและสร้าง API ให้อัตโนมัติทันทีหลังอัปโหลด)</span>
                 <span class="text-xs text-slate-400" v-else-if="fileType === 'zip'">รองรับเฉพาะไฟล์ ZIP (สำหรับการดาวน์โหลดข้อมูลสุ่ม/ตัวอย่าง)</span>
               </div>
             </div>
@@ -1634,7 +1733,7 @@ const updateDatasetPrefix = onSubgroupChange;
               <div class="api-setup-card" style="margin-bottom:24px;">
                 <div class="api-opt-item">
                   <div class="toggle-container">
-                    <input type="checkbox" id="apiToggle" v-model="isApiEnabled">
+                    <input type="checkbox" id="apiToggle" v-model="isApiEnabled" @change="handleToggleApi">
                     <label for="apiToggle" class="toggle-slider"></label>
                   </div>
                   <span style="font-weight:600;color:#1e293b;">{{ isApiEnabled ? 'เปิดใช้งาน API Access แล้ว' : 'ปิดใช้งาน API Access' }}</span>
@@ -1711,6 +1810,16 @@ const updateDatasetPrefix = onSubgroupChange;
                     {{ isSubmitting ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่า API' }}
                   </button>
                 </div>
+              </div>
+
+              <!-- When API is disabled, show clean card and explicit save button -->
+              <div v-else class="api-setup-card" style="margin-top:16px; background:#f8fafc; border:1.5px dashed #cbd5e1; border-radius:12px; text-align:center; padding:32px 24px;">
+                <div style="font-size:1.5rem; margin-bottom:8px;">🔒</div>
+                <p style="color:#475569; font-weight:600; font-size:1rem; margin:0 0 6px 0;">ปิดการเข้าถึง API สำหรับชุดข้อมูลนี้แล้ว</p>
+                <p style="color:#64748b; font-size:0.85rem; margin:0 0 16px 0;">ระบบได้บันทึกการปิดใช้งาน API เรียบร้อยแล้ว หากต้องการกำหนดค่าและเปิดใช้งานใหม่ ให้เปิดสวิตช์ด้านบน</p>
+                <button @click="handleApiConfigSubmit" class="btn-save" :disabled="isSubmitting" style="margin:0 auto; font-size:0.875rem; padding:8px 20px; background:#64748b;">
+                  {{ isSubmitting ? 'กำลังบันทึก...' : 'ยืนยันบันทึกการปิดใช้งาน API' }}
+                </button>
               </div>
             </div>
             

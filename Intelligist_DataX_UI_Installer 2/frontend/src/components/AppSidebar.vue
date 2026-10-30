@@ -378,7 +378,7 @@ const settingItems = [
         <div class="divider"></div>
         <router-link to="/" class="global-link">หน้าแรก</router-link>
         <router-link to="/catalog" class="global-link">บัญชีข้อมูล</router-link>
-        <router-link to="/analytics" class="global-link">วิเคราะห์</router-link>
+        <router-link v-if="hasMenuAccess('/analytics')" to="/analytics" class="global-link">วิเคราะห์</router-link>
         <router-link to="/about" class="global-link">เกี่ยวกับเรา</router-link>
       </div>
     </div>

@@ -10,7 +10,7 @@ export const defaultLayout = [
     type: 'HeroSection',
     visible: true,
     props: {
-      badge: 'DATA EXCHANGE',
+      badge: 'Data Exchange',
       title: 'ศูนย์กลางบัญชีข้อมูลอัจฉริยะ<br/>และการแลกเปลี่ยนข้อมูลระดับองค์กร',
       desc: 'แพลตฟอร์มบริหารจัดการและแลกเปลี่ยนข้อมูลอย่างปลอดภัย<br/>ด้วยมาตรฐานสากล พร้อมระบบวิเคราะห์ข้อมูลเชิงลึกเพื่อการตัดสินใจ',
       btnPrimary: 'เริ่มต้นใช้งาน →',

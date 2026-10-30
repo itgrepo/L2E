@@ -9,6 +9,9 @@ const isAuthenticated = ref(false);
 const isMobileMenuOpen = ref(false);
 
 import { postWithUser } from '../utils/api';
+import { usePermissions } from '../utils/usePermissions';
+
+const { canViewAnalytics, loadPermissions } = usePermissions();
 
 const notifications = ref([]);
 const unreadCount = ref(0);
@@ -83,6 +86,7 @@ const authChangeHandler = () => {
   checkAuth();
   if (isAuthenticated.value) {
     fetchNotifications();
+    loadPermissions(true);
   } else {
     notifications.value = [];
     unreadCount.value = 0;
@@ -124,8 +128,10 @@ const closeMobileMenu = () => {
 
 onMounted(() => {
   checkAuth();
+  loadPermissions();
   window.addEventListener('storage', checkAuth);
   window.addEventListener('auth-change', authChangeHandler);
+  window.addEventListener('permissions-updated', () => loadPermissions(true));
   if (isAuthenticated.value) fetchNotifications();
 });
 </script>
@@ -140,7 +146,7 @@ onMounted(() => {
       <nav class="nav-links">
         <router-link to="/" active-class="active">หน้าแรก</router-link>
         <router-link to="/catalog" active-class="active">บัญชีข้อมูล</router-link>
-        <router-link to="/analytics" active-class="active">วิเคราะห์</router-link>
+        <router-link v-if="canViewAnalytics" to="/analytics" active-class="active">วิเคราะห์</router-link>
         <router-link to="/about" active-class="active">เกี่ยวกับเรา</router-link>
         <router-link to="/contact" active-class="active">ติดต่อเรา</router-link>
       </nav>
@@ -207,7 +213,7 @@ onMounted(() => {
         <nav class="mobile-nav-links">
           <router-link to="/" active-class="active" @click="closeMobileMenu">หน้าแรก</router-link>
           <router-link to="/catalog" active-class="active" @click="closeMobileMenu">บัญชีข้อมูล</router-link>
-          <router-link to="/analytics" active-class="active" @click="closeMobileMenu">วิเคราะห์</router-link>
+          <router-link v-if="canViewAnalytics" to="/analytics" active-class="active" @click="closeMobileMenu">วิเคราะห์</router-link>
           <router-link to="/about" active-class="active" @click="closeMobileMenu">เกี่ยวกับเรา</router-link>
           <router-link to="/contact" active-class="active" @click="closeMobileMenu">ติดต่อเรา</router-link>
         </nav>

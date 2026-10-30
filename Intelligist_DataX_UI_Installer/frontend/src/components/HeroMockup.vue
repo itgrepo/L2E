@@ -5,7 +5,7 @@
         <div class="dots">
           <span></span><span></span><span></span>
         </div>
-        <div class="mockup-title">Data Portal Preview</div>
+        <div class="mockup-title">Data Exchange Preview</div>
       </div>
       <div class="mockup-body">
         <div class="mockup-grid">

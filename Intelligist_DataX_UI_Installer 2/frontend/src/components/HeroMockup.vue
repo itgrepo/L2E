@@ -5,7 +5,7 @@
         <div class="dots">
           <span></span><span></span><span></span>
         </div>
-        <div class="mockup-title">Data Portal Preview</div>
+        <div class="mockup-title">Data Exchange Preview</div>
       </div>
       <div class="mockup-body">
         <div class="mockup-grid">
@@ -20,7 +20,7 @@
             <p>เชื่อมต่อข้อมูลผ่าน RESTful API อย่างปลอดภัย</p>
           </div>
           <div class="mockup-card">
-            <div class="icon-blob" style="background: #fdf2f8; color: var(--mso-accent);">📈</div>
+            <div class="icon-blob" style="background: var(--mso-pink-dark); color: var(--mso-accent);">📈</div>
             <h4>Analytics</h4>
             <p>วิเคราะห์ผลตอบสนองและข้อมูลเชิงลึก</p>
           </div>
@@ -78,7 +78,7 @@
 }
 .dots span:nth-child(1) { background-color: #fecaca; }
 .dots span:nth-child(2) { background-color: #fdf6b2; }
-.dots span:nth-child(3) { background-color: #fbcfe8; }
+.dots span:nth-child(3) { background-color: var(--mso-pink-dark); }
 
 .mockup-title {
   font-size: 0.85rem;

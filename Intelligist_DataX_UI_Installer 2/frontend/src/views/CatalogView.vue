@@ -3,8 +3,10 @@ import { ref, onMounted, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import AppSidebar from '../components/AppSidebar.vue';
 import apiClient, { encodeUserData } from '../utils/api';
+import { usePermissions } from '../utils/usePermissions';
 
 const router = useRouter();
+const { canViewDashboard, loadPermissions: loadPerms } = usePermissions();
 const searchQuery = ref('');
 
 
@@ -709,6 +711,7 @@ const fetchDatasets = async () => {
 };
 
 onMounted(async () => {
+  loadPerms();
   await fetchCategories();
   await fetchDatasets();
   syncServerFavorites();
@@ -724,7 +727,7 @@ onMounted(async () => {
         <!-- Breadcrumbs -->
         <nav class="breadcrumbs" aria-label="Breadcrumb">
           <ol style="display: flex; align-items: center; gap: 8px; font-size: 0.875rem; color: #64748b; margin-bottom: 16px; list-style: none; padding: 0;">
-            <li>
+            <li v-if="canViewDashboard">
               <router-link to="/dashboard" style="color: #64748b; text-decoration: none; display: flex; align-items: center; transition: color 0.2s;" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='#64748b'">
                 <svg xmlns="http://www.w3.org/2000/svg" style="height: 16px; width: 16px; margin-right: 4px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
@@ -732,7 +735,7 @@ onMounted(async () => {
                 หน้าหลัก
               </router-link>
             </li>
-            <li>/</li>
+            <li v-if="canViewDashboard">/</li>
             <li style="font-weight: 500; color: #1e293b;" aria-current="page">
               บัญชีข้อมูล
             </li>
@@ -1073,14 +1076,34 @@ onMounted(async () => {
 
             <!-- Dictionary Tab -->
             <div v-if="activeTab === 'dictionary'" class="tab-content transition-fade">
-              <div v-if="!selectedDataset?.api_response_fields || selectedDataset.api_response_fields.length === 0" style="padding: 40px 20px; text-align: center; color: #94a3b8; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0;">
+              <!-- Dictionary File Banner (if dictionary file attached) -->
+              <div v-if="selectedDataset?.data_dictionary_path" style="background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <div style="width: 40px; height: 40px; border-radius: 8px; background: #dcfce7; color: #16a34a; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">
+                    📑
+                  </div>
+                  <div>
+                    <div style="font-weight: 700; color: #166534; font-size: 0.95rem;">
+                      ไฟล์พจนานุกรมข้อมูล (Data Dictionary File)
+                    </div>
+                    <div style="font-size: 0.8rem; color: #15803d; margin-top: 2px; font-family: monospace;">
+                      {{ selectedDataset.data_dictionary_path }}
+                    </div>
+                  </div>
+                </div>
+                <button class="btn-download xls" style="flex: 0 0 auto; width: auto; min-width: auto; cursor: pointer; padding: 6px 16px; border-radius: 6px; font-weight: 600; font-size: 0.8rem; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap;" @click="openPreview('DICTIONARY')" title="ดาวน์โหลด Data Dictionary">
+                  📥 ดาวน์โหลดไฟล์พจนานุกรม
+                </button>
+              </div>
+
+              <div v-if="!selectedDataset?.data_dictionary_path && (!selectedDataset?.api_response_fields || selectedDataset.api_response_fields.length === 0)" style="padding: 40px 20px; text-align: center; color: #94a3b8; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0;">
                 <svg xmlns="http://www.w3.org/2000/svg" style="width: 44px; height: 44px; margin: 0 auto 10px auto; color: #cbd5e1;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                 </svg>
                 <h4 style="font-size: 1rem; font-weight: 600; color: #475569; margin: 0 0 4px 0;">ยังไม่มีพจนานุกรมข้อมูลสำหรับชุดข้อมูลนี้</h4>
                 <p style="font-size: 0.85rem; color: #94a3b8; margin: 0;">ชุดข้อมูลนี้ยังไม่มีการสร้าง API หรืออัปโหลดไฟล์พจนานุกรมข้อมูล (Data Dictionary)</p>
               </div>
-              <table v-else class="dictionary-table">
+              <table v-else-if="selectedDataset?.api_response_fields && selectedDataset.api_response_fields.length > 0" class="dictionary-table">
                 <thead>
                   <tr>
                     <th>ลำดับ</th>
@@ -1098,6 +1121,9 @@ onMounted(async () => {
                   </tr>
                 </tbody>
               </table>
+              <div v-else style="padding: 24px; text-align: center; color: #64748b;">
+                <p style="font-size: 0.85rem; margin: 0;">คลิกปุ่มดาวน์โหลดด้านบนเพื่อเปิดดูไฟล์พจนานุกรมข้อมูลฉบับสมบูรณ์</p>
+              </div>
             </div>
 
             <!-- Visual Tab -->
