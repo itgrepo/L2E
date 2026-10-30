@@ -1,6 +1,27 @@
 <script setup>
+import { computed } from 'vue';
 import { themeConfig } from '../utils/theme';
 import intelligistDataxLogo from '../assets/intelligist-datax-logo.png';
+
+const getTargetRoute = (path) => {
+  if (path === '/') return path;
+  if (path === '/about') return path;
+  
+  const user = JSON.parse(localStorage.getItem('user') || 'null');
+  if (!user) return '/'; // Guest
+
+  const userRoleId = String(user.role_id || user.previlage_id);
+  const isAdmin = user.isAdmin === 'true' || user.isAdmin === true || ['3', '4'].includes(userRoleId);
+  
+  if (isAdmin) return path;
+  
+  if (userRoleId === '1' && ['/catalog'].includes(path)) return path;
+  if (userRoleId === '2' && ['/dashboard', '/catalog', '/favorites'].includes(path)) return path;
+  if (userRoleId === '3' && ['/dashboard', '/catalog', '/favorites', '/api-management', '/api-monitor', '/dataset-approval', '/dataset-management', '/analytics'].includes(path)) return path;
+  if (userRoleId === '5' && ['/dashboard', '/catalog', '/favorites', '/api-management'].includes(path)) return path;
+  
+  return '/';
+};
 </script>
 
 <template>
@@ -15,25 +36,29 @@ import intelligistDataxLogo from '../assets/intelligist-datax-logo.png';
       </div>
       <div class="footer-links">
         <h4 style="color: white; margin-bottom: 1rem;">แพลตฟอร์ม</h4>
-        <a href="#">ชุดข้อมูล</a>
-        <a href="#">API Gateway</a>
-        <a href="#">โครงสร้างข้อมูล</a>
-        <a href="#">วิเคราะห์ข้อมูล</a>
+        <router-link :to="getTargetRoute('/catalog')">ชุดข้อมูล</router-link>
+        <router-link to="#">โครงสร้างข้อมูล</router-link>
+        <router-link :to="getTargetRoute('/analytics')">วิเคราะห์ข้อมูล</router-link>
       </div>
       <div class="footer-links">
         <h4 style="color: white; margin-bottom: 1rem;">หน่วยงาน</h4>
-        <a href="#">ผู้ให้บริการข้อมูล</a>
-        <a href="#">ผู้ใช้ข้อมูล</a>
-        <a href="#">คู่มือการใช้งาน</a>
-        <a href="#">นโยบายข้อมูล</a>
+        <router-link to="#">ผู้ให้บริการข้อมูล</router-link>
+        <router-link to="#">ผู้ใช้ข้อมูล</router-link>
+        <router-link to="#">คู่มือการใช้งาน</router-link>
+        <router-link to="#">นโยบายข้อมูล</router-link>
       </div>
       <div class="footer-links">
         <h4 style="color: white; margin-bottom: 1rem;">ติดต่อเรา</h4>
-        <a href="#">support@intelligist-datax.go.th</a>
-        <a href="#">เกี่ยวกับโครงการ</a>
-        <a href="#">เงื่อนไขการให้บริการ</a>
-        <a href="#">คำถามที่พบบ่อย</a>
+        <router-link to="/contact">learn2earn@bde.go.th</router-link>
+        <router-link to="/about">เกี่ยวกับโครงการ</router-link>
+        <router-link to="#">เงื่อนไขการให้บริการ</router-link>
+        <router-link to="/contact">ติดต่อเรา</router-link>
       </div>
+    </div>
+    
+    <div class="container footer-bottom" style="margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #1e293b; display: flex; justify-content: space-between; align-items: center; color: #64748b; font-size: 0.8rem; flex-wrap: wrap; gap: 1rem;">
+      <p>&copy; 2026 {{ themeConfig.siteName }}. All rights reserved.</p>
+      <p style="font-family: monospace; font-size: 0.75rem; color: #475569;">v1.3.3-prd (20260910)</p>
     </div>
   </footer>
 </template>
@@ -87,7 +112,27 @@ import intelligistDataxLogo from '../assets/intelligist-datax-logo.png';
 }
 
 @media (max-width: 768px) {
-  .footer { padding: 40px 0 30px; }
-  .footer-grid { grid-template-columns: 1fr; gap: 2rem; }
+  .footer { 
+    padding: 32px 16px 40px !important; 
+    width: 100% !important;
+    max-width: 100vw !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    transform: none !important;
+    box-sizing: border-box !important;
+  }
+  .footer-grid { 
+    grid-template-columns: 1fr !important; 
+    gap: 2rem !important; 
+    width: 100% !important;
+    margin: 0 !important;
+  }
+  .footer-links {
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+  .footer-brand p {
+    word-break: break-word;
+  }
 }
 </style>

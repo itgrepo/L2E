@@ -37,7 +37,6 @@ const getTargetRoute = (path) => {
       <div class="footer-links">
         <h4 style="color: white; margin-bottom: 1rem;">แพลตฟอร์ม</h4>
         <router-link :to="getTargetRoute('/catalog')">ชุดข้อมูล</router-link>
-        <router-link :to="getTargetRoute('/api-management')">API Gateway</router-link>
         <router-link to="#">โครงสร้างข้อมูล</router-link>
         <router-link :to="getTargetRoute('/analytics')">วิเคราะห์ข้อมูล</router-link>
       </div>
