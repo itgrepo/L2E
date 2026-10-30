@@ -88,8 +88,6 @@ const selectUser = async (userObj) => {
     userGroups.value = [];
     userDatasets.value = [];
     
-    // Manual mapping since no direct /getUserDatasets API yet:
-    // We will find which groups have this user, then which datasets those groups have.
     const userParam = getUserParam();
     
     let resolvedGroups = [];
@@ -99,21 +97,36 @@ const selectUser = async (userObj) => {
         // Fetch members of this group
         try {
             const memberRes = await apiClient.post('/getGroupMembers', { user: userParam, group_id: group.group_id });
-            if (memberRes.data?.status === 'success') {
+            if (memberRes.data?.status === 'success' && memberRes.data.assigned) {
                 const isMember = memberRes.data.assigned.some(u => u.user_id === userObj.user_id);
                 if (isMember) {
                     resolvedGroups.push(group);
                     // Fetch datasets for this group
                     const dRes = await apiClient.post('/getGroupDatasetAccess', { user: userParam, group_id: group.group_id });
-                    if (dRes.data?.status === 'success') {
+                    if (dRes.data?.status === 'success' && dRes.data.assigned) {
                         dRes.data.assigned.forEach(d => {
-                            resolvedDatasetsMap.set(d.service_id, d);
+                            resolvedDatasetsMap.set(d.service_id, { ...d, source: `กลุ่ม: ${group.group_name}` });
                         });
                     }
                 }
             }
         } catch (e) {}
     }
+
+    // Also fetch direct datasets (By User)
+    try {
+        const directRes = await apiClient.post('/getUserDatasetAccess', { user: userParam, user_id: userObj.user_id });
+        if (directRes.data?.status === 'success' && Array.isArray(directRes.data.assigned)) {
+            directRes.data.assigned.forEach(d => {
+                if (resolvedDatasetsMap.has(d.service_id)) {
+                    const existing = resolvedDatasetsMap.get(d.service_id);
+                    existing.source = `${existing.source}, รายบุคคล (Direct)`;
+                } else {
+                    resolvedDatasetsMap.set(d.service_id, { ...d, source: 'รายบุคคล (Direct)' });
+                }
+            });
+        }
+    } catch (e) {}
 
     userGroups.value = resolvedGroups;
     userDatasets.value = Array.from(resolvedDatasetsMap.values());
@@ -151,22 +164,37 @@ const selectDataset = async (datasetObj) => {
     for (const group of groups.value) {
         try {
             const dRes = await apiClient.post('/getGroupDatasetAccess', { user: userParam, group_id: group.group_id });
-            if (dRes.data?.status === 'success') {
+            if (dRes.data?.status === 'success' && dRes.data.assigned) {
                 const hasAccess = dRes.data.assigned.some(d => String(d.service_id) === String(datasetObj.service_id));
                 if (hasAccess) {
                     resolvedGroups.push(group);
                     
                     // Fetch users in this group
                     const memberRes = await apiClient.post('/getGroupMembers', { user: userParam, group_id: group.group_id });
-                    if (memberRes.data?.status === 'success') {
+                    if (memberRes.data?.status === 'success' && memberRes.data.assigned) {
                         memberRes.data.assigned.forEach(u => {
-                            resolvedUsersMap.set(u.user_id, u);
+                            resolvedUsersMap.set(u.user_id, { ...u, source: `กลุ่ม: ${group.group_name}` });
                         });
                     }
                 }
             }
         } catch (e) {}
     }
+
+    // Also fetch direct users (By User)
+    try {
+        const directUserRes = await apiClient.post('/getDatasetAccessUsers', { user: userParam, service_id: datasetObj.service_id });
+        if (directUserRes.data?.status === 'success' && Array.isArray(directUserRes.data.assigned)) {
+            directUserRes.data.assigned.forEach(u => {
+                if (resolvedUsersMap.has(u.user_id)) {
+                    const existing = resolvedUsersMap.get(u.user_id);
+                    existing.source = `${existing.source}, รายบุคคล (Direct)`;
+                } else {
+                    resolvedUsersMap.set(u.user_id, { ...u, source: 'รายบุคคล (Direct)' });
+                }
+            });
+        }
+    } catch (e) {}
     
     datasetGroups.value = resolvedGroups;
     datasetUsers.value = Array.from(resolvedUsersMap.values());
@@ -278,7 +306,8 @@ onMounted(() => {
                       <h4 class="col-title">ชุดข้อมูลที่เข้าถึงได้ ({{ userDatasets.length }})</h4>
                       <div v-if="userDatasets.length === 0" class="empty-text">ไม่มีข้อมูล</div>
                       <div v-for="d in userDatasets" :key="d.service_id" class="sub-node dataset-node">
-                          {{ d.service_name }}
+                          <div>{{ d.service_name }}</div>
+                          <div v-if="d.source" style="font-size: 0.72rem; color: #64748b; margin-top: 2px;">({{ d.source }})</div>
                       </div>
                   </div>
               </div>
@@ -378,7 +407,8 @@ onMounted(() => {
                   <div class="node-column end-col">
                       <h4 class="col-title">ผู้สืบทอดสิทธิ์ ({{ datasetUsers.length }})</h4>
                       <div v-for="u in datasetUsers" :key="u.user_id" class="sub-node user-node">
-                          {{ u.username }}
+                          <div>{{ u.username }}</div>
+                          <div v-if="u.source" style="font-size: 0.72rem; color: #64748b; margin-top: 2px;">({{ u.source }})</div>
                       </div>
                   </div>
                   

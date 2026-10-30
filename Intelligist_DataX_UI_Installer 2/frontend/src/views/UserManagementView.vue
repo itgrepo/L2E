@@ -758,14 +758,14 @@ onMounted(() => {
                 </div>
                 <div class="mc-row">
                   <span class="mc-label">หน่วยงาน</span>
-                  <div class="role-selector-box mobile-select" v-if="u.previlage_id == 3">
+                  <div class="role-selector-box mobile-select" v-if="u.previlage_id == 3 || u.previlage_id == 5">
                     <select 
                         :value="u.org_id" 
                         @change="handleOrgChange(u, $event.target.value)"
                         class="role-select"
                         :title="getOrgName(u.org_id)"
                     >
-                        <option value="" disabled>เลือกหน่วยงาน</option>
+                        <option value="" :disabled="u.previlage_id == 3">เลือกหน่วยงาน</option>
                         <option v-for="org in organizations" :key="org.org_id" :value="org.org_id" :title="org.org_name">
                             {{ org.org_name }}
                         </option>
@@ -871,14 +871,14 @@ onMounted(() => {
                   </div>
                 </td>
                 <td class="org-cell">
-                    <div class="role-selector-box" v-if="u.previlage_id == 3">
+                    <div class="role-selector-box" v-if="u.previlage_id == 3 || u.previlage_id == 5">
                       <select 
                           :value="u.org_id" 
                           @change="handleOrgChange(u, $event.target.value)"
                           class="role-select org-select"
                           :title="getOrgName(u.org_id)"
                       >
-                          <option value="" disabled>เลือกหน่วยงาน</option>
+                          <option value="" :disabled="u.previlage_id == 3">เลือกหน่วยงาน</option>
                           <option v-for="org in organizations" :key="org.org_id" :value="org.org_id" :title="org.org_name">
                               {{ org.org_name }}
                           </option>

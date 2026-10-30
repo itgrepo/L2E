@@ -94,8 +94,14 @@ def downloadFile(service_id):
                 cursor.execute("SELECT 1 FROM service_user_access WHERE service_id = %s AND user_id = %s", (service_id, user_id))
                 if cursor.fetchone():
                     has_perm = True
-                else:
-                    cursor.execute("SELECT 1 FROM service_group_access sga JOIN group_user_detail gud ON sga.group_id = gud.group_id WHERE sga.service_id = %s AND gud.user_id = %s", (service_id, user_id))
+                elif access_type_lower == 'internal':
+                    cursor.execute("""
+                        SELECT 1 FROM group_user_detail gud
+                        WHERE gud.user_id = %s AND (
+                            EXISTS (SELECT 1 FROM service WHERE service_id = %s AND l2e_group_id = gud.group_id)
+                            OR EXISTS (SELECT 1 FROM service_group_access sga WHERE sga.service_id = %s AND sga.group_id = gud.group_id)
+                        )
+                    """, (user_id, service_id, service_id))
                     if cursor.fetchone():
                         has_perm = True
                         

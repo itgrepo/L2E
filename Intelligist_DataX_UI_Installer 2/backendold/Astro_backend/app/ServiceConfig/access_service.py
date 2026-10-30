@@ -301,3 +301,43 @@ def updateGroupDatasetAccess():
         return jsonify({'status': 'success', 'message': 'Group dataset access updated'})
     except Exception as e:
         return jsonify({"status": "Error: " + str(e)})
+
+@app.route('/getUserDatasetAccess', methods=['POST'])
+def getUserDatasetAccess():
+    try:
+        dataInput = request.json
+        decoded_user = platform_decode(dataInput.get('user'))
+        user_data = safe_json_loads(decoded_user)
+        target_user_id = dataInput.get('user_id')
+
+        if not user_data or not checkUserIsAdmin(user_data):
+            return jsonify({"status": "Permission Denied"})
+            
+        if not target_user_id:
+            return jsonify({"status": "User ID is required"})
+
+        conn = mysql.connect()
+        cursor = conn.cursor()
+        
+        # 1. Get datasets directly assigned to this user via service_user_access
+        sql_assigned = """
+            SELECT s.service_id, s.service_name, s.organization,
+                   s.category, s.sub_category, s.dataset_id, s.l2e_group_id,
+                   'direct' AS access_source
+            FROM service_user_access sua
+            JOIN service s ON sua.service_id = s.service_id
+            WHERE sua.user_id = %s AND s.status != 'Deleted'
+        """
+        cursor.execute(sql_assigned, (target_user_id,))
+        assigned_data = cursor.fetchall()
+        assigned_cols = [col[0] for col in cursor.description]
+        assigned_datasets = toJson(assigned_data, assigned_cols)
+        
+        conn.close()
+        return jsonify({
+            'status': 'success', 
+            'assigned': assigned_datasets
+        })
+    except Exception as e:
+        return jsonify({"status": "Error: " + str(e)})
+

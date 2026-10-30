@@ -1397,10 +1397,12 @@ def retrieveService():
                            WHEN s.access_type IN ('internal', 'restricted') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s AND (sua.allow_dashboard = 1 OR sua.allow_dashboard IS NULL)
                            ) THEN 1
-                           WHEN s.access_type IN ('internal', 'restricted') AND %s IS NOT NULL AND EXISTS (
-                               SELECT 1 FROM service_group_access sga
-                               JOIN group_user_detail gud ON sga.group_id = gud.group_id
-                               WHERE sga.service_id = s.service_id AND gud.user_id = %s
+                           WHEN s.access_type = 'internal' AND %s IS NOT NULL AND EXISTS (
+                               SELECT 1 FROM group_user_detail gud
+                               WHERE gud.user_id = %s AND (
+                                   (s.l2e_group_id IS NOT NULL AND gud.group_id = s.l2e_group_id)
+                                   OR EXISTS (SELECT 1 FROM service_group_access sga WHERE sga.service_id = s.service_id AND sga.group_id = gud.group_id)
+                               )
                            ) THEN 1
                            ELSE 0
                        END) AS has_dashboard_access,
@@ -1412,10 +1414,12 @@ def retrieveService():
                            WHEN s.access_type IN ('internal', 'restricted') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s AND (sua.allow_api = 1 OR sua.allow_api IS NULL)
                            ) THEN 1
-                           WHEN s.access_type IN ('internal', 'restricted') AND %s IS NOT NULL AND EXISTS (
-                               SELECT 1 FROM service_group_access sga
-                               JOIN group_user_detail gud ON sga.group_id = gud.group_id
-                               WHERE sga.service_id = s.service_id AND gud.user_id = %s
+                           WHEN s.access_type = 'internal' AND %s IS NOT NULL AND EXISTS (
+                               SELECT 1 FROM group_user_detail gud
+                               WHERE gud.user_id = %s AND (
+                                   (s.l2e_group_id IS NOT NULL AND gud.group_id = s.l2e_group_id)
+                                   OR EXISTS (SELECT 1 FROM service_group_access sga WHERE sga.service_id = s.service_id AND sga.group_id = gud.group_id)
+                               )
                            ) THEN 1
                            ELSE 0
                        END) AS has_api_access,
@@ -1435,10 +1439,12 @@ def retrieveService():
                            WHEN s.access_type IN ('internal', 'restricted') AND %s IS NOT NULL AND EXISTS (
                                SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s
                            ) THEN 1
-                           WHEN s.access_type IN ('internal', 'restricted') AND %s IS NOT NULL AND EXISTS (
-                               SELECT 1 FROM service_group_access sga
-                               JOIN group_user_detail gud ON sga.group_id = gud.group_id
-                               WHERE sga.service_id = s.service_id AND gud.user_id = %s
+                           WHEN s.access_type = 'internal' AND %s IS NOT NULL AND EXISTS (
+                               SELECT 1 FROM group_user_detail gud
+                               WHERE gud.user_id = %s AND (
+                                   (s.l2e_group_id IS NOT NULL AND gud.group_id = s.l2e_group_id)
+                                   OR EXISTS (SELECT 1 FROM service_group_access sga WHERE sga.service_id = s.service_id AND sga.group_id = gud.group_id)
+                               )
                            ) THEN 1
                            ELSE 0
                        END) AS has_access,
@@ -1462,9 +1468,11 @@ def retrieveService():
                                   SELECT 1 FROM service_user_access sua WHERE sua.service_id = s.service_id AND sua.user_id = %s
                               ))
                               OR (%s IS NOT NULL AND EXISTS (
-                                  SELECT 1 FROM service_group_access sga
-                                  JOIN group_user_detail gud ON sga.group_id = gud.group_id
-                                  WHERE sga.service_id = s.service_id AND gud.user_id = %s
+                                  SELECT 1 FROM group_user_detail gud
+                                  WHERE gud.user_id = %s AND (
+                                      (s.l2e_group_id IS NOT NULL AND gud.group_id = s.l2e_group_id)
+                                      OR EXISTS (SELECT 1 FROM service_group_access sga WHERE sga.service_id = s.service_id AND sga.group_id = gud.group_id)
+                                  )
                               ))
                           )
                       )
