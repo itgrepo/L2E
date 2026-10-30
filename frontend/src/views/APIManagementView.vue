@@ -140,10 +140,7 @@ const editExpiryDate = ref('');
 const openEditExpiryForm = (cred) => {
   editExpiryCred.value = cred;
   if (cred.expires_at) {
-    const d = new Date(cred.expires_at);
-    const tzoffset = (new Date()).getTimezoneOffset() * 60000;
-    const localISOTime = (new Date(d - tzoffset)).toISOString().slice(0, 16);
-    editExpiryDate.value = localISOTime;
+    editExpiryDate.value = String(cred.expires_at).replace(' ', 'T').slice(0, 16);
   } else {
     editExpiryDate.value = '';
   }
@@ -154,11 +151,9 @@ const saveEditExpiry = async () => {
   try {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     const payload = {
-      credential_id: editExpiryCred.value.credential_id
+      credential_id: editExpiryCred.value.credential_id,
+      expires_at: editExpiryDate.value || null
     };
-    if (editExpiryDate.value) {
-      payload.expires_at = new Date(editExpiryDate.value).toISOString();
-    }
     
     const res = await postWithUser('/extendApiCredential', userData, payload);
     if (res.data.status === 'success') {
@@ -476,10 +471,7 @@ const openEditScopeForm = async (scope) => {
   
   // Format expiry date for datetime-local input (YYYY-MM-DDThh:mm)
   if (scope.expires_at) {
-    const d = new Date(scope.expires_at);
-    const tzoffset = (new Date()).getTimezoneOffset() * 60000; // offset in milliseconds
-    const localISOTime = (new Date(d - tzoffset)).toISOString().slice(0, 16);
-    scopeFormExpiry.value = localISOTime;
+    scopeFormExpiry.value = String(scope.expires_at).replace(' ', 'T').slice(0, 16);
   } else {
     scopeFormExpiry.value = '';
   }
@@ -710,13 +702,9 @@ const saveScopeForm = async () => {
       target_user_id: scopeFormUser.value,
       request_fields: scopeFormRequestFields.value,
       response_fields: scopeFormResponseFields.value,
-      scope_json: scopePayload
+      scope_json: scopePayload,
+      expires_at: scopeFormExpiry.value || null
     };
-    if (scopeFormExpiry.value) {
-      // Convert local datetime back to standard format for backend
-      const utcDate = new Date(scopeFormExpiry.value).toISOString();
-      payload.expires_at = utcDate;
-    }
     
     const res = await apiClient.post('/saveApiScopeForUser', payload);
     
@@ -754,11 +742,9 @@ const saveAddUserForm = async () => {
     const payload = {
       user: encodeUserData(userData),
       service_id: selectedService.value.service_id,
-      target_user_id: addUserFormUserId.value
+      target_user_id: addUserFormUserId.value,
+      expires_at: addUserFormExpiry.value || null
     };
-    if (addUserFormExpiry.value) {
-      payload.expires_at = new Date(addUserFormExpiry.value).toISOString();
-    }
     
     const res = await apiClient.post('/addApiCredential', payload);
     

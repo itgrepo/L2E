@@ -1,270 +1,130 @@
 <script setup>
-import { ref, onMounted, watch, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import AppSidebar from '../components/AppSidebar.vue';
-import apiClient, { postWithUser } from '../utils/api';
+import apiClient, { postWithUser, encodeUserData } from '../utils/api';
 
-const isLoading = ref(false);
-const showKey = ref(null);
+const activeTab = ref('general');
 const services = ref([]);
-const selectedServiceId = ref(null);
-const credentials = ref([]);
+const availableDatasetsForApi = computed(() => {
+  return services.value.filter(s => !s.dataset_id || !s.dataset_id.startsWith('API_CLONE_'));
+});
+const generalApiServices = computed(() => {
+  return services.value.filter(s => 
+    s.api_endpoint && s.api_endpoint.trim() !== '' &&
+    (s.api_enabled == 1 || s.api_enabled === '1' || s.api_enabled === true) && 
+    s.api_type !== 'scope'
+  );
+});
+
+const scopeApiServices = computed(() => {
+  return services.value.filter(s => 
+    ((s.api_endpoint && s.api_endpoint.trim() !== '') || s.api_enabled == 1 || s.api_enabled === '1' || s.api_enabled === true) && 
+    s.api_type === 'scope'
+  );
+});
+const isLoading = ref(false);
 const message = ref({ text: '', type: '' });
-const hideRevoked = ref(true);
 
-// Add credential form
-const showAddForm = ref(false);
-const availableUsers = ref([]);
-const selectedUserId = ref('');
-const generatedKey = ref('');
+// API GENERAL - Add API Modal
+const showAddApiModal = ref(false);
+const apiForm = ref({
+  report_id: '',
+  service_name: '',
+  api_endpoint: '',
+  service_description: '',
+  api_type: 'general',
+  api_enabled: 'Active = Enable',
+  api_db_name: '',
+  api_source_name: '',
+  request_fields: [],
+  response_fields: []
+});
 
-// Scope modal
-const showScopeModal = ref(false);
-const editingCredential = ref(null);
-const scopeEntries = ref([]);
-const newScopeField = ref('');
-const newScopeValue = ref('');
+// Manage API Access (BY USER) Modal
+const showManageAccessModal = ref(false);
+const selectedService = ref(null);
+const credentials = ref([]);
+const showKey = ref(null);
 
-// Expiration / UI
-const selectedExpiresAt = ref('');
-const showExtendModal = ref(false);
-const editingExtendCredential = ref(null);
-const newExpiresAt = ref('');
-
-// Service metadata for scope fields
-const selectedServiceMeta = ref(null);
-
-const fetchServices = async () => {
+const canManageApi = (svc) => {
   try {
-    const response = await apiClient.get('/retrieveService');
-    if (response.data.status === 'success') {
-      services.value = response.data.data.filter(s => 
-        s.api_enabled == 1 || s.api_enabled === true || s.api_enabled === '1'
-      );
-      if (services.value.length > 0 && !selectedServiceId.value) {
-        selectedServiceId.value = services.value[0].service_id;
-      }
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const role = String(user.previlage_id || user.role_id || '');
+    if (role === '4') return true;
+    const uid = user.user_id || user.id;
+    if (svc.created_by && uid && String(svc.created_by) === String(uid)) return true;
+    if (!svc.created_by && svc.contact_email && user.email) {
+      return svc.contact_email.trim().toLowerCase() === user.email.trim().toLowerCase();
     }
-  } catch (error) {
-    console.error('Error fetching services:', error);
+    return false;
+  } catch (e) {
+    return false;
   }
 };
 
-const fetchCredentials = async () => {
-  if (!selectedServiceId.value) return;
+const toggleMainServiceStatus = async (svc) => {
+  if (!canManageApi(svc)) {
+    alert('คุณไม่มีสิทธิ์เปลี่ยนสถานะ API นี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้');
+    return;
+  }
+  const isCurrentlyEnabled = (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true);
+  const newStatus = isCurrentlyEnabled ? 0 : 1;
+  const newStatusStr = newStatus === 1 ? 'Enabled' : 'Disabled';
+  
+  if (!confirm(`Are you sure you want to change the API status of ${svc.service_name} to ${newStatusStr}?`)) return;
+  
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await postWithUser('/toggleApiEnabled', userData, {
+      service_id: svc.service_id,
+      api_enabled: newStatus
+    });
+    
+    if (res.data.status === 'success') {
+      await fetchServices();
+      fetchDatabases(); // Refresh list
+    } else {
+      alert('Error: ' + res.data.message);
+    }
+  } catch (e) {
+    console.error(e);
+    alert('An error occurred while updating the API status.');
+  }
+};
+
+const fetchServices = async () => {
   isLoading.value = true;
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const response = await postWithUser('/getApiServices', userData);
+    if (response.data.status === 'success') {
+      services.value = response.data.data;
+    }
+  } catch (error) {
+    console.error('Error fetching services:', error);
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+const openManageAccess = async (service) => {
+  selectedService.value = service;
+  showManageAccessModal.value = true;
+  await fetchCredentials(service.service_id);
+};
+
+const fetchCredentials = async (serviceId) => {
   credentials.value = [];
   try {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     const response = await postWithUser('/getApiCredentials', userData, {
-      service_id: selectedServiceId.value
+      service_id: serviceId
     });
     if (response.data.status === 'success') {
       credentials.value = response.data.data;
     }
   } catch (error) {
     console.error('Error fetching credentials:', error);
-  } finally {
-    isLoading.value = false;
-  }
-};
-
-const fetchUsers = async () => {
-  try {
-    const userData = JSON.parse(localStorage.getItem('user') || '{}');
-    const response = await postWithUser('/getAvailableUsers', userData);
-    if (response.data.status === 'success') {
-      availableUsers.value = response.data.data;
-    }
-  } catch (error) {
-    console.error('Error fetching users:', error);
-  }
-};
-
-const generateKey = () => {
-  const arr = new Uint8Array(16);
-  crypto.getRandomValues(arr);
-  generatedKey.value = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
-};
-
-const addCredential = async () => {
-  if (!selectedServiceId.value || !selectedUserId.value) {
-    message.value = { text: 'กรุณาเลือกผู้ใช้', type: 'error' };
-    return;
-  }
-  if (!generatedKey.value) generateKey();
-
-  isLoading.value = true;
-  message.value = { text: '', type: '' };
-  try {
-    const userData = JSON.parse(localStorage.getItem('user') || '{}');
-    
-    let finalDate = selectedExpiresAt.value;
-    if (finalDate && finalDate.length === 16) {
-        finalDate = finalDate + ':00'; // add seconds since datetime-local doesn't include it by default
-    }
-
-    const response = await postWithUser('/addApiCredential', userData, {
-      service_id: selectedServiceId.value,
-      target_user_id: selectedUserId.value,
-      secret_key: generatedKey.value,
-      expires_at: finalDate || null
-    });
-    if (response.data.status === 'success') {
-      message.value = { text: 'สร้าง API Key สำเร็จ!', type: 'success' };
-      
-      // Update local storage if creating key for self
-      const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-      if (selectedUserId.value == currentUser.user_id || selectedUserId.value == '809') { // 809 is testadmin ID
-          currentUser.apikey = generatedKey.value;
-          localStorage.setItem('user', JSON.stringify(currentUser));
-      }
-
-      showAddForm.value = false;
-      selectedUserId.value = '';
-      generatedKey.value = '';
-      selectedExpiresAt.value = '';
-      fetchCredentials();
-    } else {
-      message.value = { text: response.data.status, type: 'error' };
-    }
-  } catch (error) {
-    message.value = { text: 'เกิดข้อผิดพลาด', type: 'error' };
-  } finally {
-    isLoading.value = false;
-  }
-};
-
-const toggleCredentialStatus = async (cred) => {
-  if (cred.status === 'active') {
-    if (!confirm('ต้องการระงับการใช้งาน API Key นี้ (Pause) ?')) return;
-    try {
-      const userData = JSON.parse(localStorage.getItem('user') || '{}');
-      await postWithUser('/revokeApiCredential', userData, { credential_id: cred.credential_id });
-      message.value = { text: 'ระงับการใช้งาน Key สำเร็จ', type: 'success' };
-      fetchCredentials();
-    } catch (error) {
-      message.value = { text: 'เกิดข้อผิดพลาด', type: 'error' };
-    }
-  } else {
-    if (!confirm('ต้องการยกเลิกการเพิกถอนและเปิดใช้งาน API Key นี้อีกครั้ง (Resume) ?')) return;
-    try {
-      const userData = JSON.parse(localStorage.getItem('user') || '{}');
-      await postWithUser('/resumeApiCredential', userData, { credential_id: cred.credential_id });
-      message.value = { text: 'เปิดใช้งาน Key สำเร็จ', type: 'success' };
-      fetchCredentials();
-    } catch (error) {
-      message.value = { text: 'เกิดข้อผิดพลาด', type: 'error' };
-    }
-  }
-};
-
-const deleteCredential = async (credentialId) => {
-  if (!confirm('ต้องการลบ API Key นี้ถาวร? การลบจะไม่สามารถกู้คืนได้')) return;
-  try {
-    const userData = JSON.parse(localStorage.getItem('user') || '{}');
-    const response = await postWithUser('/deleteApiCredential', userData, { credential_id: credentialId });
-    if (response.data.status === 'success') {
-      message.value = { text: 'ลบ API Key สำเร็จ', type: 'success' };
-      fetchCredentials();
-    } else {
-      message.value = { text: 'ไม่สามารถลบได้: ' + response.data.status, type: 'error' };
-    }
-  } catch (error) {
-    message.value = { text: 'เกิดข้อผิดพลาดในการลบ', type: 'error' };
-  }
-};
-
-const isExpired = (expiresAt) => {
-  if (!expiresAt) return false;
-  return new Date(expiresAt) < new Date();
-};
-
-const openExtendModal = (cred) => {
-  editingExtendCredential.value = cred;
-  if (cred.expires_at) {
-    newExpiresAt.value = cred.expires_at.replace(' ', 'T').slice(0, 16);
-  } else {
-    newExpiresAt.value = '';
-  }
-  showExtendModal.value = true;
-};
-
-const saveExtension = async () => {
-  if (!editingExtendCredential.value) return;
-  try {
-    const userData = JSON.parse(localStorage.getItem('user') || '{}');
-    let finalDate = newExpiresAt.value;
-    if (finalDate && finalDate.length === 16) {
-        finalDate = finalDate + ':00';
-    } else if (!finalDate) {
-        finalDate = null;
-    }
-    await postWithUser('/extendApiCredential', userData, { 
-      credential_id: editingExtendCredential.value.credential_id,
-      expires_at: finalDate
-    });
-    message.value = { text: 'ปรับเปลี่ยนวันหมดอายุสำเร็จ', type: 'success' };
-    showExtendModal.value = false;
-    fetchCredentials();
-  } catch (error) {
-    message.value = { text: 'เกิดข้อผิดพลาดในการปรับเวลา', type: 'error' };
-  }
-};
-
-const openScopeModal = (cred) => {
-  editingCredential.value = cred;
-  // Parse existing scope_json into entries
-  const scopeObj = cred.scope_json || {};
-  scopeEntries.value = Object.entries(scopeObj).map(([field, values]) => ({
-    field,
-    values: Array.isArray(values) ? values : [values]
-  }));
-  
-  // Load service meta for field options
-  const svc = services.value.find(s => s.service_id === selectedServiceId.value);
-  selectedServiceMeta.value = svc;
-  
-  showScopeModal.value = true;
-};
-
-const addScopeEntry = () => {
-  if (!newScopeField.value || !newScopeValue.value) return;
-  const existing = scopeEntries.value.find(e => e.field === newScopeField.value);
-  if (existing) {
-    if (!existing.values.includes(newScopeValue.value)) {
-      existing.values.push(newScopeValue.value);
-    }
-  } else {
-    scopeEntries.value.push({ field: newScopeField.value, values: [newScopeValue.value] });
-  }
-  newScopeValue.value = '';
-};
-
-const removeScopeValue = (fieldIdx, valIdx) => {
-  scopeEntries.value[fieldIdx].values.splice(valIdx, 1);
-  if (scopeEntries.value[fieldIdx].values.length === 0) {
-    scopeEntries.value.splice(fieldIdx, 1);
-  }
-};
-
-const saveScopeChanges = async () => {
-  if (!editingCredential.value) return;
-  const scopeObj = {};
-  scopeEntries.value.forEach(entry => {
-    scopeObj[entry.field] = entry.values;
-  });
-
-  try {
-    const userData = JSON.parse(localStorage.getItem('user') || '{}');
-    await postWithUser('/updateApiScope', userData, {
-      credential_id: editingCredential.value.credential_id,
-      scope_json: scopeObj
-    });
-    message.value = { text: 'บันทึก Scope สำเร็จ', type: 'success' };
-    showScopeModal.value = false;
-    fetchCredentials();
-  } catch (error) {
-    message.value = { text: 'เกิดข้อผิดพลาดในการบันทึก Scope', type: 'error' };
   }
 };
 
@@ -272,33 +132,668 @@ const toggleKey = (id) => {
   showKey.value = showKey.value === id ? null : id;
 };
 
-const selectedServiceType = computed(() => {
-  const svc = services.value.find(s => s.service_id === selectedServiceId.value);
-  return svc?.api_type || 'public';
-});
 
-const requestFieldOptions = computed(() => {
-  const svc = services.value.find(s => s.service_id === selectedServiceId.value);
-  if (!svc?.api_request_fields) return [];
+const showEditExpiryModal = ref(false);
+const editExpiryCred = ref(null);
+const editExpiryDate = ref('');
+
+const openEditExpiryForm = (cred) => {
+  editExpiryCred.value = cred;
+  if (cred.expires_at) {
+    editExpiryDate.value = String(cred.expires_at).replace(' ', 'T').slice(0, 16);
+  } else {
+    editExpiryDate.value = '';
+  }
+  showEditExpiryModal.value = true;
+};
+
+const saveEditExpiry = async () => {
   try {
-    const fields = typeof svc.api_request_fields === 'string' ? JSON.parse(svc.api_request_fields) : svc.api_request_fields;
-    return Array.isArray(fields) ? fields : [];
-  } catch { return []; }
-});
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const payload = {
+      credential_id: editExpiryCred.value.credential_id,
+      expires_at: editExpiryDate.value || null
+    };
+    
+    const res = await postWithUser('/extendApiCredential', userData, payload);
+    if (res.data.status === 'success') {
+      showEditExpiryModal.value = false;
+      fetchServices();
+  fetchDatabases();
+      if (selectedService.value) {
+        fetchCredentialsForService(selectedService.value.service_id);
+      }
+      if (scopeSelectedService.value) {
+        fetchScopesForService(scopeSelectedService.value.service_id);
+      }
+    } else {
+      alert('Error updating expiry: ' + res.data.status);
+    }
+  } catch (e) {
+    console.error(e);
+  }
+};
 
-const filteredCredentials = computed(() => {
-  if (!hideRevoked.value) return credentials.value;
-  return credentials.value.filter(cred => cred.status === 'active');
-});
+const handleCredentialAction = async (endpoint, cred) => {
+  if (!confirm(`Are you sure you want to ${endpoint.replace('ApiCredential', '')} this key?`)) return;
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const response = await postWithUser(`/${endpoint}`, userData, {
+      credential_id: cred.credential_id
+    });
+    if (response.data.status === 'success') {
+      alert(`Successfully performed action.`);
+      // Refresh credentials
+      if (selectedService.value) {
+        await fetchCredentials(selectedService.value.service_id);
+      } else if (scopeSelectedService.value) {
+        await fetchScopesForService(scopeSelectedService.value.service_id);
+      }
+    } else {
+      alert(`Error: ${response.data.message}`);
+    }
+  } catch (error) {
+    console.error('Error performing action:', error);
+    alert('An error occurred.');
+  }
+};
 
-watch(selectedServiceId, () => {
-  fetchCredentials();
-});
+const formatDateTime = (dateStr) => {
+  if (!dateStr) return '-';
+  try {
+    const safeStr = typeof dateStr === 'string' && dateStr.includes(' ') && !dateStr.includes('T') ? dateStr.replace(' ', 'T') : dateStr;
+    const d = new Date(safeStr);
+    return isNaN(d.getTime()) ? dateStr : d.toLocaleString('en-GB'); // DD/MM/YYYY, HH:MM:SS
+  } catch {
+    return dateStr;
+  }
+};
 
 onMounted(() => {
   fetchServices();
-  fetchUsers();
+  fetchDatabases();
 });
+
+const toggleCredentialStatus = async (item) => {
+  if (item.status === 'revoked') return;
+  const isCurrentlyActive = item.status === 'active';
+  const actionName = isCurrentlyActive ? 'pause' : 'resume';
+  const endpoint = isCurrentlyActive ? 'pauseApiCredential' : 'resumeApiCredential';
+  
+  if (!confirm(`Are you sure you want to ${actionName} this key?`)) return;
+  
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await apiClient.post(`/${endpoint}`, {
+      user: encodeUserData(userData),
+      credential_id: item.credential_id
+    });
+    if (res.data.status === 'success') {
+      // Refresh list
+      fetchServices();
+  fetchDatabases();
+      if (scopeSelectedService.value) {
+        fetchScopesForService(scopeSelectedService.value.service_id);
+      }
+      if (selectedService.value) {
+        fetchCredentialsForService(selectedService.value.service_id);
+      }
+    } else {
+      alert('Error: ' + res.data.status);
+    }
+  } catch (e) { console.error(e); }
+};
+
+const availableDatabases = ref([]);
+const availableTables = ref([]);
+const isLoadingMeta = ref(false);
+
+const fetchDatabases = async () => {
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await apiClient.post('/getAvailableDatabases', { user: encodeUserData(userData) });
+    if (res.data.status === 'success') availableDatabases.value = res.data.data;
+  } catch (e) { console.error('DB fetch error:', e); }
+};
+
+const fetchTables = async (dbName) => {
+  if (!dbName) { availableTables.value = []; return; }
+  isLoadingMeta.value = true;
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await apiClient.post('/getAvailableTables', { user: encodeUserData(userData), db_name: dbName });
+    if (res.data.status === 'success') availableTables.value = res.data.data;
+  } catch (e) { console.error('Table fetch error:', e); }
+  finally { isLoadingMeta.value = false; }
+};
+
+const onDbChange = async () => {
+  apiForm.value.api_source_name = '';
+  newApiColumns.value = [];
+  if (apiForm.value.api_db_name) {
+    await fetchTables(apiForm.value.api_db_name);
+  }
+};
+
+const onTableChange = async () => {
+  newApiColumns.value = [];
+  if (apiForm.value.api_db_name && apiForm.value.api_source_name) {
+    try {
+      const userData = JSON.parse(localStorage.getItem('user') || '{}');
+      const res = await apiClient.post('/getTableColumns', {
+        user: encodeUserData(userData),
+        db_name: apiForm.value.api_db_name,
+        table_name: apiForm.value.api_source_name
+      });
+      if (res.data.status === 'success') {
+        newApiColumns.value = res.data.data;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+};
+
+const newApiColumns = ref([]);
+
+const onReportSelect = async () => {
+  const selected = services.value.find(s => s.service_id === apiForm.value.report_id);
+  if (selected) {
+    apiForm.value.service_name = selected.service_name || '';
+    apiForm.value.api_endpoint = selected.api_endpoint || `API-${selected.dataset_id || selected.service_id}`;
+    apiForm.value.service_description = selected.description || selected.service_description || selected.service_name || '';
+    apiForm.value.api_db_name = selected.api_db_name || selected.db_name || '';
+    apiForm.value.api_source_name = selected.api_source_name || selected.source_name || '';
+    
+    // If dataset has response fields from uploaded file, auto-populate columns & response fields
+    const fileCols = tryParseJson(selected.api_response_fields);
+    if (fileCols && Array.isArray(fileCols) && fileCols.length > 0) {
+      newApiColumns.value = fileCols.map(c => ({ name: typeof c === 'object' ? (c.name || c.COLUMN_NAME || JSON.stringify(c)) : String(c) }));
+      apiForm.value.response_fields = [...fileCols];
+      apiForm.value.request_fields = tryParseJson(selected.api_request_fields) || [];
+    } else {
+      newApiColumns.value = [];
+    }
+
+    if (apiForm.value.api_db_name) {
+      await fetchTables(apiForm.value.api_db_name);
+      if (apiForm.value.api_source_name) {
+        await onTableChange();
+      }
+    }
+  }
+};
+
+// ===== API SCOPES TAB - กนอ. Pattern =====
+// Scopes tab: shows services list like GENERAL, click "SCOPES" opens per-service modal
+const scopeSelectedService = ref(null);
+const showScopesListModal = ref(false);
+const scopeCredentials = ref([]);
+const scopeShowKey = ref(null);
+
+// Add/Edit scope form modal
+const showScopeFormModal = ref(false);
+const isEditScope = ref(false);
+const editingScopeCredentialId = ref(null);
+const allUsers = ref([]);
+const availableColumns = ref([]);
+const previewData = ref([]);
+const showDataPreview = ref(false);
+
+// Add User form modal for General Access
+const showAddUserFormModal = ref(false);
+const addUserFormUserId = ref('');
+const addUserFormExpiry = ref('');
+
+const scopeFormUser = ref('');
+const scopeFormExpiry = ref('');
+const scopeFormRequestFields = ref([]);
+const scopeFormResponseFields = ref([]);
+const scopeConditions = ref([]);
+
+const selectAllScopeRequestFields = () => {
+  scopeFormRequestFields.value = availableColumns.value.map(c => c.name || c.column_name || c.COLUMN_NAME);
+};
+const clearScopeRequestFields = () => {
+  scopeFormRequestFields.value = [];
+};
+const selectAllScopeResponseFields = () => {
+  scopeFormResponseFields.value = availableColumns.value.map(c => c.name || c.column_name || c.COLUMN_NAME);
+};
+const clearScopeResponseFields = () => {
+  scopeFormResponseFields.value = [];
+};
+
+const openScopesForService = async (service) => {
+  scopeSelectedService.value = service;
+  showScopesListModal.value = true;
+  await fetchScopesForService(service.service_id);
+};
+
+const fetchScopesForService = async (serviceId) => {
+  scopeCredentials.value = [];
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await apiClient.post('/getAllApiScopes', { user: encodeUserData(userData) });
+    if (res.data.status === 'success') {
+      // Filter by service_id
+      scopeCredentials.value = res.data.data.filter(s => String(s.service_id) === String(serviceId));
+    }
+  } catch (e) { console.error(e); }
+};
+
+const toggleScopeKey = (id) => {
+  scopeShowKey.value = scopeShowKey.value === id ? null : id;
+};
+
+const fetchAllUsers = async () => {
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await apiClient.post('/getAvailableUsers', { user: encodeUserData(userData) });
+    if (res.data.status === 'success') {
+      allUsers.value = res.data.data;
+    }
+  } catch (e) { console.error(e); }
+};
+
+
+const fetchTableData = async (service) => {
+  previewData.value = [];
+  if (!service) return;
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await apiClient.post('/previewTableData', {
+      user: encodeUserData(userData),
+      db_name: service.api_db_name || service.db_name || 'WAREHOUSE',
+      table_name: service.api_source_name || service.source_name
+    });
+    if (res.data.status === 'success') {
+      previewData.value = res.data.data;
+    }
+  } catch (e) { console.error(e); }
+};
+
+const toggleDataPreview = async () => {
+  showDataPreview.value = !showDataPreview.value;
+  if (showDataPreview.value && previewData.value.length === 0) {
+    await fetchTableData(scopeSelectedService.value);
+  }
+};
+
+const fetchColumnsForService = async (service) => {
+  availableColumns.value = [];
+  if (!service) return;
+  const fileCols = tryParseJson(service.api_response_fields);
+  if (fileCols && Array.isArray(fileCols) && fileCols.length > 0) {
+    availableColumns.value = fileCols.map(c => ({ name: typeof c === 'object' ? (c.name || c.COLUMN_NAME || JSON.stringify(c)) : String(c) }));
+  }
+  if (service.api_db_name && service.api_source_name) {
+    try {
+      const userData = JSON.parse(localStorage.getItem('user') || '{}');
+      const res = await apiClient.post('/getTableColumns', {
+        user: encodeUserData(userData),
+        db_name: service.api_db_name || service.db_name || 'WAREHOUSE',
+        table_name: service.api_source_name || service.source_name
+      });
+      if (res.data.status === 'success' && res.data.data && res.data.data.length > 0) {
+        availableColumns.value = res.data.data;
+      }
+    } catch (e) { console.error(e); }
+  }
+};
+
+const openAddScopeForm = async () => {
+  isEditScope.value = false;
+  editingScopeCredentialId.value = null;
+  scopeFormUser.value = '';
+  scopeFormExpiry.value = '';
+  scopeFormRequestFields.value = [];
+  scopeFormResponseFields.value = [];
+  scopeConditions.value = [{ logic: 'AND', field: '', operator: '=', value: '' }];
+  
+  await fetchAllUsers();
+  showDataPreview.value = false;
+  previewData.value = [];
+  await fetchColumnsForService(scopeSelectedService.value);
+  
+  // Default response fields to all columns
+  if (availableColumns.value.length > 0) {
+    scopeFormResponseFields.value = availableColumns.value.map(c => c.name || c.column_name || c.COLUMN_NAME);
+  }
+  
+  showScopeFormModal.value = true;
+};
+
+const openEditScopeForm = async (scope) => {
+  isEditScope.value = true;
+  editingScopeCredentialId.value = scope.credential_id;
+  scopeFormUser.value = scope.user_id;
+  
+  // Format expiry date for datetime-local input (YYYY-MM-DDThh:mm)
+  if (scope.expires_at) {
+    scopeFormExpiry.value = String(scope.expires_at).replace(' ', 'T').slice(0, 16);
+  } else {
+    scopeFormExpiry.value = '';
+  }
+  
+  await fetchAllUsers();
+  showDataPreview.value = false;
+  previewData.value = [];
+  await fetchColumnsForService(scopeSelectedService.value);
+
+  // Parse existing scope (request_fields, response_fields, conditions)
+  const rawScope = scope.scope_json || {};
+  let reqs = scope.request_fields || [];
+  let resps = scope.response_fields || [];
+  let conds = scope.conditions || [];
+
+  if (typeof rawScope === 'object' && !Array.isArray(rawScope) && (rawScope.request_fields || rawScope.response_fields || rawScope.conditions)) {
+    reqs = rawScope.request_fields || reqs;
+    resps = rawScope.response_fields || resps;
+    conds = rawScope.conditions || conds;
+  } else if (Array.isArray(rawScope)) {
+    conds = rawScope;
+  }
+
+  scopeFormRequestFields.value = Array.isArray(reqs) ? [...reqs] : [];
+  scopeFormResponseFields.value = (Array.isArray(resps) && resps.length > 0) ? [...resps] : (availableColumns.value.map(c => c.name || c.column_name || c.COLUMN_NAME));
+  
+  if (Array.isArray(conds) && conds.length > 0) {
+    scopeConditions.value = JSON.parse(JSON.stringify(conds));
+  } else {
+    scopeConditions.value = [{ logic: 'AND', field: '', operator: '=', value: '' }];
+  }
+  
+  showScopeFormModal.value = true;
+};
+
+const addScopeCondition = () => {
+  scopeConditions.value.push({ logic: 'AND', field: '', operator: '=', value: '' });
+};
+
+const removeScopeCondition = (index) => {
+  scopeConditions.value.splice(index, 1);
+};
+
+
+const editingServiceId = ref(null);
+
+const tryParseJson = (str) => {
+  if (!str) return [];
+  if (typeof str !== 'string') return str;
+  try { return JSON.parse(str); } catch (e) { return []; }
+};
+
+const editApiService = async (svc) => {
+  if (!canManageApi(svc)) {
+    alert('คุณไม่มีสิทธิ์แก้ไข API นี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้');
+    return;
+  }
+  editingServiceId.value = svc.service_id;
+  
+  let originalServiceId = '';
+  if (svc.dataset_id && svc.dataset_id.startsWith('API_CLONE_')) {
+    const prefix = 'API_CLONE_';
+    const suffix = '_' + svc.api_endpoint;
+    if (svc.dataset_id.startsWith(prefix) && svc.dataset_id.endsWith(suffix)) {
+      const origDatasetId = svc.dataset_id.substring(prefix.length, svc.dataset_id.length - suffix.length);
+      const found = services.value.find(s => s.dataset_id === origDatasetId || String(s.service_id) === origDatasetId);
+      if (found) {
+        originalServiceId = found.service_id;
+      }
+    } else {
+       // if it doesn't end with suffix (maybe api_endpoint changed before), just try to extract the middle part naively
+       const parts = svc.dataset_id.split('_');
+       if (parts.length >= 3) {
+           const origDatasetId = parts[2];
+           const found = services.value.find(s => s.dataset_id === origDatasetId || String(s.service_id) === origDatasetId);
+           if (found) originalServiceId = found.service_id;
+       }
+    }
+  }
+  // Also try searching for a service that has the EXACT same name, but isn't an API (if dataset_id logic fails)
+  if (!originalServiceId) {
+      const found = services.value.find(s => s.service_name === svc.service_name && !s.api_endpoint);
+      if (found) originalServiceId = found.service_id;
+  }
+  
+  apiForm.value = {
+    report_id: originalServiceId, 
+    service_name: svc.service_name,
+    api_endpoint: svc.api_endpoint,
+    service_description: svc.description || svc.service_description || '',
+    api_type: (svc.api_type === 'scope') ? 'scope' : 'general',
+    api_enabled: svc.api_enabled == 1 ? 'Active = Enable' : 'Inactive',
+    api_db_name: svc.api_db_name || '',
+    api_source_name: svc.api_source_name || '',
+    request_fields: tryParseJson(svc.api_request_fields),
+    response_fields: tryParseJson(svc.api_response_fields)
+  };
+  
+  if (svc.api_db_name) {
+    await fetchTables(svc.api_db_name);
+    if (svc.api_source_name) {
+      await onTableChange();
+    }
+  }
+  
+  showAddApiModal.value = true;
+};
+
+const deleteApiService = async (svc) => {
+  if (!canManageApi(svc)) {
+    alert('คุณไม่มีสิทธิ์ลบ API นี้ เนื่องจากมีเพียงเจ้าของชุดข้อมูลเท่านั้นที่สามารถดำเนินการได้');
+    return;
+  }
+  if (!confirm(`Are you sure you want to delete API: ${svc.service_name}?`)) return;
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await apiClient.post('/deleteApiService', {
+      user: encodeUserData(userData),
+      service_id: svc.service_id
+    });
+    if (res.data.status === 'success') {
+      alert('API deleted successfully!');
+      fetchServices();
+    } else {
+      alert('Error: ' + res.data.message);
+    }
+  } catch(e) {
+    console.error(e);
+    alert('Error deleting API');
+  }
+};
+
+const saveAddApi = async () => {
+  if (!editingServiceId.value && (!apiForm.value.report_id || !apiForm.value.api_endpoint)) {
+    alert('กรุณากรอกข้อมูลให้ครบถ้วน (Report ID, API Endpoint)');
+    return;
+  }
+  if (editingServiceId.value && !apiForm.value.api_endpoint) {
+    alert('กรุณากรอก API Endpoint');
+    return;
+  }
+
+  // Strict Validation: Scope API must have at least 1 Request Field and 1 Response Field
+  if (apiForm.value.api_type === 'scope') {
+    if (!apiForm.value.request_fields || apiForm.value.request_fields.length === 0) {
+      alert('การสร้าง Scope API จำเป็นต้องเลือก Field Request อย่างน้อย 1 ฟิลด์');
+      return;
+    }
+    if (!apiForm.value.response_fields || apiForm.value.response_fields.length === 0) {
+      alert('การสร้าง Scope API จำเป็นต้องเลือก Field Response อย่างน้อย 1 ฟิลด์');
+      return;
+    }
+  }
+
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const payload = {
+      user: encodeUserData(userData),
+      original_service_id: apiForm.value.report_id,
+      api_name: apiForm.value.service_name,
+      api_endpoint: apiForm.value.api_endpoint,
+      api_description: apiForm.value.service_description,
+      api_type: apiForm.value.api_type,
+      api_enabled: apiForm.value.api_enabled,
+      api_db_name: apiForm.value.api_db_name,
+      api_source_name: apiForm.value.api_source_name,
+      api_request_fields: apiForm.value.request_fields,
+      api_response_fields: apiForm.value.response_fields
+    };
+    let res;
+    if (editingServiceId.value) {
+      payload.service_id = editingServiceId.value;
+      res = await apiClient.post('/updateApiService', payload);
+    } else {
+      res = await apiClient.post('/cloneServiceForApi', payload);
+    }
+    if (res.data.status === 'success') {
+      alert('สร้าง API Endpoint สำเร็จ!');
+      showAddApiModal.value = false;
+      fetchServices();
+      fetchDatabases();
+    } else {
+      alert('Error: ' + res.data.message);
+    }
+  } catch (e) {
+    console.error(e);
+    alert('เกิดข้อผิดพลาดในการบันทึก');
+  }
+};
+
+const saveScopeForm = async () => {
+  if (!scopeFormUser.value) {
+    alert('กรุณาเลือก User');
+    return;
+  }
+  
+  // Strict Validation: API Scope assignment must have at least 1 Request Field and 1 Response Field
+  if (!scopeFormRequestFields.value || scopeFormRequestFields.value.length === 0) {
+    alert('การกำหนดสิทธิ์ Scope จำเป็นต้องเลือก Field Request อย่างน้อย 1 ฟิลด์');
+    return;
+  }
+  if (!scopeFormResponseFields.value || scopeFormResponseFields.value.length === 0) {
+    alert('การกำหนดสิทธิ์ Scope จำเป็นต้องเลือก Field Response อย่างน้อย 1 ฟิลด์');
+    return;
+  }
+  
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const validConditions = scopeConditions.value.filter(c => c.field && c.value);
+    
+    // Validate that condition fields must be within scopeFormRequestFields
+    for (const c of validConditions) {
+      if (!scopeFormRequestFields.value.includes(c.field)) {
+        alert(`ฟิลด์ "${c.field}" ในเงื่อนไข WHERE ต้องเป็นฟิลด์ที่ถูกเลือกใน Field Request (ข้อ 1) เท่านั้น`);
+        return;
+      }
+    }
+    
+    const scopePayload = {
+      request_fields: scopeFormRequestFields.value,
+      response_fields: scopeFormResponseFields.value,
+      conditions: validConditions
+    };
+
+    const payload = {
+      user: encodeUserData(userData),
+      service_id: scopeSelectedService.value.service_id,
+      target_user_id: scopeFormUser.value,
+      request_fields: scopeFormRequestFields.value,
+      response_fields: scopeFormResponseFields.value,
+      scope_json: scopePayload,
+      expires_at: scopeFormExpiry.value || null
+    };
+    
+    const res = await apiClient.post('/saveApiScopeForUser', payload);
+    
+    if (res.data.status === 'success') {
+      if (res.data.secret_key) {
+        alert('SUCCESS! Please copy this API Key now, it will not be shown again:\n\n' + res.data.secret_key);
+      }
+      showScopeFormModal.value = false;
+      await fetchScopesForService(scopeSelectedService.value.service_id);
+    } else {
+      alert('Error saving scope: ' + (res.data.message || res.data.status));
+    }
+  } catch (e) {
+    console.error(e);
+    alert('เกิดข้อผิดพลาดในการบันทึก Scope');
+  }
+};
+
+const openAddUserForm = async () => {
+  addUserFormUserId.value = '';
+  addUserFormExpiry.value = '';
+  showManageAccessModal.value = false;
+  await fetchAllUsers();
+  showAddUserFormModal.value = true;
+};
+
+const saveAddUserForm = async () => {
+  if (!addUserFormUserId.value) {
+    alert('กรุณาเลือก User');
+    return;
+  }
+  
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const payload = {
+      user: encodeUserData(userData),
+      service_id: selectedService.value.service_id,
+      target_user_id: addUserFormUserId.value,
+      expires_at: addUserFormExpiry.value || null
+    };
+    
+    const res = await apiClient.post('/addApiCredential', payload);
+    
+    if (res.data.status === 'success') {
+      if (res.data.secret_key) {
+        alert('SUCCESS! Please copy this API Key now, it will not be shown again:\n\n' + res.data.secret_key);
+      }
+      showAddUserFormModal.value = false;
+      if (selectedService.value) {
+        await fetchCredentials(selectedService.value.service_id);
+      }
+      showManageAccessModal.value = true;
+    } else {
+      alert('Error adding user: ' + res.data.status);
+    }
+  } catch (e) {
+    console.error(e);
+  }
+};
+
+const deleteScopeEntry = async (scope) => {
+  if (!confirm("Are you sure you want to delete this scope?")) return;
+  try {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const res = await apiClient.post('/deleteApiScopeForUser', { 
+      user: encodeUserData(userData),
+      credential_id: scope.credential_id
+    });
+    if (res.data.status === 'success') {
+      await fetchScopesForService(scopeSelectedService.value.service_id);
+    }
+  } catch (e) { console.error(e); }
+};
+
+const formatScopeJson = (scopeJson) => {
+  if (!scopeJson) return 'All Rows';
+  if (typeof scopeJson === 'object' && !Array.isArray(scopeJson)) {
+    if (scopeJson.conditions && Array.isArray(scopeJson.conditions)) {
+      if (scopeJson.conditions.length === 0) return 'All Rows';
+      return scopeJson.conditions.map(c => `${c.field} ${c.operator || '='} ${c.value}`).join(' & ');
+    }
+    return JSON.stringify(scopeJson);
+  }
+  if (Array.isArray(scopeJson)) {
+    if (scopeJson.length === 0) return 'All Rows';
+    return scopeJson.map(c => `${c.field} ${c.operator || '='} ${c.value}`).join(' & ');
+  }
+  return String(scopeJson);
+};
 </script>
 
 <template>
@@ -308,255 +803,589 @@ onMounted(() => {
     <main class="api-content">
       <header class="content-header">
         <div class="header-titles">
-          <h1>API Management</h1>
-          <p>จัดการ API Key และ Scope สำหรับผู้ใช้งาน</p>
-        </div>
-        
-        <div class="service-selector">
-          <span>Service:</span>
-          <select v-model="selectedServiceId" @change="fetchCredentials">
-            <option v-for="svc in services" :key="svc.service_id" :value="svc.service_id">
-              {{ svc.service_name }} ({{ svc.api_type || 'public' }})
-            </option>
-          </select>
+          <h1>API MANAGEMENT</h1>
+          <p>จัดการการเชื่อมต่อและการเข้าถึงข้อมูล</p>
         </div>
       </header>
 
-      <div v-if="message.text" :class="['alert-message', message.type]">
-        {{ message.text }}
-      </div>
-
-      <!-- Service Type Badge -->
-      <div v-if="selectedServiceId" class="type-badge-row">
-        <div class="flex items-center gap-4">
-          <span class="type-badge" :class="selectedServiceType">
-            {{ selectedServiceType === 'public' ? '🔓 Public API' : selectedServiceType === 'private' ? '🔐 Private API' : '🔐 Private API - Scope Based' }}
-          </span>
-          <label class="toggle-revoked flex items-center gap-2 text-sm cursor-pointer select-none">
-            <input type="checkbox" v-model="hideRevoked">
-            <span class="text-slate-600">ซ่อนรายการที่ถูกยกเลิก (Hide Revoked)</span>
-          </label>
+      <div class="card api-card">
+        <div class="tabs-container">
+          <button 
+            :class="['tab-btn', { active: activeTab === 'general' }]"
+            @click="activeTab = 'general'"
+          >
+            API GENERAL
+          </button>
+          <button 
+            :class="['tab-btn', { active: activeTab === 'scopes' }]"
+            @click="activeTab = 'scopes'"
+          >
+            API SCOPES
+          </button>
         </div>
-        <button @click="showAddForm = true; fetchUsers()" class="btn-add-key">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-          </svg>
-          เพิ่ม API Key
-        </button>
-      </div>
 
-      <!-- Add Key Panel -->
-      <div v-if="showAddForm" class="card add-key-panel">
-        <h3>สร้าง API Key ใหม่</h3>
-        <div class="add-key-form">
-          <div class="form-group">
-            <label>เลือกผู้ใช้</label>
-            <select v-model="selectedUserId">
-              <option value="">-- เลือก --</option>
-              <option v-for="u in availableUsers" :key="u.user_id" :value="u.user_id">
-                {{ u.username }} ({{ u.firstname }} {{ u.lastname }})
-              </option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Secret Key</label>
-            <div class="key-gen-row">
-              <input type="text" v-model="generatedKey" placeholder="คลิก Generate เพื่อสร้าง" readonly>
-              <button @click="generateKey" class="btn-gen">Generate</button>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>วันหมดอายุ (เว้นว่างหากใช้งานได้ตลอด)</label>
-            <input type="datetime-local" v-model="selectedExpiresAt">
-          </div>
-          <div class="add-key-actions">
-            <button @click="showAddForm = false" class="btn-cancel-sm">ยกเลิก</button>
-            <button @click="addCredential" class="btn-primary" :disabled="isLoading">
-              {{ isLoading ? 'กำลังสร้าง...' : 'สร้าง Key' }}
+        <!-- ============ API GENERAL TAB ============ -->
+        <div v-if="activeTab === 'general'" class="tab-content">
+          <div class="table-actions">
+            <button @click="showAddApiModal = true" class="btn-primary">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+              </svg>
+              ADD API
             </button>
           </div>
+
+          <div class="table-responsive" style="overflow-x: auto; width: 100%;"><table class="api-table">
+            <thead>
+              <tr>
+                <th>API SERVICE NAME</th>
+                <th>API ENDPOINT</th>
+                <th>API DESCRIPTION</th>
+                <th>ACTIVE</th>
+                <th>STATUS</th>
+                <th class="text-center">SELECT</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="svc in generalApiServices" :key="svc.service_id">
+                <td><strong>{{ svc.service_name }}</strong></td>
+                <td>{{ svc.api_endpoint }}</td>
+                <td>{{ svc.service_description || svc.service_name }}</td>
+                <td>
+                  <label class="toggle-switch" title="Toggle Service Status" @click.prevent="toggleMainServiceStatus(svc)">
+                    <input type="checkbox" :checked="svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true">
+                    <span class="slider"></span>
+                  </label>
+                </td>
+                <td>
+                  <span :class="['status-badge', (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true) ? 'active' : 'inactive']">{{ (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true) ? 'ACTIVE' : 'INACTIVE' }}</span>
+                </td>
+                <td class="text-center">
+                  <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                    <button @click="openManageAccess(svc)" class="btn-outline" style="padding: 4px 8px; font-size: 0.8rem;" title="Manage Access">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                      BY USER
+                    </button>
+                    <button @click="editApiService(svc)" class="btn-icon" style="background-color:#e0f2fe; color:#0284c7; border:none; border-radius:4px; padding:6px; cursor:pointer;" title="Edit API">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    </button>
+                    <button @click="deleteApiService(svc)" class="btn-icon" style="background-color:#fee2e2; color:#ef4444; border:none; border-radius:4px; padding:6px; cursor:pointer;" title="Delete API">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table></div>
         </div>
-      </div>
-      
-      <!-- Credentials Table -->
-      <div class="card api-card">
-        <div class="api-header">
-          <h3>API Credentials</h3>
-          <p>รายการ API Key สำหรับ Service ที่เลือก</p>
+
+        <!-- ============ API SCOPES TAB ============ -->
+        <div v-if="activeTab === 'scopes'" class="tab-content">
+          <div class="table-actions">
+            <button @click="showAddApiModal = true" class="btn-primary">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+              </svg>
+              ADD API
+            </button>
+          </div>
+          <div class="table-responsive" style="overflow-x: auto; width: 100%;"><table class="api-table">
+            <thead>
+              <tr>
+                <th>API SERVICE NAME</th>
+                <th>API ENDPOINT</th>
+                <th>API DESCRIPTION</th>
+                <th>ACTIVE</th>
+                <th>STATUS</th>
+                <th class="text-center">SELECT</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="svc in scopeApiServices" :key="svc.service_id">
+                <td><strong>{{ svc.service_name }}</strong></td>
+                <td>{{ svc.api_endpoint }}</td>
+                <td>{{ svc.service_description || svc.service_name }}</td>
+                <td>
+                  <label class="toggle-switch" title="Toggle Service Status" @click.prevent="toggleMainServiceStatus(svc)">
+                    <input type="checkbox" :checked="svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true">
+                    <span class="slider"></span>
+                  </label>
+                </td>
+                <td>
+                  <span :class="['status-badge', (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true) ? 'active' : 'inactive']">{{ (svc.api_enabled == 1 || svc.api_enabled === '1' || svc.api_enabled === true) ? 'ACTIVE' : 'INACTIVE' }}</span>
+                </td>
+                <td class="text-center">
+                  <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                    <button @click="openScopesForService(svc)" class="btn-outline-primary" style="padding: 5px 12px; font-size: 0.82rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;" title="Manage Access by User">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                      </svg>
+                      MANAGE ACCESS
+                    </button>
+                    <button @click="editApiService(svc)" class="btn-icon" style="background-color:#e0f2fe; color:#0284c7; border:none; border-radius:4px; padding:6px; cursor:pointer;" title="Edit API">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    </button>
+                    <button @click="deleteApiService(svc)" class="btn-icon" style="background-color:#fee2e2; color:#ef4444; border:none; border-radius:4px; padding:6px; cursor:pointer;" title="Delete API">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table></div>
         </div>
-        
-        <div v-if="isLoading && credentials.length === 0" class="loading-inline">
-          กำลังโหลด...
-        </div>
-        
-        <table v-else class="api-table">
-          <thead>
-            <tr>
-              <th>ผู้ใช้</th>
-              <th>Secret Key</th>
-              <th>สถานะ</th>
-              <th v-if="selectedServiceType === 'scope'">Scope</th>
-              <th>อายุการใช้งาน</th>
-              <th class="text-center">เพิกถอน (Pause)</th>
-              <th class="text-right">จัดการ</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="cred in filteredCredentials" :key="cred.credential_id">
-              <td class="name-cell">
-                <strong>{{ cred.username }}</strong>
-                <div class="text-sm text-muted">{{ cred.firstname }} {{ cred.lastname }}</div>
-              </td>
-              <td class="key-cell">
-                <code>{{ showKey === cred.credential_id ? cred.secret_key : '••••••••••••••••' }}</code>
-                <button class="toggle-btn" @click="toggleKey(cred.credential_id)">
-                  {{ showKey === cred.credential_id ? 'ซ่อน' : 'แสดง' }}
-                </button>
-              </td>
-              <td>
-                <span v-if="cred.status === 'active' && isExpired(cred.expires_at)" class="status-badge expired">
-                  Expired
-                </span>
-                <span v-else :class="['status-badge', cred.status]">
-                  {{ cred.status === 'active' ? 'Active' : 'Revoked' }}
-                </span>
-              </td>
-              <td v-if="selectedServiceType === 'scope'">
-                <button v-if="cred.status === 'active'" @click="openScopeModal(cred)" class="btn-scope">
-                  {{ cred.scope_json && Object.keys(cred.scope_json).length > 0 ? '✏️ แก้ไข Scope' : '➕ เพิ่ม Scope' }}
-                </button>
-                <span v-else class="text-muted">-</span>
-              </td>
-              <td class="text-sm">
-                <div>สร้าง: <span class="text-muted">{{ cred.created_at?.split(' ')[0] || '-' }}</span></div>
-                <div style="margin-top:4px; font-weight:600;" :style="{ color: isExpired(cred.expires_at) ? '#ef4444' : '#1e293b' }">
-                  หมด: {{ cred.expires_at ? cred.expires_at.split(' ')[0] : 'ไม่มีกำหนด' }}
-                </div>
-              </td>
-              <td class="text-center">
-                <label class="toggle-switch" :title="cred.status === 'active' ? 'กำลังใช้งาน (คลิกเพื่อระงับ)' : 'ถูกระงับ (คลิกเพื่อเปิดใช้งาน)'">
-                  <input type="checkbox" :checked="cred.status === 'active'" @click.prevent="toggleCredentialStatus(cred)">
-                  <span class="slider round"></span>
-                </label>
-              </td>
-              <td class="text-right">
-                <div class="action-buttons-wrap">
-                  <button v-if="cred.status === 'active'" @click="openExtendModal(cred)" class="btn-warning-sm" title="ปรับวันหมดอายุ">📅 ขยายเวลา</button>
-                  <button @click="deleteCredential(cred.credential_id)" class="btn-delete" title="ลบถาวร">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                    ลบ
-                  </button>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="filteredCredentials.length === 0">
-              <td :colspan="selectedServiceType === 'scope' ? 7 : 6" style="text-align:center;padding:48px;color:#94a3b8;">
-                {{ hideRevoked ? 'ไม่มี API Key ที่ใช้งานอยู่ (เปิด "แสดงรายการที่ถูกยกเลิก" เพื่อดูทั้งหมด)' : 'ยังไม่มี API Key สำหรับ Service นี้' }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
       </div>
 
-      <!-- Scope Modal -->
-      <div v-if="showScopeModal" class="modal-overlay" @click.self="showScopeModal = false">
-        <div class="modal-content">
+      <!-- ============ Add API Modal (GENERAL) ============ -->
+      <div v-if="showAddApiModal" class="modal-overlay" @click.self="showAddApiModal = false">
+        <div class="modal-content modal-lg">
           <div class="modal-header">
-            <h3>จัดการ Scope — {{ editingCredential?.username }}</h3>
-            <button @click="showScopeModal = false" class="modal-close">&times;</button>
+            <h3>ADD API</h3>
+            <button @click="showAddApiModal = false" class="modal-close">&times;</button>
+          </div>
+          <div class="modal-body form-grid">
+            <div class="form-row">
+              <label>Report ID <span class="required">*</span></label>
+              <select v-model="apiForm.report_id" @change="onReportSelect">
+                <option value="">-- เลือก Report ID --</option>
+                <option v-for="srv in availableDatasetsForApi" :key="srv.service_id" :value="srv.service_id">
+                  {{ srv.dataset_id || srv.service_id }} - {{ srv.service_name }}
+                </option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>API Name <span class="required">*</span></label>
+              <input type="text" v-model="apiForm.service_name" placeholder="ชื่อ API">
+            </div>
+            <div class="form-row">
+              <label>API SERVICES <span class="required">*</span></label>
+              <input type="text" v-model="apiForm.api_endpoint" placeholder="API-XXX">
+            </div>
+            <div class="form-row">
+              <label>API Description</label>
+              <input type="text" v-model="apiForm.service_description" placeholder="รายละเอียด API">
+            </div>
+            <div class="form-row">
+              <label>API Type <span class="required">*</span></label>
+              <select v-model="apiForm.api_type">
+                <option value="general">general</option>
+                <option value="scope">scope</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Status <span class="required">*</span></label>
+              <select v-model="apiForm.api_enabled">
+                <option value="Active = Enable">Active = Enable</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Database <span class="required">*</span></label>
+              <select v-model="apiForm.api_db_name" @change="onDbChange">
+                <option value="">-- เลือก Database --</option>
+                <option v-for="db in availableDatabases" :key="db" :value="db">{{ db }}</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Table / View <span class="required">*</span></label>
+              <select v-model="apiForm.api_source_name" @change="onTableChange" :disabled="!apiForm.api_db_name || isLoadingMeta">
+                <option value="">{{ isLoadingMeta ? 'กำลังโหลด...' : '-- เลือก Table/View --' }}</option>
+                <option v-for="t in availableTables" :key="t.name" :value="t.name">
+                  {{ t.name }} ({{ t.type }})
+                </option>
+              </select>
+            </div>
+            
+            <div class="checkbox-sections">
+              <div class="checkbox-col">
+                <h4>Please select for Request*</h4>
+                <div style="max-height: 150px; overflow-y: auto; border: 1px solid #cbd5e1; padding: 8px; border-radius: 4px;">
+                  <label v-for="col in newApiColumns" :key="col.name || col.column_name || col.COLUMN_NAME" class="checkbox-label">
+                    <input type="checkbox" :value="col.name || col.column_name || col.COLUMN_NAME" v-model="apiForm.request_fields"> {{ col.name || col.column_name || col.COLUMN_NAME }}
+                  </label>
+                </div>
+              </div>
+              <div class="checkbox-col">
+                <h4>Please select for Response*</h4>
+                <div style="max-height: 150px; overflow-y: auto; border: 1px solid #cbd5e1; padding: 8px; border-radius: 4px;">
+                  <label v-for="col in newApiColumns" :key="col.name || col.column_name || col.COLUMN_NAME" class="checkbox-label">
+                    <input type="checkbox" :value="col.name || col.column_name || col.COLUMN_NAME" v-model="apiForm.response_fields"> {{ col.name || col.column_name || col.COLUMN_NAME }}
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer justify-end">
+            <button class="btn-primary" @click="saveAddApi">SAVE</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ Manage API Access (BY USER) Modal ============ -->
+      <div v-if="showManageAccessModal" class="modal-overlay" @click.self="showManageAccessModal = false">
+        <div class="modal-content modal-lg">
+          <div class="modal-header">
+            <h3>MANAGE API ACCESS</h3>
+            <button @click="showManageAccessModal = false" class="modal-close">&times;</button>
           </div>
           <div class="modal-body">
-            <p style="color:#64748b;margin-bottom:20px;">
-              กำหนดค่าที่อนุญาตให้ผู้ใช้คนนี้เข้าถึง เช่น <code>{"province": ["กรุงเทพ"]}</code>
-            </p>
+            <div class="table-actions text-right mb-4">
+              <button class="btn-outline-primary" @click="openAddUserForm">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                </svg>
+                ADD USER
+              </button>
+            </div>
+            <div class="table-scroll-wrapper">
+              <div class="table-responsive" style="overflow-x: auto; width: 100%;"><table class="api-table">
+                <thead>
+                  <tr>
+                    <th>USERNAME</th>
+                    <th>PUBLIC KEY ID</th>
+                    <th>API KEY (Last 4)</th>
+                    <th>EXPIRES AT</th>
+                    <th>STATUS</th>
+                    <th style="text-align:center;">ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="cred in credentials" :key="cred.credential_id">
+                    <td>
+                      <div style="font-weight:600; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                        <span>{{ cred.username }}</span>
+                        <span v-if="cred.scope_json && ((cred.scope_json.request_fields && cred.scope_json.request_fields.length > 0) || (cred.scope_json.response_fields && cred.scope_json.response_fields.length > 0))" 
+                              class="badge-scoped" 
+                              :title="'Scope: ' + (cred.scope_json.request_fields || cred.scope_json.response_fields || []).join(', ')">
+                          Scope: {{ (cred.scope_json.request_fields || cred.scope_json.response_fields || []).length <= 2 ? (cred.scope_json.request_fields || cred.scope_json.response_fields || []).join(', ') : (cred.scope_json.request_fields || cred.scope_json.response_fields || []).length + ' ฟิลด์' }}
+                        </span>
+                      </div>
+                    </td>
+                    <td><span class="mono-cell">{{ cred.public_key_id }}</span></td>
+                    <td class="key-cell">
+                      <span class="secret-box">••••••••{{ cred.key_last_four }}</span>
+                    </td>
+                    <td>{{ formatDateTime(cred.expires_at) }}</td>
+                    <td>
+                      <span :class="['status-badge', cred.status]">{{ cred.status }}</span>
+                    </td>
+                    <td>
+                      <div class="action-btns">
+                        <label class="toggle-switch" title="Toggle Status" @click.prevent="toggleCredentialStatus(cred)" v-if="cred.status !== 'revoked'">
+                          <input type="checkbox" :checked="cred.status === 'active'">
+                          <span class="slider"></span>
+                        </label>
+                        <button v-if="cred.status !== 'revoked'" class="btn-icon-clean" @click="openEditExpiryForm(cred)" title="ตั้งวันหมดอายุ">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" stroke-width="1.5"/><line x1="16" y1="2" x2="16" y2="6" stroke-width="1.5"/><line x1="8" y1="2" x2="8" y2="6" stroke-width="1.5"/><line x1="3" y1="10" x2="21" y2="10" stroke-width="1.5"/></svg>
+                        </button>
+                        <button v-if="cred.status !== 'revoked'" class="btn-icon-clean btn-icon-clean--danger" @click="handleCredentialAction('revokeApiCredential', cred)" title="เพิกถอน">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="1.5"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" stroke-width="1.5"/></svg>
+                        </button>
+                        <button class="btn-icon-clean btn-icon-clean--danger" @click="handleCredentialAction('deleteApiCredential', cred)" title="ลบ">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><polyline points="3 6 5 6 21 6" stroke-width="1.5"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" stroke-width="1.5"/></svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr v-if="credentials.length === 0">
+                    <td colspan="6" class="text-center text-muted py-4">ไม่มีข้อมูลผู้ใช้งาน</td>
+                  </tr>
+                </tbody>
+              </table></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    
+      <!-- ============ SCOPES List Modal (1 User : 1 API) ============ -->
+      <div v-if="showScopesListModal" class="modal-overlay" @click.self="showScopesListModal = false">
+        <div class="modal-content modal-xl">
+          <div class="modal-header">
+            <h3>MANAGE API ACCESS (SCOPES) : {{ scopeSelectedService?.service_name || scopeSelectedService?.dataset_id }}</h3>
+            <button @click="showScopesListModal = false" class="modal-close">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="table-actions text-right mb-4">
+              <button class="btn-outline-primary" @click="openAddScopeForm">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                </svg>
+                + ADD SCOPES
+              </button>
+            </div>
+            <div class="table-responsive" style="overflow-x: auto; width: 100%;"><table class="api-table">
+              <thead>
+                <tr>
+                  <th>USERNAME</th>
+                  <th>PUBLIC KEY ID</th>
+                  <th>API KEY (Last 4)</th>
+                  <th>API NAME</th>
+                  <th>FIELD REQUEST</th>
+                  <th>FIELD RESPONSE</th>
+                  <th>ROW CONDITIONS</th>
+                  <th>EXPIRES AT</th>
+                  <th>STATUS</th>
+                  <th>ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="sc in scopeCredentials" :key="sc.credential_id">
+                  <td style="font-weight: 600;">{{ sc.username }}</td>
+                  <td>
+                    <div class="mono-cell" style="word-break: break-all; min-width: 110px;">{{ sc.public_key_id }}</div>
+                  </td>
+                  <td class="key-cell">
+                    <span class="secret-box">••••••••••••{{ sc.key_last_four }}</span>
+                  </td>
+                  <td style="word-break: break-all; min-width: 140px;"><strong>{{ sc.dataset_id || sc.service_id }}</strong></td>
+                  <td>
+                    <span v-if="sc.request_fields && sc.request_fields.length > 0" class="badge-req" :title="sc.request_fields.join(', ')">
+                      {{ sc.request_fields.length }} ฟิลด์
+                    </span>
+                    <span v-else class="text-muted text-xs">ทั้งหมด / ไม่มี</span>
+                  </td>
+                  <td>
+                    <span v-if="sc.response_fields && sc.response_fields.length > 0" class="badge-res" :title="sc.response_fields.join(', ')">
+                      {{ sc.response_fields.length }} ฟิลด์
+                    </span>
+                    <span v-else class="text-muted text-xs">ทั้งหมด (Default)</span>
+                  </td>
+                  <td>
+                    <span class="scope-badge">{{ formatScopeJson(sc.scope_json || sc.conditions) }}</span>
+                  </td>
+                  <td>{{ formatDateTime(sc.expires_at) }}</td>
+                  <td>
+                    <span :class="['status-badge', sc.status]">{{ sc.status }}</span>
+                  </td>
+                  <td>
+                    <div class="action-btns">
+                      <button class="btn-icon" @click="openEditScopeForm(sc)" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                      </button>
+                      <button v-if="sc.status !== 'revoked'" class="btn-icon" @click="openEditExpiryForm(sc)" title="ตั้งวันหมดอายุ">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" stroke-width="2"/><line x1="16" y1="2" x2="16" y2="6" stroke-width="2"/><line x1="8" y1="2" x2="8" y2="6" stroke-width="2"/><line x1="3" y1="10" x2="21" y2="10" stroke-width="2"/></svg>
+                      </button>
+                      <label class="toggle-switch" title="Toggle Status" @click.prevent="toggleCredentialStatus(sc)" v-if="sc.status !== 'revoked'">
+                        <input type="checkbox" :checked="sc.status === 'active'">
+                        <span class="slider"></span>
+                      </label>
+                      <button v-if="sc.status !== 'revoked'" class="btn-icon btn-icon-danger" @click="handleCredentialAction('revokeApiCredential', sc)" title="Revoke">
+                        🚫
+                      </button>
+                      <button class="btn-icon btn-icon-danger" @click="handleCredentialAction('deleteApiCredential', sc)" title="Delete">
+                        🗑️
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="scopeCredentials.length === 0">
+                  <td colspan="10" class="text-center text-muted py-4">ไม่มีข้อมูล Scope สำหรับ API นี้</td>
+                </tr>
+              </tbody>
+            </table></div>
+          </div>
+        </div>
+      </div>
 
-            <!-- Existing entries -->
-            <div v-for="(entry, idx) in scopeEntries" :key="idx" class="scope-entry">
-              <div class="scope-field-name">{{ entry.field }}</div>
-              <div class="scope-values">
-                <span v-for="(val, vidx) in entry.values" :key="vidx" class="scope-chip">
-                  {{ val }}
-                  <button @click="removeScopeValue(idx, vidx)" class="chip-remove">&times;</button>
-                </span>
+      <!-- ============ Add User Form Modal (GENERAL API) ============ -->
+      <div v-if="showAddUserFormModal" class="modal-overlay" @click.self="showAddUserFormModal = false" style="z-index: 1100;">
+        <div class="modal-content modal-lg">
+          <div class="modal-header">
+            <h3>ADD USER</h3>
+            <button @click="showAddUserFormModal = false; showManageAccessModal = true;" class="modal-close">&times;</button>
+          </div>
+          <div class="modal-body form-grid">
+            <div class="form-row">
+              <label>API / Dataset</label>
+              <input type="text" :value="(selectedService?.dataset_id || selectedService?.service_id) + ' - ' + selectedService?.service_name" disabled style="background:#f1f5f9; color:#475569;">
+            </div>
+
+            <div class="form-row">
+              <label>User <span class="required">*</span></label>
+              <select v-model="addUserFormUserId">
+                <option value="">-- เลือก User --</option>
+                <option v-for="usr in allUsers" :key="usr.user_id" :value="usr.user_id">
+                  {{ usr.username }} ({{ usr.firstname }} {{ usr.lastname }})
+                </option>
+              </select>
+            </div>
+
+            <div class="form-row">
+              <label>Expires At</label>
+              <input type="datetime-local" v-model="addUserFormExpiry">
+            </div>
+          </div>
+          <div class="modal-footer justify-end">
+            <button class="btn-cancel" @click="showAddUserFormModal = false; showManageAccessModal = true;" style="margin-right:8px;">CANCEL</button>
+            <button class="btn-primary" @click="saveAddUserForm">SAVE</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ Edit Expiry Form Modal ============ -->
+      <div v-if="showEditExpiryModal" class="modal-overlay" @click.self="showEditExpiryModal = false">
+        <div class="modal-content modal-md">
+          <div class="modal-header">
+            <h3>SET EXPIRES AT</h3>
+            <button @click="showEditExpiryModal = false" class="modal-close">&times;</button>
+          </div>
+          <div class="modal-body form-grid">
+            <div class="form-row">
+              <label>User / API</label>
+              <input type="text" :value="editExpiryCred?.username || editExpiryCred?.dataset_id || editExpiryCred?.service_id" disabled style="background:#f1f5f9; color:#475569;">
+            </div>
+            <div class="form-row">
+              <label>Expires At (Leave blank for no expiry)</label>
+              <input type="datetime-local" v-model="editExpiryDate">
+            </div>
+          </div>
+          <div class="modal-footer justify-end">
+            <button class="btn-cancel" @click="showEditExpiryModal = false" style="margin-right:8px;">CANCEL</button>
+            <button class="btn-primary" @click="saveEditExpiry">SAVE</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ Add/Edit Scope Form Modal (1 User : 1 API) ============ -->
+      <div v-if="showScopeFormModal" class="modal-overlay" @click.self="showScopeFormModal = false">
+        <div class="modal-content modal-xl" style="max-height: 90vh; overflow-y: auto;">
+          <div class="modal-header">
+            <h3>{{ isEditScope ? 'EDIT USER SCOPE (1 User : 1 API)' : 'ADD USER SCOPE (1 User : 1 API)' }}</h3>
+            <button @click="showScopeFormModal = false" class="modal-close">&times;</button>
+          </div>
+          <div class="modal-body form-grid">
+            <!-- API Info (read-only) -->
+            <div class="form-row">
+              <label>API / Dataset</label>
+              <input type="text" :value="(scopeSelectedService?.dataset_id || scopeSelectedService?.service_id) + ' - ' + scopeSelectedService?.service_name" disabled style="background:#f1f5f9; color:#475569; font-weight: 600;">
+            </div>
+
+            <!-- User dropdown -->
+            <div class="form-row">
+              <label>User (ผู้ใช้งาน) <span class="required">*</span></label>
+              <select v-model="scopeFormUser" :disabled="isEditScope">
+                <option value="">-- เลือก User --</option>
+                <option v-for="usr in allUsers" :key="usr.user_id" :value="usr.user_id">
+                  {{ usr.username }} ({{ usr.firstname }} {{ usr.lastname }})
+                </option>
+              </select>
+            </div>
+
+            <div class="form-row">
+              <label>Expires At (วันหมดอายุคีย์)</label>
+              <input type="datetime-local" v-model="scopeFormExpiry">
+            </div>
+
+            <!-- 1. FIELD REQUEST SECTION -->
+            <div class="scope-box-section" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <div>
+                  <h4 style="font-size: 0.95rem; font-weight: 700; color: #1e293b; margin: 0;">1. Field Request (พารามิเตอร์สำหรับค้นหา)</h4>
+                  <p style="font-size: 0.8rem; color: #64748b; margin: 2px 0 0 0;">เลือกฟิลด์ที่อนุญาตให้ User นี้ใช้ค้นหาผ่าน Query Parameters (เช่น ?COURSE_NAME=...)</p>
+                </div>
+                <div style="display: flex; gap: 6px;">
+                  <button type="button" @click="selectAllScopeRequestFields" class="btn-xs-outline">เลือกทั้งหมด</button>
+                  <button type="button" @click="clearScopeRequestFields" class="btn-xs-outline">ล้างทั้งหมด</button>
+                </div>
+              </div>
+              <div style="max-height: 150px; overflow-y: auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                <label v-for="col in availableColumns" :key="'req_' + (col.name || col.column_name || col.COLUMN_NAME)" class="checkbox-label" style="display: flex; align-items: center; gap: 6px; font-size: 0.825rem; cursor: pointer;">
+                  <input type="checkbox" :value="col.name || col.column_name || col.COLUMN_NAME" v-model="scopeFormRequestFields">
+                  <span>{{ col.name || col.column_name || col.COLUMN_NAME }}</span>
+                </label>
+                <div v-if="availableColumns.length === 0" style="color: #94a3b8; font-size: 0.8rem;">ไม่พบคอลัมน์</div>
               </div>
             </div>
 
-            <!-- Add new -->
-            <div class="scope-add-row">
-              <select v-model="newScopeField" style="flex:1;">
-                <option value="">-- เลือก Field --</option>
-                <option v-for="f in requestFieldOptions" :key="f" :value="f">{{ f }}</option>
-              </select>
-              <input type="text" v-model="newScopeValue" placeholder="ค่าที่อนุญาต" style="flex:1;" @keyup.enter="addScopeEntry">
-              <button @click="addScopeEntry" class="btn-add-sm">เพิ่ม</button>
+            <!-- 2. FIELD RESPONSE SECTION -->
+            <div class="scope-box-section" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <div>
+                  <h4 style="font-size: 0.95rem; font-weight: 700; color: #1e293b; margin: 0;">2. Field Response (ฟิลด์ข้อมูลที่ส่งกลับ) <span class="required">*</span></h4>
+                  <p style="font-size: 0.8rem; color: #64748b; margin: 2px 0 0 0;">เลือกฟิลด์ข้อมูลที่อนุญาตให้ User นี้มองเห็นและได้รับในผลลัพธ์ JSON</p>
+                </div>
+                <div style="display: flex; gap: 6px;">
+                  <button type="button" @click="selectAllScopeResponseFields" class="btn-xs-outline">เลือกทั้งหมด</button>
+                  <button type="button" @click="clearScopeResponseFields" class="btn-xs-outline">ล้างทั้งหมด</button>
+                </div>
+              </div>
+              <div style="max-height: 150px; overflow-y: auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                <label v-for="col in availableColumns" :key="'res_' + (col.name || col.column_name || col.COLUMN_NAME)" class="checkbox-label" style="display: flex; align-items: center; gap: 6px; font-size: 0.825rem; cursor: pointer;">
+                  <input type="checkbox" :value="col.name || col.column_name || col.COLUMN_NAME" v-model="scopeFormResponseFields">
+                  <span>{{ col.name || col.column_name || col.COLUMN_NAME }}</span>
+                </label>
+                <div v-if="availableColumns.length === 0" style="color: #94a3b8; font-size: 0.8rem;">ไม่พบคอลัมน์</div>
+              </div>
+            </div>
+
+            <!-- 3. ROW CONDITIONS (WHERE) -->
+            <div class="scope-box-section" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                <div>
+                  <h4 style="font-size: 0.95rem; font-weight: 700; color: #1e293b; margin: 0;">3. Row Conditions (เงื่อนไขกรองแถวข้อมูล / WHERE)</h4>
+                  <p style="font-size: 0.8rem; color: #64748b; margin: 2px 0 0 0;">กำหนดเงื่อนไขเพื่อจำกัดแถวข้อมูลเฉพาะสำหรับ User นี้ (Row-level filter)</p>
+                </div>
+                <button type="button" @click="toggleDataPreview" class="btn-outline-primary" style="font-size: 0.75rem; padding: 4px 8px;">👀 Data Preview</button>
+              </div>
+              
+              <div v-if="showDataPreview" class="data-preview-table-container" style="max-height: 200px; overflow-y: auto; margin-bottom: 16px; border: 1px solid #e2e8f0; border-radius: 4px; background: #fff;">
+                <table class="data-table" v-if="previewData.length > 0" style="font-size: 0.75rem; width: 100%;">
+                  <thead>
+                    <tr>
+                      <th v-for="col in availableColumns" :key="col.column_name || col.name || col.COLUMN_NAME" style="padding: 4px 8px; background: #f1f5f9; text-align: left; border-bottom: 2px solid #e2e8f0; position: sticky; top: 0;">
+                        {{ col.column_name || col.name || col.COLUMN_NAME }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, idx) in previewData" :key="idx">
+                      <td v-for="col in availableColumns" :key="col.column_name || col.name || col.COLUMN_NAME" style="padding: 4px 8px; border-bottom: 1px solid #e2e8f0;">
+                        {{ row[col.column_name || col.name || col.COLUMN_NAME] }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div v-else style="padding: 16px; text-align: center; color: #64748b; font-size: 0.8rem;">Loading preview or no data available.</div>
+              </div>
+
+              <div v-for="(cond, index) in scopeConditions" :key="index" class="scope-row" style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+                <select v-if="index > 0" v-model="cond.logic" class="scope-logic" style="width: 80px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                  <option value="AND">AND</option>
+                  <option value="OR">OR</option>
+                </select>
+                <span v-else class="scope-where-label" style="font-weight: 700; width: 80px; text-align: center; color: #475569;">WHERE</span>
+                <select v-model="cond.field" class="scope-field" style="flex: 2; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                  <option value="">{{ scopeFormRequestFields.length === 0 ? '-- กรุณาเลือก Field Request ด้านบนก่อน --' : '-- เลือก Field Request --' }}</option>
+                  <option v-for="fieldName in scopeFormRequestFields" :key="fieldName" :value="fieldName">{{ fieldName }}</option>
+                </select>
+                <select v-model="cond.operator" class="scope-operator" style="width: 90px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                  <option value="=">=</option>
+                  <option value="!=">!=</option>
+                  <option value=">">&gt;</option>
+                  <option value="<">&lt;</option>
+                  <option value=">=">&gt;=</option>
+                  <option value="<=">&lt;=</option>
+                  <option value="LIKE">LIKE</option>
+                  <option value="IN">IN</option>
+                </select>
+                <input type="text" v-model="cond.value" class="scope-value" placeholder="Value" style="flex: 2; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                <button type="button" @click="removeScopeCondition(index)" class="scope-remove" title="ลบ" style="background: none; border: none; color: #ef4444; font-size: 1.1rem; cursor: pointer; padding: 4px 8px;">✕</button>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+                <button type="button" @click="addScopeCondition" class="btn-outline-primary" style="font-size: 0.8rem; padding: 6px 12px;">+ Add Condition</button>
+                <span v-if="scopeFormRequestFields.length === 0" style="color: #ef4444; font-size: 0.78rem;">
+                  ⚠️ กรุณาเลือก Field Request ในข้อ 1 ด้านบนก่อน จึงจะสามารถเลือกฟิลด์สำหรับเงื่อนไข WHERE ได้
+                </span>
+              </div>
             </div>
           </div>
-          <div class="modal-footer">
-            <button @click="showScopeModal = false" class="btn-cancel-sm">ยกเลิก</button>
-            <button @click="saveScopeChanges" class="btn-primary">บันทึก Scope</button>
+          <div class="modal-footer" style="display:flex; justify-content:space-between; margin-top: 16px;">
+            <button class="btn-cancel" @click="showScopeFormModal = false">CANCEL</button>
+            <button class="btn-primary" @click="saveScopeForm">SAVE SCOPE (1 User : 1 API)</button>
           </div>
         </div>
       </div>
-
-      <!-- Extend Time Modal -->
-      <div v-if="showExtendModal" class="modal-overlay" @click.self="showExtendModal = false">
-        <div class="modal-content" style="max-width:400px;">
-          <div class="modal-header">
-            <h3>ปรับวันหมดอายุ (ขยายเวลา)</h3>
-            <button @click="showExtendModal = false" class="modal-close">&times;</button>
-          </div>
-          <div class="modal-body" style="display: flex; flex-direction: column; gap:16px;">
-            <p style="color:#64748b;">
-              ต่ออายุแอปพลิเคชันหรือแก้ไขวันหมดอายุให้กับผู้ใช้ <strong>{{ editingExtendCredential?.username }}</strong>
-            </p>
-            <div class="form-group" style="display: flex; flex-direction: column; gap:6px;">
-              <label style="font-weight:600;font-size:14px;color:#475569;">วันหมดอายุใหม่</label>
-              <input type="datetime-local" v-model="newExpiresAt" style="padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 10px; font-size: 0.9375rem; outline: none; width: 100%;">
-              <span style="font-size:12px;color:#94a3b8;margin-top:4px;">ปล่อยว่างไว้หากต้องการให้คีย์นี้ใช้งานได้ตลอดไปโดยไม่มีวันหมดอายุ</span>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button @click="showExtendModal = false" class="btn-cancel-sm">ยกเลิก</button>
-            <button @click="saveExtension" class="btn-primary">บันทึก</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Info Section -->
-      <section class="security-info">
-        <h3>Security Best Practices</h3>
-        <div class="info-grid">
-          <div class="info-item">
-            <div class="icon-circle">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-              </svg>
-            </div>
-            <h4>ห้ามแชร์ API Key</h4>
-            <p>เก็บ Key ไว้เป็นความลับ หากถูก expose ให้เพิกถอนทันที</p>
-          </div>
-          <div class="info-item">
-            <div class="icon-circle">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-            </div>
-            <h4>Scope = Row-Level Security</h4>
-            <p>ใช้ Scope API เพื่อจำกัดข้อมูลตามผู้ใช้แต่ละคน</p>
-          </div>
-          <div class="info-item">
-            <div class="icon-circle">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </div>
-            <h4>หมุนเวียน Key ทุก 90 วัน</h4>
-            <p>เปลี่ยน Key เป็นประจำเพื่อความปลอดภัยสูงสุด</p>
-          </div>
-        </div>
-      </section>
     </main>
   </div>
 </template>
@@ -564,118 +1393,106 @@ onMounted(() => {
 <style scoped>
 .api-layout { display: flex; background-color: #f8fafc; min-height: 100vh; }
 .api-content { flex: 1; padding: 40px; }
-.content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
-.header-titles h1 { font-size: 1.875rem; font-weight: 700; color: #1e293b; margin-bottom: 4px; }
-.header-titles p { color: #64748b; font-size: 0.9375rem; }
+.content-header { margin-bottom: 32px; }
+.header-titles h1 { font-size: 2rem; font-weight: 700; color: var(--primary); margin-bottom: 4px; text-transform: uppercase; }
+.header-titles p { color: #64748b; font-size: 1rem; }
 
-.service-selector { display: flex; align-items: center; gap: 12px; }
-.service-selector span { font-weight: 600; color: #475569; }
-.service-selector select { padding: 8px 16px; border-radius: 10px; border: 1px solid #e2e8f0; background: white; font-weight: 600; color: #1e293b; outline: none; }
+.api-card { background: white; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); border: 1px solid #e2e8f0; overflow: hidden; }
 
-.type-badge-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
-.type-badge { padding: 8px 16px; border-radius: 8px; font-weight: 600; font-size: 0.875rem; }
-.type-badge.general, .type-badge.public { background: #e0f2fe; color: #0369a1; }
-.type-badge.private { background: #fee2e2; color: #991b1b; }
-.type-badge.scope { background: #fef3c7; color: #92400e; }
+.tabs-container { display: flex; border-bottom: 1px solid #e2e8f0; }
+.tab-btn { flex: 1; padding: 16px; background: none; border: none; font-size: 1.125rem; font-weight: 700; color: #94a3b8; cursor: pointer; border-bottom: 3px solid transparent; text-transform: uppercase; }
+.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
 
-.btn-add-key { display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: var(--primary); color: white; border: none; border-radius: 10px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-.btn-add-key:hover { background: var(--primary-hover); transform: translateY(-1px); }
+.tab-content { padding: 24px; }
+.table-actions { display: flex; justify-content: flex-end; margin-bottom: 16px; }
 
-.alert-message { padding: 14px 20px; border-radius: 10px; margin-bottom: 20px; font-weight: 600; text-align: center; }
-.alert-message.success { background-color: var(--mso-pink-dark); color: #166534; border: 1px solid #bbf7d0; }
-.alert-message.error { background-color: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+.btn-primary { background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: white; border: none; padding: 10px 24px; border-radius: 10px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.2); }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(15, 23, 42, 0.3); }
+.btn-outline { background: white; color: #0f172a; border: 1.5px solid #e2e8f0; padding: 8px 18px; border-radius: 10px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 0.875rem; text-transform: uppercase; transition: all 0.2s; }
+.btn-outline:hover { border-color: #0f172a; background: #f8fafc; }
+.btn-outline-primary { background: white; color: #0f172a; border: 1.5px solid #e2e8f0; padding: 8px 18px; border-radius: 10px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s; }
+.btn-outline-primary:hover { border-color: #0f172a; background: #f8fafc; }
+.btn-cancel { background: #fff; border: 1.5px solid #e2e8f0; color: #475569; padding: 10px 24px; border-radius: 10px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.btn-cancel:hover { border-color: #94a3b8; background: #f8fafc; }
 
-.card { background: white; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.api-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.api-table th { text-align: left; padding: 14px 16px; font-size: 0.75rem; font-weight: 700; color: #94a3b8; border-bottom: 2px solid #f1f5f9; background: transparent; text-transform: uppercase; letter-spacing: 0.05em; }
+.api-table td { padding: 14px 16px; border-bottom: 1px solid #f1f5f9; font-size: 0.875rem; color: #334155; vertical-align: middle; transition: background 0.15s; }
+.api-table tbody tr:hover td { background: #f8fafc; }
+.api-table th.text-center, .api-table td.text-center { text-align: center; }
 
-.add-key-panel { padding: 28px; margin-bottom: 24px; }
-.add-key-panel h3 { font-size: 1.125rem; font-weight: 700; color: #1e293b; margin-bottom: 20px; }
-.add-key-form { display: flex; flex-direction: column; gap: 16px; }
-.add-key-form .form-group { display: flex; flex-direction: column; gap: 6px; }
-.add-key-form label { font-size: 0.875rem; font-weight: 600; color: #475569; }
-.add-key-form select, .add-key-form input { padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 10px; font-size: 0.9375rem; outline: none; }
-.key-gen-row { display: flex; gap: 8px; }
-.key-gen-row input { flex: 1; font-family: monospace; font-size: 0.8125rem; }
-.btn-gen { padding: 10px 20px; background: #475569; color: white; border: none; border-radius: 10px; font-weight: 600; cursor: pointer; }
-.add-key-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 8px; }
+.status-badge { padding: 5px 14px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+.status-badge.active { background: #dcfce7; color: #166534; }
+.status-badge.paused { background: #fef3c7; color: #92400e; }
+.status-badge.revoked { background: #fee2e2; color: #991b1b; }
 
-.api-card { padding: 32px; margin-bottom: 40px; }
-.api-header { margin-bottom: 24px; }
-.api-header h3 { font-size: 1.25rem; font-weight: 700; color: #1e293b; margin-bottom: 4px; }
-.api-header p { color: #64748b; }
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; animation: fadeInOverlay 0.2s ease; }
+@keyframes fadeInOverlay { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUpModal { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.modal-content { background: white; border-radius: 20px; width: 90%; max-width: 600px; max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column; box-shadow: 0 25px 60px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05); animation: slideUpModal 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.modal-content.modal-md { max-width: 520px; }
+.modal-content.modal-lg { max-width: 860px; }
+.modal-content.modal-xl { max-width: 1060px; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 28px; background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: white; border-radius: 20px 20px 0 0; }
+.modal-header h3 { font-size: 1.125rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; margin: 0; word-break: break-all; white-space: normal; max-width: 90%; }
+.modal-close { background: rgba(255,255,255,0.15); border: none; font-size: 1.25rem; color: white; cursor: pointer; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all 0.2s; line-height: 1; }
+.modal-close:hover { background: rgba(255,255,255,0.3); transform: rotate(90deg); }
+.modal-body { padding: 28px; background: #f8fafc; }
+.modal-footer { padding: 16px 28px; background: white; border-top: 1px solid #e2e8f0; display: flex; border-radius: 0 0 20px 20px; }
+.justify-end { justify-content: flex-end; }
 
-.loading-inline { padding: 40px; text-align: center; color: #94a3b8; }
+.form-grid { display: flex; flex-direction: column; gap: 16px; }
+.form-row { display: flex; align-items: center; }
+.form-row label { width: 140px; font-size: 0.875rem; font-weight: 600; color: #475569; text-align: right; padding-right: 16px; }
+.form-row .required { color: #ef4444; }
+.form-row input, .form-row select { flex: 1; padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 10px; font-size: 0.9375rem; transition: all 0.2s; outline: none; }
+.form-row input:focus, .form-row select:focus { border-color: #0f172a; box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08); }
 
-.api-table { width: 100%; border-collapse: collapse; }
-.api-table th { text-align: left; padding: 14px 16px; font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; border-bottom: 2px solid #f1f5f9; }
-.api-table td { padding: 18px 16px; border-bottom: 1px solid #f1f5f9; font-size: 0.9375rem; vertical-align: middle; }
-.name-cell strong { color: #1e293b; display: block; }
-.text-sm { font-size: 0.8125rem; }
-.text-muted { color: #94a3b8; }
-.text-center { text-align: center; }
+.checkbox-sections { display: flex; gap: 40px; padding-left: 140px; margin-top: 24px; }
+.checkbox-col { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+.checkbox-col h4 { font-size: 0.875rem; font-weight: 600; color: #475569; margin-bottom: 8px; }
+.checkbox-label { display: flex; align-items: center; gap: 8px; font-size: 0.9375rem; color: #1e293b; cursor: pointer; }
+
+.key-cell { display: flex; align-items: center; gap: 8px; }
+.secret-box { background: #f1f5f9; padding: 6px 12px; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 0.8125rem; color: #475569; letter-spacing: 0.02em; }
+.toggle-btn, .btn-icon { background: none; border: none; color: #94a3b8; cursor: pointer; padding: 6px; border-radius: 8px; transition: all 0.2s; font-size: 1rem; }
+.toggle-btn:hover, .btn-icon:hover { color: #475569; background: #f1f5f9; }
+.btn-icon-primary { color: #3b82f6 !important; }
+.btn-icon-primary:hover { color: #2563eb !important; background: #eff6ff !important; }
+.btn-icon-danger { color: #ef4444 !important; }
+.btn-icon-danger:hover { color: #dc2626 !important; background: #fef2f2 !important; }
 .text-right { text-align: right; }
+.mb-4 { margin-bottom: 16px; }
+.py-4 { padding-top: 16px; padding-bottom: 16px; }
 
-.key-cell { display: flex; align-items: center; gap: 12px; }
-.key-cell code { background: #f8fafc; padding: 6px 10px; border-radius: 6px; font-family: monospace; color: #475569; font-size: 0.8125rem; }
-.toggle-btn { background: none; border: none; color: var(--primary); font-weight: 600; cursor: pointer; font-size: 0.8125rem; }
+.mono-cell { font-family: 'JetBrains Mono', monospace; font-size: 0.8125em; background: #f1f5f9; padding: 4px 10px; border-radius: 6px; display: inline-block; color: #475569; }
+.scope-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.8125em; background: #f1f5f9; padding: 4px 10px; border-radius: 6px; display: inline-block; color: #475569; word-break: break-all; max-width: 200px; }
+.badge-scoped { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; padding: 2px 8px; border-radius: 9999px; font-size: 0.72rem; font-weight: 600; display: inline-block; cursor: help; }
+.action-btns { display: flex; gap: 6px; align-items: center; justify-content: center; }
 
-.status-badge { padding: 4px 10px; border-radius: 100px; font-size: 0.75rem; font-weight: 700; }
-.status-badge.active { background: var(--mso-pink-dark); color: #166534; }
-.status-badge.revoked { background: #fee2e2; color: #ef4444; }
-.status-badge.expired { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.table-scroll-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; padding: 0 4px; }
 
-.btn-scope { background: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd; padding: 6px 14px; border-radius: 8px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; }
-.btn-scope:hover { background: #e0f2fe; }
-.action-buttons-wrap { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.btn-icon-clean { background: none; border: 1px solid #e2e8f0; color: #64748b; cursor: pointer; padding: 6px; border-radius: 8px; transition: all 0.2s; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; }
+.btn-icon-clean:hover { color: #0f172a; border-color: #cbd5e1; background: #f8fafc; }
+.btn-icon-clean--danger { color: #94a3b8; border-color: #e2e8f0; }
+.btn-icon-clean--danger:hover { color: #ef4444; border-color: #fecaca; background: #fef2f2; }
+.scope-section { margin-top: 8px; padding: 16px; background: white; border-radius: 6px; border: 1px solid #e2e8f0; }
+.scope-section-title { font-size: 0.9375rem; font-weight: 700; color: var(--primary); margin-bottom: 12px; }
+.scope-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.scope-logic { width: 80px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.875rem; }
+.scope-where-label { width: 80px; text-align: center; font-weight: 700; color: var(--primary); font-size: 0.875rem; }
+.scope-field { flex: 2; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.875rem; }
+.scope-operator { width: 80px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.875rem; }
+.scope-value { flex: 2; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.875rem; }
+.scope-remove { background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1rem; padding: 4px 8px; font-weight: bold; }
+.scope-remove:hover { color: #dc2626; }
 
-/* Toggle Switch Styles */
-.toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+/* Toggle Switch */
+.toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; margin-right: 8px; vertical-align: middle; }
 .toggle-switch input { opacity: 0; width: 0; height: 0; }
-.toggle-switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .3s; }
-.toggle-switch .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
-.toggle-switch input:checked + .slider { background-color: #10b981; }
-.toggle-switch input:focus + .slider { box-shadow: 0 0 1px #10b981; }
-.toggle-switch input:checked + .slider:before { transform: translateX(20px); }
-.toggle-switch .slider.round { border-radius: 24px; }
-.toggle-switch .slider.round:before { border-radius: 50%; }
-
-.btn-warning-sm { background: none; color: #d97706; border: 1px solid #fcd34d; padding: 6px 14px; border-radius: 8px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; }
-.btn-warning-sm:hover { background: #fef3c7; }
-
-.btn-primary { background: var(--primary); color: white; border: none; padding: 10px 24px; border-radius: 10px; font-weight: 600; cursor: pointer; }
-.btn-primary:hover { background: var(--primary-hover); }
-.btn-delete { background: none; color: #64748b; border: 1px solid #e2e8f0; padding: 6px 14px; border-radius: 8px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; }
-.btn-delete:hover { background: #fee2e2; color: #ef4444; border-color: #fecaca; }
-.btn-cancel-sm { background: white; color: #64748b; border: 1px solid #e2e8f0; padding: 10px 24px; border-radius: 10px; font-weight: 600; cursor: pointer; }
-.btn-add-sm { background: var(--primary); color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; white-space: nowrap; }
-
-/* Modal */
-.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-content { background: white; border-radius: 20px; width: 90%; max-width: 600px; max-height: 80vh; overflow-y: auto; }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 24px 28px; border-bottom: 1px solid #f1f5f9; }
-.modal-header h3 { font-size: 1.125rem; font-weight: 700; color: #1e293b; }
-.modal-close { background: none; border: none; font-size: 1.5rem; color: #94a3b8; cursor: pointer; }
-.modal-body { padding: 24px 28px; }
-.modal-footer { padding: 16px 28px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 12px; }
-
-.scope-entry { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; margin-bottom: 12px; }
-.scope-field-name { font-weight: 700; color: #475569; margin-bottom: 8px; font-size: 0.875rem; }
-.scope-values { display: flex; flex-wrap: wrap; gap: 8px; }
-.scope-chip { display: inline-flex; align-items: center; gap: 6px; background: #dbeafe; color: #1e40af; padding: 4px 12px; border-radius: 20px; font-size: 0.8125rem; font-weight: 600; }
-.chip-remove { background: none; border: none; color: #1e40af; cursor: pointer; font-size: 1rem; line-height: 1; }
-
-.scope-add-row { display: flex; gap: 8px; margin-top: 16px; }
-.scope-add-row select, .scope-add-row input { padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 10px; font-size: 0.875rem; outline: none; }
-
-/* Security Info */
-.security-info h3 { font-size: 1.5rem; font-weight: 700; color: #1e293b; margin-bottom: 32px; }
-.info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; }
-.icon-circle { width: 48px; height: 48px; background: var(--mso-pink-dark); color: var(--mso-accent); border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
-.icon-circle svg { width: 24px; height: 24px; }
-.info-item h4 { font-size: 1.125rem; font-weight: 700; color: #1e293b; margin-bottom: 12px; }
-.info-item p { color: #64748b; line-height: 1.6; }
-
-@media (max-width: 768px) {
-  .info-grid { grid-template-columns: 1fr; }
-  .content-header { flex-direction: column; gap: 16px; }
-}
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .3s; border-radius: 24px; }
+.slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+input:checked + .slider { background-color: #10b981; }
+input:checked + .slider:before { transform: translateX(20px); }
+input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
 </style>

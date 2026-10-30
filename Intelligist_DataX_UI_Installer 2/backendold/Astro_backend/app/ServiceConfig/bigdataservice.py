@@ -1185,6 +1185,9 @@ def getDatasetApiEndpoints():
         candidates = [dict(zip(columns, row)) for row in data]
 
         result = []
+        user_scoped_endpoints = []
+        admin_fallback_endpoints = []
+
         for cand in candidates:
             cand_svc_id = cand.get('service_id')
             cand_api_type = (cand.get('api_type') or 'general').lower()
@@ -1203,9 +1206,8 @@ def getDatasetApiEndpoints():
 
             if cand_api_type == 'scope':
                 # Strict 1 User : 1 API Scope
-                if is_admin:
-                    result.append(cand)
-                elif user_id:
+                s_obj = None
+                if user_id:
                     cursor.execute("""
                         SELECT s.scope_json FROM api_credentials c 
                         JOIN api_scopes s ON c.credential_id = s.credential_id 
@@ -1222,12 +1224,20 @@ def getDatasetApiEndpoints():
                                 cand['api_request_fields'] = s_obj.get('request_fields', [])
                         except Exception:
                             pass
-                        result.append(cand)
-                    # If user has no active scope for this service, DO NOT append (invisible)
+
+                if s_obj is not None:
+                    user_scoped_endpoints.append(cand)
+                elif is_admin and not is_clone:
+                    admin_fallback_endpoints.append(cand)
             else:
                 # General API: Only include clones in endpoints list; main service is displayed by dataset detail
                 if is_clone:
                     result.append(cand)
+
+        if user_scoped_endpoints:
+            result.extend(user_scoped_endpoints)
+        elif is_admin and admin_fallback_endpoints:
+            result.extend(admin_fallback_endpoints)
 
         cursor.close()
         conn.close()
@@ -1949,14 +1959,15 @@ def get_dataset_api(dataset_id):
             if "." in apikey:
                 public_key_id = apikey.split('.')[0]
                 secret_hash = hashlib.sha256(apikey.encode('utf-8')).hexdigest()
-                sql_cred = """
+                placeholders = ', '.join(['%s'] * len(related_service_ids))
+                sql_cred = f"""
                     SELECT c.credential_id, c.user_id, c.status, c.expires_at, u.previlage_id 
                     FROM api_credentials c 
                     JOIN user u ON c.user_id = u.user_id 
-                    WHERE c.public_key_id = %s AND c.secret_hash = %s AND c.service_id = %s 
-                    ORDER BY c.credential_id DESC LIMIT 1
+                    WHERE c.public_key_id = %s AND c.secret_hash = %s AND c.service_id IN ({placeholders}) 
+                    ORDER BY (c.service_id = %s) DESC, c.credential_id DESC LIMIT 1
                 """
-                cursor.execute(sql_cred, (public_key_id, secret_hash, real_service_id))
+                cursor.execute(sql_cred, [public_key_id, secret_hash] + related_service_ids + [real_service_id])
                 cred_row = cursor.fetchone()
             else:
                 sql_user = "SELECT user_id, previlage_id FROM user WHERE apikey = %s "
@@ -1964,12 +1975,14 @@ def get_dataset_api(dataset_id):
                 user_row = cursor.fetchone()
                 if user_row:
                     user_id, user_role = user_row
-                    cursor.execute("""
+                    placeholders = ', '.join(['%s'] * len(related_service_ids))
+                    sql_cred = f"""
                         SELECT credential_id, user_id, status, expires_at, %s 
                         FROM api_credentials 
-                        WHERE user_id = %s AND service_id = %s 
-                        ORDER BY credential_id DESC LIMIT 1
-                    """, (user_role, user_id, real_service_id))
+                        WHERE user_id = %s AND service_id IN ({placeholders}) 
+                        ORDER BY (service_id = %s) DESC, credential_id DESC LIMIT 1
+                    """
+                    cursor.execute(sql_cred, [user_role, user_id] + related_service_ids + [real_service_id])
                     cred_row = cursor.fetchone()
                 else:
                     cred_row = None
@@ -2839,6 +2852,21 @@ def getApiCredentials():
         current_app.logger.error(f"API Management Error: {traceback.format_exc()}")
         return jsonify({"status": "error", "message": "An internal error occurred"}), 500
 
+def parse_expiry_to_bkk(expiry_val):
+    if not expiry_val:
+        return None
+    try:
+        import dateutil.parser
+        import pytz
+        parsed = dateutil.parser.parse(str(expiry_val).strip())
+        if parsed.tzinfo is not None:
+            bkk = pytz.timezone('Asia/Bangkok')
+            return parsed.astimezone(bkk).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            return parsed.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return None
+
 @app.route('/addApiCredential', methods=['POST'])
 @require_admin
 def addApiCredential():
@@ -2879,14 +2907,10 @@ def addApiCredential():
         # Removed active credential check to allow multiple keys per user
 
         # Insert credential with hash and last four
-        if expires_at:
-            import dateutil.parser
-            try:
-                expires_at = dateutil.parser.parse(expires_at).strftime("%Y-%m-%d %H:%M:%S")
-            except Exception:
-                pass
+        exp_dt = parse_expiry_to_bkk(expires_at)
+        if exp_dt:
             sql_insert = "INSERT INTO api_credentials (service_id, user_id, public_key_id, secret_hash, key_last_four, status, expires_at) VALUES (%s, %s, %s, %s, %s, 'active', %s)"
-            cursor.execute(sql_insert, (service_id, target_user_id, public_key_id, secret_hash, key_last_four, expires_at))
+            cursor.execute(sql_insert, (service_id, target_user_id, public_key_id, secret_hash, key_last_four, exp_dt))
         else:
             sql_insert = "INSERT INTO api_credentials (service_id, user_id, public_key_id, secret_hash, key_last_four, status) VALUES (%s, %s, %s, %s, %s, 'active')"
             cursor.execute(sql_insert, (service_id, target_user_id, public_key_id, secret_hash, key_last_four))
@@ -2939,13 +2963,9 @@ def extendApiCredential():
         cursor = conn.cursor()
         
         # Validate credential exists and is active? We allow extending revoked keys as well.
-        if expires_at:
-            import dateutil.parser
-            try:
-                expires_at = dateutil.parser.parse(expires_at).strftime("%Y-%m-%d %H:%M:%S")
-            except Exception:
-                pass
-            cursor.execute("UPDATE api_credentials SET expires_at = %s WHERE credential_id = %s", (expires_at, credential_id))
+        exp_dt = parse_expiry_to_bkk(expires_at)
+        if exp_dt:
+            cursor.execute("UPDATE api_credentials SET expires_at = %s WHERE credential_id = %s", (exp_dt, credential_id))
         else:
             cursor.execute("UPDATE api_credentials SET expires_at = NULL WHERE credential_id = %s", (credential_id,))
             
@@ -4064,15 +4084,13 @@ def saveApiScopeForUser():
         cred = cursor.fetchone()
         
         full_secret_key = None
+        exp_dt = parse_expiry_to_bkk(expires_at)
         if cred:
             credential_id = cred[0]
-            if expires_at:
-                try:
-                    import dateutil.parser
-                    exp_dt = dateutil.parser.parse(expires_at).strftime("%Y-%m-%d %H:%M:%S")
-                    cursor.execute("UPDATE api_credentials SET expires_at=%s WHERE credential_id=%s", (exp_dt, credential_id))
-                except Exception:
-                    pass
+            if exp_dt:
+                cursor.execute("UPDATE api_credentials SET expires_at=%s WHERE credential_id=%s", (exp_dt, credential_id))
+            else:
+                cursor.execute("UPDATE api_credentials SET expires_at=NULL WHERE credential_id=%s", (credential_id,))
         else:
             import secrets
             import string
@@ -4085,15 +4103,9 @@ def saveApiScopeForUser():
             secret_hash = hashlib.sha256(full_secret_key.encode('utf-8')).hexdigest()
             key_last_four = full_secret_key[-4:]
             
-            if expires_at:
-                try:
-                    import dateutil.parser
-                    exp_dt = dateutil.parser.parse(expires_at).strftime("%Y-%m-%d %H:%M:%S")
-                    sql_insert = "INSERT INTO api_credentials (service_id, user_id, public_key_id, secret_hash, key_last_four, status, expires_at) VALUES (%s, %s, %s, %s, %s, 'active', %s)"
-                    cursor.execute(sql_insert, (service_id, target_user_id, public_key_id, secret_hash, key_last_four, exp_dt))
-                except Exception:
-                    sql_insert = "INSERT INTO api_credentials (service_id, user_id, public_key_id, secret_hash, key_last_four, status) VALUES (%s, %s, %s, %s, %s, 'active')"
-                    cursor.execute(sql_insert, (service_id, target_user_id, public_key_id, secret_hash, key_last_four))
+            if exp_dt:
+                sql_insert = "INSERT INTO api_credentials (service_id, user_id, public_key_id, secret_hash, key_last_four, status, expires_at) VALUES (%s, %s, %s, %s, %s, 'active', %s)"
+                cursor.execute(sql_insert, (service_id, target_user_id, public_key_id, secret_hash, key_last_four, exp_dt))
             else:
                 sql_insert = "INSERT INTO api_credentials (service_id, user_id, public_key_id, secret_hash, key_last_four, status) VALUES (%s, %s, %s, %s, %s, 'active')"
                 cursor.execute(sql_insert, (service_id, target_user_id, public_key_id, secret_hash, key_last_four))
