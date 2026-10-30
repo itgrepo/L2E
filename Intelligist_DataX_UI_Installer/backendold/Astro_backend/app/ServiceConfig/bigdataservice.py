@@ -2100,6 +2100,14 @@ def get_dataset_api(dataset_id):
 
             credential_id, user_id, cred_status, expires_at, user_role = cred_row
 
+            # Check dataset API access authorization
+            is_auth, auth_err = check_user_dataset_api_access(cursor, real_service_id, user_id, user_role)
+            if not is_auth:
+                log_api_usage(user_id, f"Access Denied: {auth_err}", 403)
+                cursor.close()
+                conn.close()
+                return jsonify({'status': 'error', 'message': auth_err or 'สิทธิ์การเข้าถึง API ของท่านถูกยกเลิกหรือไม่มีสิทธิ์ในชุดข้อมูลนี้', 'request_id': request_id}), 403
+
             if cred_status != 'active':
                 log_api_usage(user_id, 'Scope API Key is inactive or revoked', 403)
                 cursor.close()
